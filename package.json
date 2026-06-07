@@ -1,0 +1,33 @@
+{
+  "name": "pehlichi",
+  "version": "0.0.0",
+  "description": "Peh — the lab's coordinator. Owns its own core runtime.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/core/drivers/mimo.test.ts src/core/loop.test.ts src/core/memory-tools.test.ts src/core/shadow.test.ts src/profile.test.ts",
+    "sanity:peh-coordinate": "node --import tsx src/sanity-peh.ts"
+  },
+  "dependencies": {
+    "lab-store": "file:../lab-store",
+    "lab-memory": "file:../lab-memory"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

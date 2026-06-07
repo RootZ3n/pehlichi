@@ -1,0 +1,65 @@
+/**
+ * loony-luna — core runtime re-exports.
+ *
+ * This is luna's OWN copy of the agent runtime (same code as mad-ptah/src/core/
+ * and peh-agent/src/core/). Each agent owns its core — no shared package.
+ */
+
+export {
+  EventEmitter,
+  type AgentEvent,
+  type AgentEventInput,
+  type EventSink,
+  type EventMeta,
+  type Phase,
+} from "./events.js";
+
+export {
+  ScriptedDriver,
+  type Driver,
+  type DriverAction,
+  type DriverContext,
+  type Message,
+  type ToolSpec,
+} from "./driver.js";
+
+export {
+  MimoDriver,
+  MimoError,
+  MIMO_RESPONSE_PROTOCOL,
+  completionToAction,
+  parseChatCompletion,
+  toProviderTools,
+  toWireMessages,
+  type MimoDriverOptions,
+  type ParsedCompletion,
+  type FetchLike,
+} from "./drivers/mimo.js";
+
+export {
+  createToolRegistry,
+  toolSpecs,
+  type ToolContext,
+  type ToolDef,
+  type ToolHandler,
+  type ToolRegistry,
+  type ToolResult,
+} from "./tools.js";
+
+export { resolveInWorkspace, ToolError } from "./workspace.js";
+export { ShadowWorkspace } from "./shadow.js";
+
+export { type AgentProfile } from "./profile.js";
+export { buildSystemPrompt } from "./prompt.js";
+
+export {
+  runAgent,
+  runAgentInShadow,
+  type RunAgentOptions,
+  type RunAgentInShadowOptions,
+  type ShadowRunResult,
+} from "./loop.js";
+
+export { createStdoutSink, formatEvent } from "./sinks/stdout.js";
+
+export { createBridgeReceiptSink, type BridgeReceiptInput } from "./bridge-adapter.js";
