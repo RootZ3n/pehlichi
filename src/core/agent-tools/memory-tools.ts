@@ -24,7 +24,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -238,7 +238,7 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
           };
         }
 
-        const oldEntry = entries[matchIdx];
+        const oldEntry = entries[matchIdx]!; // matchIdx >= 0 (the not-found case returned above)
         entries[matchIdx] = newContent;
 
         // Check char limit
@@ -286,7 +286,7 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
           };
         }
 
-        const removed = entries.splice(matchIdx, 1)[0];
+        const removed = entries.splice(matchIdx, 1)[0]!; // matchIdx >= 0 (the not-found case returned above)
         saveEntries(target, entries);
 
         return {

@@ -15,7 +15,7 @@
  *   const extraTools = createFullToolRegistry({ workspaceRoot, agentServerUrl, apiKey });
  *   const registry = createToolRegistry(extraTools);
  */
-import type { ToolDef } from '../core/tools.js';
+import type { ToolDef } from '../tools.js';
 import { join } from 'node:path';
 
 import { browserToolSpecs, createBrowserToolHandlers } from './browser-tools.js';
@@ -26,7 +26,7 @@ import { executeCodeToolSpecs, createExecuteCodeToolHandlers } from './execute-c
 import { delegateToolSpecs, createDelegateToolHandlers } from './delegate-tools.js';
 import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
 import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
-import { memoryToolSpecs, createMemoryToolHandlers, buildMemorySnapshot } from './memory-tools.js';
+import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -118,5 +118,5 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
 }
 
 // Re-export types for consumers
-export type { ToolSpec, ToolHandler, ToolResult, ToolDef } from '../core/tools.js';
+export type { ToolSpec, ToolHandler, ToolResult, ToolDef } from '../tools.js';
 export { buildMemorySnapshot } from './memory-tools.js';

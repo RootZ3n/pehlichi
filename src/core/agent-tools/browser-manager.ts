@@ -28,7 +28,6 @@ const state: BrowserState = {
   networkErrors: [],
 };
 
-const DEFAULT_TIMEOUT = 30_000;
 const MAX_CONSOLE_LOGS = 500;
 
 export async function ensureBrowser(): Promise<Page> {
@@ -101,7 +100,12 @@ export function clearConsoleLogs(): void {
  * Returns a tree of accessible elements with refs.
  */
 export async function getSnapshot(page: Page, full = false): Promise<string> {
-  const snapshot = await page.accessibility.snapshot({ interestingOnly: !full });
+  // `page.accessibility` is a deprecated Playwright API no longer in the typings; access it
+  // through a precise structural type so the runtime call is preserved where it still exists.
+  const accessibility = (page as unknown as {
+    accessibility: { snapshot(options: { interestingOnly: boolean }): Promise<unknown> };
+  }).accessibility;
+  const snapshot = await accessibility.snapshot({ interestingOnly: !full });
   if (!snapshot) return '(empty page)';
 
   const lines: string[] = [];

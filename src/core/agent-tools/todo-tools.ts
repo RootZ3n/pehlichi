@@ -4,7 +4,7 @@
  * Tool name matches Hermes: todo.
  * Manages an in-memory task list for the current session.
  */
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,

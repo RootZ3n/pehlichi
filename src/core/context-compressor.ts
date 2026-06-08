@@ -74,7 +74,6 @@ export class ContextCompressor {
     ineffectiveCount: 0,
     lastSavingsPercent: 100,
   };
-  private consecutiveCompacts = 0;
   private compactStuck = false;
 
   constructor(opts: ContextCompressorOptions = {}) {
@@ -93,7 +92,6 @@ export class ContextCompressor {
     const estimatedTokens = this.estimateTokens(messages);
     const threshold = contextWindow * this.thresholdPercent;
     if (estimatedTokens <= threshold) {
-      this.consecutiveCompacts = 0;
       this.compactStuck = false;
     }
     return estimatedTokens > threshold;
@@ -201,7 +199,6 @@ export class ContextCompressor {
       lastSavingsPercent: 100,
     };
     this.compactStuck = false;
-    this.consecutiveCompacts = 0;
   }
 
   getStats(): CompressionStats {

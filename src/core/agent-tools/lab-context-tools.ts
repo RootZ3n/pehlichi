@@ -16,8 +16,7 @@
  */
 
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler } from '../tools.js';
 import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
 

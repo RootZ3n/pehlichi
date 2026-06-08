@@ -4,12 +4,7 @@
  * Tool name matches Hermes: delegate_task.
  * Spawns a child agent process to handle a task independently.
  */
-import { spawn } from 'node:child_process';
-import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { randomBytes } from 'node:crypto';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,

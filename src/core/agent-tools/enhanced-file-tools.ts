@@ -4,10 +4,10 @@
  * Tool names match Hermes: patch, read_file, write_file, search_files.
  * Supplements the core's basic read/write/search with Hermes-level features.
  */
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, dirname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -111,7 +111,6 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
     const content = args.content as string;
 
     try {
-      const dir = dirname(filePath);
       writeFileSync(filePath, content, 'utf8');
       const bytes = Buffer.byteLength(content, 'utf8');
       return { ok: true, output: `Wrote ${bytes} bytes to ${filePath}` };
@@ -207,7 +206,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
         const normalized = normalize(oldString);
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-          if (normalize(lines[i]).includes(normalized.slice(0, 30))) {
+          if (normalize(lines[i] ?? '').includes(normalized.slice(0, 30))) {
             // Found approximate location — do line-level replacement
             const before = lines.slice(0, i).join('\n');
             const after = lines.slice(i + 1).join('\n');

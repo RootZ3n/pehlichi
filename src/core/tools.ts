@@ -16,6 +16,10 @@ import { resolve } from "node:path";
 import type { ToolSpec } from "./driver.js";
 import { ToolError } from "./workspace.js";
 
+// Re-export ToolSpec so the agent-tools (which import ToolSpec/ToolHandler/ToolResult/ToolDef
+// from this module as their single tools entrypoint) resolve it here alongside the others.
+export type { ToolSpec } from "./driver.js";
+
 const DEFAULT_TERMINAL_TIMEOUT_MS = 60_000;
 /** Per-stream output cap. A runaway-output command cannot exhaust memory. */
 const MAX_OUTPUT_BYTES = 64 * 1024;

@@ -9,7 +9,7 @@ import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -79,7 +79,7 @@ export function createExecuteCodeToolHandlers(): Map<string, ToolHandler> {
       return {
         ok: exitCode === 0,
         output,
-        error: exitCode !== 0 ? `Process exited with code ${exitCode}` : undefined,
+        ...(exitCode !== 0 ? { error: `Process exited with code ${exitCode}` } : {}),
       };
     } catch (err) {
       return { ok: false, output: '', error: `Execution failed: ${err instanceof Error ? err.message : String(err)}` };

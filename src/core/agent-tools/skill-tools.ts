@@ -27,9 +27,9 @@
  *   # Skill Title
  *   Full instructions...
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, statSync, unlinkSync, rmSync } from 'node:fs';
-import { join, relative, dirname, basename } from 'node:path';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -37,7 +37,6 @@ const obj = (
 ): Record<string, unknown> => ({ type: 'object', properties, required, additionalProperties: false });
 
 const MAX_NAME_LENGTH = 64;
-const MAX_DESCRIPTION_LENGTH = 1024;
 
 // Prompt injection detection
 const INJECTION_PATTERNS = [
@@ -307,8 +306,8 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
     return { frontmatter: {}, body: content };
   }
 
-  const yamlStr = match[1];
-  const body = match[2].trim();
+  const yamlStr = match[1]!; // both capture groups are present when the regex matched
+  const body = match[2]!.trim();
   const frontmatter: Frontmatter = {};
 
   // Simple YAML parser (handles key: value and key: [array])
@@ -316,8 +315,8 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
     const kvMatch = line.match(/^(\w+):\s*(.*)$/);
     if (!kvMatch) continue;
 
-    const key = kvMatch[1];
-    let value: unknown = kvMatch[2].trim();
+    const key = kvMatch[1]!; // group 1 (\w+) and group 2 (.*) present when this matched
+    let value: unknown = kvMatch[2]!.trim();
 
     // Parse arrays: [item1, item2]
     if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
@@ -332,23 +331,6 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
   }
 
   return { frontmatter, body };
-}
-
-function buildFrontmatter(data: Frontmatter): string {
-  const lines = ['---'];
-  if (data.name) lines.push(`name: ${data.name}`);
-  if (data.description) lines.push(`description: ${data.description}`);
-  if (data.version) lines.push(`version: ${data.version}`);
-  if (data.tags?.length) lines.push(`tags: [${data.tags.join(', ')}]`);
-
-  // Add any extra fields
-  for (const [key, value] of Object.entries(data)) {
-    if (['name', 'description', 'version', 'tags'].includes(key)) continue;
-    if (value !== undefined) lines.push(`${key}: ${JSON.stringify(value)}`);
-  }
-
-  lines.push('---');
-  return lines.join('\n');
 }
 
 // ── Security ─────────────────────────────────────────────────────────────

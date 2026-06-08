@@ -3,7 +3,7 @@
  *
  * Tool names match Hermes: web_search, web_extract.
  */
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -47,15 +47,15 @@ async function ddgSearch(query: string, limit: number): Promise<Array<{ url: str
 
   let match;
   while ((match = resultRegex.exec(html)) !== null && results.length < limit) {
-    const href = match[1];
-    const title = match[2].replace(/<[^>]+>/g, '').trim();
-    const desc = match[3].replace(/<[^>]+>/g, '').trim();
+    const href = match[1]!; // groups 1-3 are present when the regex matched
+    const title = match[2]!.replace(/<[^>]+>/g, '').trim();
+    const desc = match[3]!.replace(/<[^>]+>/g, '').trim();
 
     // DDG redirects through //duckduckgo.com/l/?uddg=...
     let finalUrl = href;
     const uddgMatch = href.match(/uddg=([^&]+)/);
     if (uddgMatch) {
-      finalUrl = decodeURIComponent(uddgMatch[1]);
+      finalUrl = decodeURIComponent(uddgMatch[1]!);
     }
 
     if (title && finalUrl.startsWith('http')) {
@@ -95,7 +95,7 @@ async function extractContent(url: string): Promise<string> {
 }
 
 /** Basic HTML to markdown conversion. */
-function htmlToMarkdown(html: string, baseUrl: string): string {
+function htmlToMarkdown(html: string, _baseUrl: string): string {
   let text = html;
 
   // Remove scripts, styles, nav, footer, header

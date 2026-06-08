@@ -118,7 +118,9 @@ export class OpenRouterDriver implements Driver {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function toProviderTools(tools: readonly ToolSpec[]): Array<Record<string, unknown>> {
+function toProviderTools(
+  tools: readonly ToolSpec[],
+): Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }> {
   return tools.map((t) => ({
     type: "function",
     function: {

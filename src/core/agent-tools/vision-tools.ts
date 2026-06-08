@@ -5,7 +5,7 @@
  * Uses the same MiMo API the agents already have configured.
  */
 import { readFileSync, existsSync } from 'node:fs';
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -43,7 +43,7 @@ export function createVisionToolHandlers(apiKey?: string): Map<string, ToolHandl
         const buffer = await response.arrayBuffer();
         base64Data = Buffer.from(buffer).toString('base64');
         const contentType = response.headers.get('content-type');
-        if (contentType) mimeType = contentType.split(';')[0];
+        if (contentType) mimeType = contentType.split(';')[0]!; // split always yields ≥1 element
       } else {
         // Read local file
         const filePath = imageUrl.replace(/^file:\/\//, '');

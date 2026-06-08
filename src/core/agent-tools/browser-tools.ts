@@ -5,15 +5,14 @@
  * browser_press, browser_scroll, browser_snapshot, browser_vision,
  * browser_console, browser_back, browser_get_images.
  */
-import type { ToolSpec, ToolHandler, ToolResult } from '../core/tools.js';
+import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import {
   ensureBrowser,
-  closeBrowser,
   getSnapshot,
   getConsoleLogs,
   clearConsoleLogs,
 } from './browser-manager.js';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -202,7 +201,6 @@ export function createBrowserToolHandlers(): Map<string, ToolHandler> {
       return {
         ok: true,
         output: `Screenshot saved to ${screenshotPath}\nQuestion: ${question}\nUse vision_analyze to analyze this image.`,
-        diff: undefined,
       };
     } catch (err) {
       return { ok: false, output: '', error: `Screenshot failed: ${err instanceof Error ? err.message : String(err)}` };
@@ -248,11 +246,18 @@ export function createBrowserToolHandlers(): Map<string, ToolHandler> {
     try {
       const page = await ensureBrowser();
       const images = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('img')).map((img) => ({
-          url: (img as HTMLImageElement).src,
-          alt: (img as HTMLImageElement).alt || '',
-          width: (img as HTMLImageElement).naturalWidth,
-          height: (img as HTMLImageElement).naturalHeight,
+        // This callback runs IN THE BROWSER CONTEXT (Playwright serializes it), where
+        // `document` exists. Type the DOM access through globalThis so it compiles under
+        // the Node tsconfig (no DOM lib) without changing runtime behavior.
+        interface BrowserImage { src: string; alt: string; naturalWidth: number; naturalHeight: number }
+        const doc = (globalThis as unknown as {
+          document: { querySelectorAll(selector: string): Iterable<BrowserImage> };
+        }).document;
+        return Array.from(doc.querySelectorAll('img')).map((img) => ({
+          url: img.src,
+          alt: img.alt || '',
+          width: img.naturalWidth,
+          height: img.naturalHeight,
         }));
       });
       return {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -61,7 +61,9 @@ test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", as
       driver: new ScriptedDriver(actions),
       sinks: [sink],
     });
-    const term = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
+    const term = events.find(
+      (e): e is Extract<AgentEvent, { kind: "tool-result" }> => e.kind === "tool-result" && e.tool === "terminal",
+    );
     assert.ok(term, "expected a tool-result for terminal");
     assert.equal(term.ok, false);
     assert.match(term.error ?? "", /out of lane|not allowed/);
