@@ -20,10 +20,11 @@
  * - Compaction is RARE — only at 80% context window, preserves head + tail
  * - Cache hit tracking on every API call
  */
+import { join } from "node:path";
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
 import { createToolRegistry, toolSpecs, type ToolRegistry, type ToolResult } from '../../../src/core/tools.js';
-import { createFullToolRegistry, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
+import { createFullToolRegistry, buildMemorySnapshot, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../../../src/tools/bridge-tools.js';
 import { ContextCompressor, type CompressResult } from '../../../src/core/context-compressor.js';
 
@@ -392,6 +393,8 @@ export class AgentChatSession {
   private buildFrozenSystemPrompt(): string {
     const personalityPrompt = buildPersonalityPrompt(this.personality);
     const toolList = this.getToolNames().join(', ');
+    const memoryDir = join(this.workspaceRoot, 'memories');
+    const memorySnapshot = buildMemorySnapshot(memoryDir);
 
     return [
       personalityPrompt,
@@ -405,7 +408,9 @@ export class AgentChatSession {
       '- For browser interaction, use browser_* tools',
       '- When done, provide a clear summary of what you did',
       '- Keep changes minimal and focused',
-    ].join('\n');
+      '- Use the memory tool to persist important facts across sessions',
+      memorySnapshot ? `\n${memorySnapshot}` : '',
+    ].filter(Boolean).join('\n');
   }
 
   /**

@@ -26,6 +26,7 @@ import { executeCodeToolSpecs, createExecuteCodeToolHandlers } from './execute-c
 import { delegateToolSpecs, createDelegateToolHandlers } from './delegate-tools.js';
 import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
 import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
+import { memoryToolSpecs, createMemoryToolHandlers, buildMemorySnapshot } from './memory-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -36,6 +37,8 @@ export interface AgentToolConfig {
   apiKey?: string;
   /** Skills directory root */
   skillsRoot?: string;
+  /** Memory directory root */
+  memoryDir?: string;
 }
 
 /**
@@ -52,6 +55,8 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const todoHandlers = createTodoToolHandlers();
   const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
   const skillHandlers = createSkillToolHandlers(skillsRoot);
+  const memoryDir = config.memoryDir ?? join(config.workspaceRoot, 'memories');
+  const memoryHandlers = createMemoryToolHandlers({ memoryDir });
 
   const tools: ToolDef[] = [];
 
@@ -103,8 +108,15 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
     if (handler) tools.push({ spec, handler });
   }
 
+  // Memory tools
+  for (const spec of memoryToolSpecs) {
+    const handler = memoryHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
   return tools;
 }
 
 // Re-export types for consumers
 export type { ToolSpec, ToolHandler, ToolResult, ToolDef } from '../core/tools.js';
+export { buildMemorySnapshot } from './memory-tools.js';
