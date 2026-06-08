@@ -16,6 +16,7 @@
  *   const registry = createToolRegistry(extraTools);
  */
 import type { ToolDef } from '../core/tools.js';
+import { join } from 'node:path';
 
 import { browserToolSpecs, createBrowserToolHandlers } from './browser-tools.js';
 import { webToolSpecs, createWebToolHandlers } from './web-tools.js';
@@ -24,6 +25,7 @@ import { visionToolSpecs, createVisionToolHandlers } from './vision-tools.js';
 import { executeCodeToolSpecs, createExecuteCodeToolHandlers } from './execute-code-tools.js';
 import { delegateToolSpecs, createDelegateToolHandlers } from './delegate-tools.js';
 import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
+import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -32,6 +34,8 @@ export interface AgentToolConfig {
   agentServerUrl: string;
   /** API key for vision/LLM calls */
   apiKey?: string;
+  /** Skills directory root */
+  skillsRoot?: string;
 }
 
 /**
@@ -46,6 +50,8 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const executeCodeHandlers = createExecuteCodeToolHandlers();
   const delegateHandlers = createDelegateToolHandlers(config.agentServerUrl);
   const todoHandlers = createTodoToolHandlers();
+  const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
+  const skillHandlers = createSkillToolHandlers(skillsRoot);
 
   const tools: ToolDef[] = [];
 
@@ -88,6 +94,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Todo tools
   for (const spec of todoToolSpecs) {
     const handler = todoHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Skill tools
+  for (const spec of skillToolSpecs) {
+    const handler = skillHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
