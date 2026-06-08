@@ -40,6 +40,7 @@ import { sanitizeMessage, sanitizeToolOutput } from '../../../src/core/agent-too
 import { sanitizeToolDefinitions } from '../../../src/core/agent-tools/schema-sanitizer.js';
 import { classifyError } from '../../../src/core/agent-tools/error-classifier.js';
 import { withRetry, isRetryable, sleep } from '../../../src/core/agent-tools/retry.js';
+import { labContextToolSpecs, createLabContextToolHandlers } from '../../../src/core/agent-tools/lab-context-tools.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -125,6 +126,15 @@ export class AgentChatSession {
     const bridgeHandlers = createBridgeToolHandlers();
     for (const spec of bridgeToolSpecs) {
       const handler = bridgeHandlers.get(spec.name);
+      if (handler) {
+        extraTools.push({ spec, handler });
+      }
+    }
+
+    // Add lab context tools (bridge to lab-memory)
+    const labContextHandlers = createLabContextToolHandlers();
+    for (const spec of labContextToolSpecs) {
+      const handler = labContextHandlers.get(spec.name);
       if (handler) {
         extraTools.push({ spec, handler });
       }
@@ -532,6 +542,7 @@ export class AgentChatSession {
 
   /**
    * Build frozen system prompt — NEVER changes mid-session.
+   * Includes lab context: architecture, conventions, agent roster.
    */
   private buildFrozenSystemPrompt(): string {
     const personalityPrompt = buildPersonalityPrompt(this.personality);
@@ -552,6 +563,18 @@ export class AgentChatSession {
       '- When done, provide a clear summary of what you did',
       '- Keep changes minimal and focused',
       '- Use the memory tool to persist important facts across sessions',
+      '- Use lab_context_read to check shared project state before acting',
+      '- Use lab_context_write to record important findings or decisions',
+      '',
+      'Lab Context:',
+      '- Architecture: 3-layer (Agents → Bridges → Ittunaha). No single point of failure.',
+      '- Bridges are executors (stateless). Ittunaha is coordinator (stateful). Agents are autonomous.',
+      '- Each agent owns its own core. No shared runtime between products.',
+      '- Conventions: verify-dont-assume (confirm on real stack), rebuild-discipline (rebuild after commit)',
+      '- lab-memory: shared project state store (git-versioned, supersession chains)',
+      '- lab-store: skills and conventions (reusable procedures)',
+      `- Services: ikbi:18796, luak:18795, nusika:18793, howa:18799, toba:18815, ittunaha:18821`,
+      `- Agents: Pehlichi:18830 (coordinator), Ptah:18810 (builder), Luna:18792 (creative)`,
       memorySnapshot ? `\n${memorySnapshot}` : '',
     ].filter(Boolean).join('\n');
   }
