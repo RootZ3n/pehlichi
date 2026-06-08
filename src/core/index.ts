@@ -37,6 +37,20 @@ export {
 } from "./drivers/mimo.js";
 
 export {
+  LlamaCppDriver,
+  LlamaCppError,
+  LLAMACPP_RESPONSE_PROTOCOL,
+  type LlamaCppDriverOptions,
+} from "./drivers/llamacpp.js";
+
+export {
+  OllamaDriver,
+  OllamaError,
+  OLLAMA_RESPONSE_PROTOCOL,
+  type OllamaDriverOptions,
+} from "./drivers/ollama.js";
+
+export {
   createToolRegistry,
   toolSpecs,
   type ToolContext,

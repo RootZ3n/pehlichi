@@ -9,3 +9,8 @@
 export * from "./core/index.js";
 
 export { pehProfile, coordinatorToolNames } from "./profile.js";
+
+export {
+  bridgeToolSpecs,
+  createBridgeToolHandlers,
+} from "./tools/bridge-tools.js";
