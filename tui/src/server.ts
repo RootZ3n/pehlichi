@@ -2,18 +2,21 @@
 /**
  * Pehlichi HTTP Server — the squirrel's API home.
  *
- * Wraps ChatSession in an HTTP API so Peh can run as a systemd service.
+ * NOW WITH FULL TOOL-CALLING LOOP.
+ * Wraps AgentChatSession in an HTTP API so Peh can run as a systemd service.
  * Endpoints:
  *   GET  /health          — service health check
- *   POST /chat            — send a message, get a response
+ *   GET  /tools           — list all available tools
+ *   POST /chat            — send a message, get a response (with tool execution)
  *   POST /chat/stream     — send a message, get SSE streaming response
  *   GET  /info            — agent info (skin, personality)
+ *   POST /reset           — reset conversation
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { ChatSession } from './lib/chat.js';
+import { AgentChatSession } from './lib/agent-chat.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
 
@@ -35,8 +38,12 @@ function resolveApiKey(): string | undefined {
   return undefined;
 }
 
-// Persistent chat session (maintains conversation history)
-const chat = new ChatSession({ apiKey: resolveApiKey() });
+// Full agent chat session (with tool-calling loop)
+const chat = new AgentChatSession({
+  apiKey: resolveApiKey(),
+  workspaceRoot: '/pehverse/repos/pehlichi',
+  agentServerUrl: `http://127.0.0.1:${PORT}`,
+});
 
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -69,6 +76,16 @@ const server = createServer(async (req, res) => {
       model: 'mimo-v2.5',
       uptime: process.uptime(),
       historyLength: chat.getHistory().length,
+      toolCount: chat.getToolNames().length,
+    });
+  }
+
+  // List all available tools
+  if (req.method === 'GET' && url.pathname === '/tools') {
+    return json(res, 200, {
+      agent: skin.branding.agent_name,
+      tools: chat.getToolNames(),
+      count: chat.getToolNames().length,
     });
   }
 
@@ -82,10 +99,11 @@ const server = createServer(async (req, res) => {
       primary_color: skin.theme.primary,
       welcome: skin.branding.welcome,
       goodbye: skin.branding.goodbye,
+      toolCount: chat.getToolNames().length,
     });
   }
 
-  // Chat (non-streaming)
+  // Chat (non-streaming) — with full tool-calling loop
   if (req.method === 'POST' && url.pathname === '/chat') {
     const body = await parseBody(req);
     const message = body.message as string;
@@ -99,6 +117,13 @@ const server = createServer(async (req, res) => {
         content: response.content,
         agent: skin.branding.agent_name,
         thinkingVerb: response.thinkingVerb,
+        toolCalls: response.toolCalls?.map((tc) => ({
+          name: tc.name,
+          args: tc.args,
+          ok: tc.result.ok,
+          output: tc.result.output?.slice(0, 500),
+          error: tc.result.error?.slice(0, 200),
+        })),
       });
     } catch (err) {
       return json(res, 500, {
@@ -107,7 +132,7 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  // Chat (SSE streaming)
+  // Chat (SSE streaming) — with tool execution events
   if (req.method === 'POST' && url.pathname === '/chat/stream') {
     const body = await parseBody(req);
     const message = body.message as string;
@@ -125,7 +150,7 @@ const server = createServer(async (req, res) => {
       const response = await chat.send(message, (chunk) => {
         res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
       });
-      res.write(`data: ${JSON.stringify({ done: true, content: response.content })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, content: response.content, toolCalls: response.toolCalls?.length ?? 0 })}\n\n`);
     } catch (err) {
       res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`);
     }
@@ -135,12 +160,7 @@ const server = createServer(async (req, res) => {
 
   // Reset conversation
   if (req.method === 'POST' && url.pathname === '/reset') {
-    // Create fresh chat session
-    (chat as any).messages = [{
-      role: 'system',
-      content: (chat as any).systemPrompt,
-      timestamp: Date.now(),
-    }];
+    chat.reset();
     return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
   }
 
@@ -150,14 +170,16 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`  🐿  ${skin.branding.agent_name} — API Server`);
+  console.log(`  🐿  ${skin.branding.agent_name} — Agent Server`);
   console.log(`  Personality: ${personality.name}`);
   console.log(`  Model: mimo-v2.5`);
+  console.log(`  Tools: ${chat.getToolNames().length} registered`);
   console.log(`  Listening: http://${HOST}:${PORT}`);
   console.log(`  Endpoints:`);
   console.log(`    GET  /health       — health check`);
+  console.log(`    GET  /tools        — list all tools`);
   console.log(`    GET  /info         — agent info`);
-  console.log(`    POST /chat         — send message`);
+  console.log(`    POST /chat         — send message (with tool execution)`);
   console.log(`    POST /chat/stream  — streaming chat`);
   console.log(`    POST /reset        — reset conversation`);
   console.log(`${'═'.repeat(60)}\n`);
