@@ -1,29 +1,22 @@
 /**
- * TOOLS — real implementations. The registry maps a tool name to its handler
- * and its advertised ToolSpec.
+ * TOOLS — core terminal + tool-registration seam.
  *
- * All file/exec tools are CONFINED to workspaceRoot via resolveInWorkspace.
- * Handlers do IO and return a structured ToolResult; the core loop owns ALL
- * event emission (tool-result, diff, skill-created) so ordering stays
- * deterministic and centralized.
+ * The core provides ONE built-in tool: terminal (sandboxed shell execution).
+ * All other tools (file, web, browser, memory, skills, etc.) are supplied by
+ * the agent-tools package via the tool-registration seam.
  *
  * TOOL-REGISTRATION SEAM: createToolRegistry accepts optional extraTools so
- * agent repos can register their own tools (e.g. image-generation tools in a specialized agent)
- * without the core knowing them. The seam is GENERIC — the core knows "an
- * agent may contribute tools," never WHICH tools.
+ * agent repos can register their own tools (e.g. image-generation tools in a
+ * specialized agent) without the core knowing them. The seam is GENERIC — the
+ * core knows "an agent may contribute tools," never WHICH tools.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-
-import type { Store } from "lab-store";
-import type { MemoryStore } from "lab-memory";
+import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
-import { resolveInWorkspace, ToolError } from "./workspace.js";
+import { ToolError } from "./workspace.js";
 
 const DEFAULT_TERMINAL_TIMEOUT_MS = 60_000;
-const MAX_SEARCH_MATCHES = 200;
 /** Per-stream output cap. A runaway-output command cannot exhaust memory. */
 const MAX_OUTPUT_BYTES = 64 * 1024;
 /** Hard ceiling spawnSync will buffer before erroring — memory backstop. */
@@ -61,13 +54,8 @@ export interface ToolResult {
 export interface ToolContext {
   readonly workspaceRoot: string;
   readonly labStoreRoot: string;
-  readonly store: Store;
-  /**
-   * Seam A: the lab-memory store. Optional — present only when a run wires
-   * memory (memoryStoreRoot/memoryStore). The memory tools fail with a clear
-   * error if it is absent; reads/skills never depend on it.
-   */
-  readonly memoryStore?: MemoryStore;
+  readonly store: any;
+  readonly memoryStore?: any;
 }
 
 export type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
@@ -96,36 +84,6 @@ export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistr
   const defs: ToolDef[] = [
     {
       spec: {
-        name: "read",
-        description: "Read a file in the workspace and return its contents.",
-        parameters: obj({ path: { type: "string", description: "Workspace-relative file path." } }, ["path"]),
-      },
-      handler: readTool,
-    },
-    {
-      spec: {
-        name: "search",
-        description: "Grep-style search across the workspace; returns file:line:text matches.",
-        parameters: obj({ query: { type: "string", description: "Substring to search for." } }, ["query"]),
-      },
-      handler: searchTool,
-    },
-    {
-      spec: {
-        name: "write",
-        description: "Write a file in the workspace. Emits a diff (before/after) on every write.",
-        parameters: obj(
-          {
-            path: { type: "string", description: "Workspace-relative file path." },
-            content: { type: "string", description: "Full new file contents." },
-          },
-          ["path", "content"],
-        ),
-      },
-      handler: writeTool,
-    },
-    {
-      spec: {
         name: "terminal",
         description:
           "Run a shell command, locked to cwd=workspace, with a stripped env (allowlist only), " +
@@ -140,85 +98,6 @@ export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistr
       },
       handler: terminalTool,
     },
-    {
-      spec: {
-        name: "skill_view",
-        description: "Pull a module body from lab-store by name.",
-        parameters: obj({ name: { type: "string", description: "Module name (slug)." } }, ["name"]),
-      },
-      handler: skillViewTool,
-    },
-    {
-      spec: {
-        name: "skill_manage_create",
-        description: "Create a skill module in lab-store (self-improvement).",
-        parameters: obj(
-          {
-            name: { type: "string", description: "New module slug (lowercase, digits, hyphens)." },
-            description: { type: "string", description: "One-line description." },
-            type: { type: "string", description: "Module type, e.g. 'skills'." },
-            tags: { type: "array", items: { type: "string" }, description: "Optional tags." },
-            body: { type: "string", description: "Markdown body (When to use / Steps / Pitfalls)." },
-          },
-          ["name", "description", "type", "body"],
-        ),
-      },
-      handler: skillCreateTool,
-    },
-    // ── Seam A: lab-memory tools (role-agnostic; advertised only when memory is wired) ──
-    {
-      spec: {
-        name: "memory_view",
-        description: "Pull a memory entry's full body from lab-memory by id.",
-        parameters: obj({ id: { type: "string", description: "Memory entry id (slug)." } }, ["id"]),
-      },
-      handler: memoryViewTool,
-    },
-    {
-      spec: {
-        name: "memory_query_current",
-        description: "List the CURRENT memory entries for a project (what's true now).",
-        parameters: obj({ project: { type: "string", description: "Lab project name." } }, ["project"]),
-      },
-      handler: memoryQueryCurrentTool,
-    },
-    {
-      spec: {
-        name: "memory_create",
-        description: "Record a new current memory entry in lab-memory.",
-        parameters: obj(
-          {
-            id: { type: "string", description: "New entry id (slug)." },
-            title: { type: "string", description: "Short title." },
-            description: { type: "string", description: "One-line description." },
-            project: { type: "string", description: "Lab project name." },
-            tags: { type: "array", items: { type: "string" }, description: "Optional tags." },
-            body: { type: "string", description: "Markdown body (what happened / what's current)." },
-          },
-          ["id", "title", "description", "project", "body"],
-        ),
-      },
-      handler: memoryCreateTool,
-    },
-    {
-      spec: {
-        name: "memory_supersede",
-        description: "Replace a current memory entry with a new one (keeps exactly one current).",
-        parameters: obj(
-          {
-            oldId: { type: "string", description: "The current entry being replaced." },
-            newId: { type: "string", description: "New entry id (slug)." },
-            title: { type: "string", description: "Short title." },
-            description: { type: "string", description: "One-line description." },
-            project: { type: "string", description: "Lab project name." },
-            tags: { type: "array", items: { type: "string" }, description: "Optional tags." },
-            body: { type: "string", description: "Markdown body for the new current entry." },
-          },
-          ["oldId", "newId", "title", "description", "project", "body"],
-        ),
-      },
-      handler: memorySupersedeTool,
-    },
     // ── Agent-supplied tools (tool-registration seam) ──────────────────────────
     ...(extraTools ?? []),
   ];
@@ -230,56 +109,7 @@ export function toolSpecs(registry: ToolRegistry): ToolSpec[] {
   return [...registry.values()].map((d) => d.spec);
 }
 
-// ── handlers ──────────────────────────────────────────────────────────────
-
-const readTool: ToolHandler = async (args, ctx) => {
-  const abs = resolveInWorkspace(ctx.workspaceRoot, str(args, "path"));
-  const contents = readFileSync(abs, "utf8");
-  return { ok: true, output: contents };
-};
-
-const searchTool: ToolHandler = async (args, ctx) => {
-  const query = str(args, "query");
-  const root = resolve(ctx.workspaceRoot);
-  const matches: string[] = [];
-  for (const file of walkFiles(root)) {
-    let text: string;
-    try {
-      text = readFileSync(file, "utf8");
-    } catch {
-      continue; // unreadable / binary — skip
-    }
-    const rel = relative(root, file);
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] ?? "";
-      if (line.includes(query)) {
-        matches.push(`${rel}:${i + 1}:${line}`);
-        if (matches.length >= MAX_SEARCH_MATCHES) break;
-      }
-    }
-    if (matches.length >= MAX_SEARCH_MATCHES) break;
-  }
-  return {
-    ok: true,
-    output: matches.length > 0 ? matches.join("\n") : `no matches for "${query}"`,
-  };
-};
-
-const writeTool: ToolHandler = async (args, ctx) => {
-  const rawPath = str(args, "path");
-  const content = str(args, "content");
-  const abs = resolveInWorkspace(ctx.workspaceRoot, rawPath);
-  const rel = relative(resolve(ctx.workspaceRoot), abs);
-  const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, content, "utf8");
-  return {
-    ok: true,
-    output: `wrote ${rel} (${Buffer.byteLength(content, "utf8")} bytes)`,
-    diff: { path: rel, before, after: content },
-  };
-};
+// ── terminal handler ─────────────────────────────────────────────────────────
 
 /**
  * CONFINED terminal execution. The shell stays (real build/verify need it);
@@ -348,82 +178,6 @@ const terminalTool: ToolHandler = async (args, ctx) => {
     : { ok: false, output, error: `command exited with code ${exitCode}`, receipt };
 };
 
-const skillViewTool: ToolHandler = async (args, ctx) => {
-  const mod = ctx.store.viewModule(str(args, "name"));
-  return { ok: true, output: mod.body };
-};
-
-const skillCreateTool: ToolHandler = async (args, ctx) => {
-  const tags = optStrArray(args, "tags");
-  const meta = ctx.store.createModule({
-    name: str(args, "name"),
-    description: str(args, "description"),
-    type: str(args, "type"),
-    body: str(args, "body"),
-    ...(tags !== undefined ? { tags } : {}),
-  });
-  return {
-    ok: true,
-    output: `created ${meta.path}`,
-    skillCreated: { name: meta.name, type: meta.type },
-  };
-};
-
-// ── Seam A: lab-memory handlers (wrap the lab-memory lib) ─────────────────────
-
-const memoryViewTool: ToolHandler = async (args, ctx) => {
-  const entry = requireMemory(ctx).viewMemory(str(args, "id"));
-  const header = `${entry.id} — ${entry.title} (status=${entry.status} v${entry.version}, project=${entry.project})`;
-  return { ok: true, output: `${header}\n\n${entry.body}` };
-};
-
-const memoryQueryCurrentTool: ToolHandler = async (args, ctx) => {
-  const project = str(args, "project");
-  const current = requireMemory(ctx).queryCurrent(project);
-  const output =
-    current.length === 0
-      ? `no current memory entries for "${project}"`
-      : current.map((m) => `- ${m.id} (v${m.version}): ${m.description} [${m.tags.join(", ")}]`).join("\n");
-  return { ok: true, output };
-};
-
-const memoryCreateTool: ToolHandler = async (args, ctx) => {
-  const tags = optStrArray(args, "tags");
-  const meta = requireMemory(ctx).createMemory({
-    id: str(args, "id"),
-    title: str(args, "title"),
-    description: str(args, "description"),
-    project: str(args, "project"),
-    body: str(args, "body"),
-    ...(tags !== undefined ? { tags } : {}),
-  });
-  return { ok: true, output: `created ${meta.path} (current, v${meta.version})` };
-};
-
-const memorySupersedeTool: ToolHandler = async (args, ctx) => {
-  const tags = optStrArray(args, "tags");
-  const { superseded, current } = requireMemory(ctx).supersedeMemory({
-    oldId: str(args, "oldId"),
-    newId: str(args, "newId"),
-    title: str(args, "title"),
-    description: str(args, "description"),
-    project: str(args, "project"),
-    body: str(args, "body"),
-    ...(tags !== undefined ? { tags } : {}),
-  });
-  return {
-    ok: true,
-    output: `superseded ${superseded.id} -> ${current.id} (now current: ${current.id} v${current.version})`,
-  };
-};
-
-function requireMemory(ctx: ToolContext): MemoryStore {
-  if (ctx.memoryStore === undefined) {
-    throw new ToolError("memory tools require a memory store; this run has no memoryStoreRoot/memoryStore configured");
-  }
-  return ctx.memoryStore;
-}
-
 // ── terminal hardening helpers ───────────────────────────────────────────────
 
 /**
@@ -476,7 +230,7 @@ function denyOutsideWorkspace(command: string, workspaceRoot: string): void {
       `command denied (secondary guard): destructive op references a path outside the workspace: ${outsideTokens[0]}`,
     );
   }
-  const redirect = command.match(/>>?\s*('|")?(~\/?[^\s'"|;&]*|\/[^\s'"|;&]+)/);
+  const redirect = command.match(/>>?\s*('|\")?(~\/?[^\s'"|;&]*|\/[^\s'"|;&]+)/);
   const target = redirect?.[2];
   if (target !== undefined && !isInside(target, workspaceRoot)) {
     throw new ToolError(
@@ -493,19 +247,6 @@ function isInside(token: string, workspaceRoot: string): boolean {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist"]);
-
-function* walkFiles(dir: string): Generator<string> {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      yield* walkFiles(join(dir, entry.name));
-    } else if (entry.isFile()) {
-      yield join(dir, entry.name);
-    }
-  }
-}
-
 function str(args: Record<string, unknown>, key: string): string {
   const v = args[key];
   if (typeof v !== "string") throw new ToolError(`argument '${key}' must be a string`);
@@ -517,15 +258,6 @@ function optInt(args: Record<string, unknown>, key: string): number | undefined 
   if (v === undefined) return undefined;
   if (typeof v !== "number" || !Number.isFinite(v)) {
     throw new ToolError(`argument '${key}' must be a number`);
-  }
-  return v;
-}
-
-function optStrArray(args: Record<string, unknown>, key: string): string[] | undefined {
-  const v = args[key];
-  if (v === undefined) return undefined;
-  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
-    throw new ToolError(`argument '${key}' must be a string[]`);
   }
   return v;
 }
