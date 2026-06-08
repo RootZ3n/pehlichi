@@ -164,6 +164,30 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
   }
 
+  // Agent identity
+  if (req.method === 'GET' && url.pathname === '/agent') {
+    return json(res, 200, {
+      id: skin.branding.agent_name.toLowerCase(),
+      name: skin.branding.agent_name,
+      personality: personality.name,
+      model: 'mimo-v2.5',
+      tools: chat.getToolNames().length,
+      status: 'active',
+      uptime: process.uptime(),
+    });
+  }
+
+  // Capabilities
+  if (req.method === 'GET' && url.pathname === '/capabilities') {
+    return json(res, 200, {
+      agent: skin.branding.agent_name,
+      tools: chat.getToolNames(),
+      endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
+      model: 'mimo-v2.5',
+      features: ['tool_calling', 'streaming', 'conversation_memory', 'progressive_disclosure'],
+    });
+  }
+
   // 404
   json(res, 404, { error: 'not found' });
 });
