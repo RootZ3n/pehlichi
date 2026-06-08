@@ -1,0 +1,26 @@
+{
+  "name": "peh-tui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --watch src/entry.tsx",
+    "start": "tsx src/entry.tsx",
+    "build": "node scripts/build.mjs",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ink": "^6.8.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.4",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "esbuild": "~0.28.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

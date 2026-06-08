@@ -1,0 +1,122 @@
+# Peh TUI Skin — The Squirrel With a Thousand Lives
+# Forest greens, warm browns, knight honor, squirrel chaos
+
+name: peh
+description: "Pehlichi — the guide. Forest green and warm brown. Squirrel energy."
+
+# ── Branding ──────────────────────────────────────────────────────────
+branding:
+  agent_name: "Pehlichi"
+  welcome: "Halito. I am Peh. I would help you, but in case you haven't noticed, I am a squirrel."
+  goodbye: "Farewell, good sir. May your acorns be plentiful."
+  prompt_symbol: "🐿"
+  response_label: " 🐿 PEHLICHI SPEAKS "
+  help_header: "(🐿) What the Squirrel Knows"
+
+# ── Colors ────────────────────────────────────────────────────────────
+colors:
+  banner_border: "#5D4037"
+  banner_title: "#4CAF50"
+  banner_accent: "#81C784"
+  ui_accent: "#4CAF50"
+  ui_ok: "#66BB6A"
+  ui_error: "#ef5350"
+  ui_warn: "#FFA726"
+  response_border: "#5D4037"
+  status_bg: "#1a1a10"
+  status_fg: "#81C784"
+  status_good: "#66BB6A"
+  status_warn: "#FFA726"
+  status_bad: "#ef5350"
+  text: "#D7CCC8"
+  muted: "#8D6E63"
+  prompt: "#81C784"
+  selection_bg: "#2e3d20"
+  completion_bg: "#1a1a10"
+  completion_current_bg: "#2e3d20"
+
+# ── Banner Art ────────────────────────────────────────────────────────
+banner_logo: |
+  [bold #4CAF50]
+       ██████╗  ███████╗██╗  ██╗
+       ██╔══██╗ ██╔════╝██║  ██║
+       ██████╔╝ █████╗  ███████║
+       ██╔═══╝  ██╔══╝  ██╔══██║
+       ██║      ███████╗██║  ██║
+       ╚═╝      ╚══════╝╚═╝  ╚═╝
+       [dim #8D6E63]P E H L I C H I[/]
+  [/]
+
+banner_hero: |
+  [bold #4CAF50]
+              ⌜─────────────────────⌝
+              │  [dim]A thousand lives[/]      │
+              │  [dim]in a squirrel's brain[/] │
+              │                     │
+              │    🐿 PEHLICHI 🐿    │
+              │                     │
+              │  [dim]Hedge Knight[/]         │
+              │  [dim]Medicine Man[/]         │
+              │  [dim]Race Driver[/]          │
+              │  [dim]Gladiator[/]            │
+              │  [dim]Scholar[/]              │
+              │  [dim]Private Eye[/]          │
+              │                     │
+              │  [italic #81C784]"I would have helped,[/]   │
+              │  [italic #81C784]but I am a squirrel."[/]  │
+              ⌞─────────────────────⌟
+  [/]
+
+# ── Spinner / Thinking ───────────────────────────────────────────────
+spinner:
+  waiting_faces: ["🐿", "🥜", "🌿", "🍂", "🌰"]
+  thinking_faces: ["🐿", "💭", "🥜", "⚡"]
+  thinking_verbs:
+    - "squirreling"
+    - "burying thoughts"
+    - "cracking this nut"
+    - "gathering acorns"
+    - "foraging for answers"
+    - "hoarding knowledge"
+    - "chasing the thought"
+    - "running up the tree"
+    - "by my oath, pondering"
+    - "the hedge knight deliberates"
+  wings: [["🥜▸", "◂🥜"], ["🐿▸", "◂🐿"]]
+
+# ── Tool prefix ───────────────────────────────────────────────────────
+tool_prefix: "🌿"
+
+# ── Tool emojis ───────────────────────────────────────────────────────
+tool_emojis:
+  terminal: "⚔"
+  web_search: "🐿"
+  read_file: "📜"
+  write_file: "🖊"
+  delegate_task: "🛡"
+
+# ── Theme colors (TUI Ink layer) ─────────────────────────────────────
+theme:
+  primary: "#4CAF50"
+  accent: "#81C784"
+  border: "#5D4037"
+  text: "#D7CCC8"
+  muted: "#8D6E63"
+  ok: "#66BB6A"
+  error: "#ef5350"
+  warn: "#FFA726"
+  prompt: "#81C784"
+  session_label: "#5D4037"
+  session_border: "#8D6E63"
+  status_bg: "#1a1a10"
+  status_fg: "#81C784"
+  status_good: "#66BB6A"
+  status_warn: "#FFA726"
+  status_bad: "#ef5350"
+  status_critical: "#ff1744"
+  selection_bg: "#2e3d20"
+  diff_added: "#66BB6A"
+  diff_removed: "#ef5350"
+  diff_added_word: "#388E3C"
+  diff_removed_word: "#c62828"
+  shell_dollar: "#81C784"
