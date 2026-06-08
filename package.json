@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/core/drivers/mimo.test.ts src/core/loop.test.ts src/core/memory-tools.test.ts src/core/shadow.test.ts src/profile.test.ts",
+    "test": "node --import tsx --test src/core/drivers/mimo.test.ts src/core/drivers/llamacpp.test.ts src/core/drivers/ollama.test.ts src/core/loop.test.ts src/core/memory-tools.test.ts src/core/shadow.test.ts src/profile.test.ts",
     "sanity:peh-coordinate": "node --import tsx src/sanity-peh.ts"
   },
   "dependencies": {
