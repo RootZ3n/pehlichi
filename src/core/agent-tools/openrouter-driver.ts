@@ -75,7 +75,7 @@ export class OpenRouterDriver implements Driver {
       model: this.model,
       messages,
       max_tokens: this.maxTokens,
-      ...(this.temperature !== undefined ? { temperature: this.temperature }),
+      ...(this.temperature !== undefined ? { temperature: this.temperature } : {}),
       ...(tools ? { tools } : {}),
     };
 

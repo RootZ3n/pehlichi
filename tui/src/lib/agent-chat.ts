@@ -1,5 +1,5 @@
 /**
- * AGENT CHAT SESSION — cache-first tool-calling loop.
+ * AGENT CHAT SESSION — cache-first tool-calling loop with full infrastructure.
  *
  * Architecture (borrowed from Reasonix):
  * ┌──────────────────────────────────────┐
@@ -13,12 +13,15 @@
  * │ cwd, task context, instructions       │   NOT in system prompt
  * └──────────────────────────────────────┘
  *
- * Key invariants:
- * - System prompt is FROZEN at construction — never changes mid-session
- * - Messages are APPEND-ONLY — never reordered, never mutated
- * - Dynamic state (cwd, task context) rides in user messages, NOT system prompt
- * - Compaction is RARE — only at 80% context window, preserves head + tail
- * - Cache hit tracking on every API call
+ * Infrastructure wired in:
+ * - Circuit breaker (provider failure protection)
+ * - Iteration budget (runaway loop prevention)
+ * - Prompt injection scanning (27 patterns, 3 scopes)
+ * - Token monitoring (usage tracking, cost estimation)
+ * - Input sanitization (surrogates, JSON repair, control chars)
+ * - Schema sanitizer (llama.cpp/Ollama compatibility)
+ * - Error classification (11 categories with actionable hints)
+ * - Retry with jittered backoff
  */
 import { join } from "node:path";
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
@@ -27,6 +30,16 @@ import { createToolRegistry, toolSpecs, type ToolRegistry, type ToolResult } fro
 import { createFullToolRegistry, buildMemorySnapshot, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../../../src/tools/bridge-tools.js';
 import { ContextCompressor, type CompressResult } from '../../../src/core/context-compressor.js';
+
+// Infrastructure imports
+import { CircuitBreaker } from '../../../src/core/agent-tools/circuit-breaker.js';
+import { IterationBudget } from '../../../src/core/agent-tools/iteration-budget.js';
+import { scanForInjection, type ScanResult } from '../../../src/core/agent-tools/prompt-injection.js';
+import { TokenMonitor } from '../../../src/core/agent-tools/token-monitor.js';
+import { sanitizeMessage, sanitizeToolOutput } from '../../../src/core/agent-tools/input-sanitization.js';
+import { sanitizeToolDefinitions } from '../../../src/core/agent-tools/schema-sanitizer.js';
+import { classifyError } from '../../../src/core/agent-tools/error-classifier.js';
+import { withRetry, isRetryable, sleep } from '../../../src/core/agent-tools/retry.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -41,6 +54,8 @@ export interface ChatResponse {
   thinkingVerb?: string;
   toolCalls?: Array<{ name: string; args: Record<string, unknown>; result: ToolResult }>;
   cacheHit?: CacheHitInfo;
+  tokenUsage?: ReturnType<TokenMonitor['summary']>;
+  injectionDetected?: boolean;
 }
 
 export interface CacheHitInfo {
@@ -56,7 +71,8 @@ const MAX_TOKENS = 4096;
 const CONTEXT_WINDOW = 128_000; // MiMo v2.5 context window
 
 /**
- * Full agent chat session with cache-first tool-calling loop.
+ * Full agent chat session with cache-first tool-calling loop
+ * and full infrastructure wiring.
  */
 export class AgentChatSession {
   private messages: ChatMessage[] = [];
@@ -70,6 +86,11 @@ export class AgentChatSession {
   private compressor: ContextCompressor;
   private workspaceRoot: string;
 
+  // Infrastructure
+  private circuitBreaker: CircuitBreaker;
+  private budget: IterationBudget;
+  private tokenMonitor: TokenMonitor;
+
   // Cache tracking
   private totalCacheHits = 0;
   private totalPromptTokens = 0;
@@ -80,6 +101,7 @@ export class AgentChatSession {
     model?: string;
     workspaceRoot?: string;
     agentServerUrl?: string;
+    maxIterations?: number;
   }) {
     this.personality = loadPersonality();
     this.skin = loadSkin();
@@ -109,34 +131,58 @@ export class AgentChatSession {
     }
 
     this.toolRegistry = createToolRegistry(extraTools);
-    this.toolSchemas = toolSpecs(this.toolRegistry).map((spec) => ({
-      type: 'function',
+
+    // Sanitize tool schemas for provider compatibility
+    const rawSchemas = toolSpecs(this.toolRegistry).map((spec) => ({
+      type: 'function' as const,
       function: {
         name: spec.name,
         description: spec.description,
         parameters: spec.parameters,
       },
     }));
+    this.toolSchemas = sanitizeToolDefinitions(rawSchemas);
 
     // Initialize context compressor
     this.compressor = new ContextCompressor({
       apiKey: this.apiKey,
       baseUrl: this.baseUrl,
       model: this.model,
-      protectFirstN: 2, // system + first user message
-      protectLastN: 3,  // last 3 messages
+      protectFirstN: 2,
+      protectLastN: 3,
       thresholdPercent: 0.80,
       maxRuntimeMs: 30_000,
     });
 
+    // Initialize infrastructure
+    const providerId = this.detectProviderId();
+    this.circuitBreaker = new CircuitBreaker(providerId, {
+      failureThreshold: 5,
+      cooldownMs: 30_000,
+      successThreshold: 3,
+    });
+    this.budget = new IterationBudget(opts?.maxIterations ?? MAX_TOOL_ITERATIONS);
+    this.tokenMonitor = new TokenMonitor({ model: this.model });
+
     // FROZEN SYSTEM PROMPT — never changes mid-session
-    // This is the cache-stable prefix that stays identical across all API calls
     const frozenSystemPrompt = this.buildFrozenSystemPrompt();
     this.messages.push({
       role: 'system',
       content: frozenSystemPrompt,
       timestamp: Date.now(),
     });
+  }
+
+  /** Detect provider ID from base URL for circuit breaker. */
+  private detectProviderId(): string {
+    const url = this.baseUrl.toLowerCase();
+    if (url.includes('xiaomimimo') || url.includes('mimo')) return 'mimo';
+    if (url.includes('openrouter')) return 'openrouter';
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      if (url.includes('11434')) return 'ollama';
+      return 'local';
+    }
+    return 'unknown';
   }
 
   getPersonality(): Personality {
@@ -166,17 +212,46 @@ export class AgentChatSession {
     };
   }
 
+  /** Get infrastructure status for monitoring. */
+  getInfrastructureStatus(): {
+    circuit: { state: string; failures: number };
+    budget: { consumed: number; remaining: number; max: number };
+    tokens: ReturnType<TokenMonitor['summary']>;
+  } {
+    return {
+      circuit: this.circuitBreaker.status(),
+      budget: this.budget.status(),
+      tokens: this.tokenMonitor.summary(),
+    };
+  }
+
   /**
    * Send a user message and get the agent's response.
-   * Executes the full cache-first tool-calling loop.
+   * Executes the full cache-first tool-calling loop with infrastructure.
    */
   async send(userMessage: string, onStream?: StreamCallback): Promise<ChatResponse> {
+    // 1. PROMPT INJECTION SCAN — check user input
+    const injectionResult = scanForInjection(userMessage, 'context');
+    if (injectionResult.detected) {
+      console.warn(`[security] Prompt injection detected: ${injectionResult.patterns.join(', ')}`);
+      if (onStream) {
+        onStream(`⚠️ Input flagged for potential injection: ${injectionResult.patterns.join(', ')}\n`);
+      }
+      // Return a safe response instead of processing
+      return {
+        content: `I detected potentially unsafe content in your message (${injectionResult.patterns.join(', ')}). Please rephrase your request.`,
+        injectionDetected: true,
+      };
+    }
+
+    // 2. SANITIZE user message
+    const sanitizedMessage = sanitizeMessage(userMessage);
+
     // Dynamic context prefix — rides in user message, NOT system prompt
-    // This keeps the system prompt frozen for cache hits
     const dynamicPrefix = this.buildDynamicPrefix();
     const fullUserMessage = dynamicPrefix
-      ? `${dynamicPrefix}\n\n${userMessage}`
-      : userMessage;
+      ? `${dynamicPrefix}\n\n${sanitizedMessage}`
+      : sanitizedMessage;
 
     // Add user message to append-only log
     this.messages.push({
@@ -190,10 +265,16 @@ export class AgentChatSession {
     const allToolCalls: ChatResponse['toolCalls'] = [];
     let lastCacheHit: CacheHitInfo | undefined;
 
-    // Tool-calling loop
-    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+    // 3. TOOL-CALLING LOOP with iteration budget
+    while (this.budget.consume()) {
       // Check if we need compression before sending
       await this.maybeCompress();
+
+      // 4. CIRCUIT BREAKER — check before API call
+      if (!this.circuitBreaker.allow()) {
+        const status = this.circuitBreaker.status();
+        throw new Error(`Circuit breaker OPEN for ${status.adapterId} (${status.failures} failures). Cooling down.`);
+      }
 
       const wireMessages = this.buildWireMessages();
       const headers: Record<string, string> = {
@@ -213,17 +294,32 @@ export class AgentChatSession {
       };
 
       try {
-        const response = await fetch(`${this.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(120_000),
-        });
+        // 5. RETRY with circuit breaker integration
+        const response = await withRetry(
+          async () => {
+            const res = await fetch(`${this.baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(120_000),
+            });
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => 'unknown error');
-          throw new Error(`MiMo API error ${response.status}: ${errorText.slice(0, 300)}`);
-        }
+            if (!res.ok) {
+              const errorText = await res.text().catch(() => 'unknown error');
+              const classified = classifyError(new Error(`HTTP ${res.status}`), res.status, errorText);
+              const err = new Error(`MiMo API ${res.status}: ${errorText.slice(0, 300)}`);
+              // Attach classification for the retry logic
+              (err as any).classified = classified;
+              throw err;
+            }
+
+            return res;
+          },
+          { maxAttempts: 3, baseMs: 2000, maxMs: 15_000, jitterRatio: 0.5 },
+        );
+
+        // Circuit breaker success
+        this.circuitBreaker.success();
 
         const data = await response.json() as {
           choices?: Array<{
@@ -245,9 +341,17 @@ export class AgentChatSession {
           };
         };
 
-        // Track cache hits (Reasonix pattern)
+        // 6. TOKEN MONITORING — record usage
         const cachedTokens = data.usage?.prompt_tokens_details?.cached_tokens ?? 0;
         const promptTokens = data.usage?.prompt_tokens ?? 0;
+        const completionTokens = data.usage?.completion_tokens ?? 0;
+        this.tokenMonitor.recordUsage({
+          input: promptTokens,
+          output: completionTokens,
+          cached: cachedTokens,
+        });
+
+        // Cache tracking
         if (cachedTokens > 0) {
           const pct = promptTokens > 0 ? (cachedTokens / promptTokens * 100).toFixed(1) : '?';
           console.log(`[cache] Hit: ${cachedTokens} tokens (${pct}% of prompt)`);
@@ -283,7 +387,16 @@ export class AgentChatSession {
             try {
               toolArgs = JSON.parse(toolCall.function.arguments);
             } catch {
-              // If JSON parse fails, try as-is
+              // If JSON parse fails, try repair
+              try {
+                const { repairJson } = await import('../../../src/core/agent-tools/input-sanitization.js');
+                const repaired = repairJson(toolCall.function.arguments);
+                if (repaired.fixed) {
+                  toolArgs = JSON.parse(repaired.repaired);
+                }
+              } catch {
+                // Give up, use empty args
+              }
             }
 
             // Execute the tool
@@ -311,10 +424,15 @@ export class AgentChatSession {
               };
             }
 
+            // 7. SANITIZE tool output before feeding back to model
+            const sanitizedOutput = result.ok
+              ? sanitizeToolOutput(result.output)
+              : `Error: ${sanitizeToolOutput(result.error ?? result.output)}`;
+
             // Append tool result to log
             this.messages.push({
               role: 'tool',
-              content: result.ok ? result.output : `Error: ${result.error ?? result.output}`,
+              content: sanitizedOutput,
               timestamp: Date.now(),
               tool_call_id: toolCall.id,
               name: toolName,
@@ -348,20 +466,44 @@ export class AgentChatSession {
           onStream(content);
         }
 
-        return { content, thinkingVerb, toolCalls: allToolCalls, cacheHit: lastCacheHit };
+        return {
+          content,
+          thinkingVerb,
+          toolCalls: allToolCalls,
+          cacheHit: lastCacheHit,
+          tokenUsage: this.tokenMonitor.summary(),
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Chat failed: ${message}`);
+        const classified = classifyError(err);
+
+        // Circuit breaker failure
+        this.circuitBreaker.failure();
+
+        // If not retryable, throw immediately
+        if (!classified.retryable) {
+          throw new Error(`Chat failed [${classified.category}]: ${message}`);
+        }
+
+        // If context overflow, try compression
+        if (classified.shouldCompress) {
+          console.log('[compressor] Context overflow detected, forcing compression...');
+          this.messages = this.messages.slice(0, 2).concat(this.messages.slice(-3));
+          continue;
+        }
+
+        throw new Error(`Chat failed [${classified.category}]: ${message}`);
       }
     }
 
-    // Max iterations
+    // Budget exhausted
     const lastAssistant = [...this.messages].reverse().find((m) => m.role === 'assistant');
     return {
-      content: lastAssistant?.content ?? '(max tool iterations reached)',
+      content: lastAssistant?.content ?? '(iteration budget exhausted)',
       thinkingVerb,
       toolCalls: allToolCalls,
       cacheHit: lastCacheHit,
+      tokenUsage: this.tokenMonitor.summary(),
     };
   }
 
@@ -384,11 +526,12 @@ export class AgentChatSession {
       timestamp: Date.now(),
     }];
     this.compressor.reset();
+    this.budget = new IterationBudget(MAX_TOOL_ITERATIONS);
+    this.tokenMonitor.reset();
   }
 
   /**
    * Build frozen system prompt — NEVER changes mid-session.
-   * This is the cache-stable prefix.
    */
   private buildFrozenSystemPrompt(): string {
     const personalityPrompt = buildPersonalityPrompt(this.personality);
@@ -414,8 +557,7 @@ export class AgentChatSession {
   }
 
   /**
-   * Build dynamic context prefix — changes per-turn but rides in user message,
-   * NOT in system prompt. This keeps the system prompt frozen.
+   * Build dynamic context prefix — changes per-turn but rides in user message.
    */
   private buildDynamicPrefix(): string {
     const lines: string[] = [];
@@ -426,7 +568,6 @@ export class AgentChatSession {
 
   /**
    * Maybe compress context if approaching limits.
-   * Uses Reasonix-style rare compaction at 80% of context window.
    */
   private async maybeCompress(): Promise<void> {
     const shouldCompress = this.compressor.shouldCompress(this.messages, CONTEXT_WINDOW);
