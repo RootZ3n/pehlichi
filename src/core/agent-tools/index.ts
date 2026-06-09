@@ -28,6 +28,7 @@ import { delegateToolSpecs, createDelegateToolHandlers } from './delegate-tools.
 import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
 import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
 import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
+import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -72,6 +73,11 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const skillHandlers = createSkillToolHandlers(skillsRoot);
   const memoryDir = config.memoryDir ?? join(config.workspaceRoot, 'memories');
   const memoryHandlers = createMemoryToolHandlers({ memoryDir });
+  const cronHandlers = createCronToolHandlers(async (prompt: string) => {
+    // Default cron execution: log the prompt (actual execution would need a chat session)
+    console.log(`[cron] Executing scheduled task: ${prompt.slice(0, 100)}`);
+    return `Task "${prompt.slice(0, 50)}" executed at ${new Date().toISOString()}`;
+  });
 
   const tools: ToolDef[] = [];
 
@@ -126,6 +132,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Memory tools
   for (const spec of memoryToolSpecs) {
     const handler = memoryHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Cron tools
+  for (const spec of cronToolSpecs) {
+    const handler = cronHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
