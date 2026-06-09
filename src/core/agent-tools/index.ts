@@ -16,7 +16,8 @@
  *   const registry = createToolRegistry(extraTools);
  */
 import type { ToolDef } from '../tools.js';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { browserToolSpecs, createBrowserToolHandlers } from './browser-tools.js';
 import { webToolSpecs, createWebToolHandlers } from './web-tools.js';
@@ -31,7 +32,7 @@ import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
 export interface AgentToolConfig {
   /** Workspace root for file operations */
   workspaceRoot: string;
-  /** Agent's own HTTP server URL (for delegation) */
+  /** Agent's own HTTP server URL (retained for compatibility; delegation no longer uses it) */
   agentServerUrl: string;
   /** API key for vision/LLM calls */
   apiKey?: string;
@@ -39,7 +40,18 @@ export interface AgentToolConfig {
   skillsRoot?: string;
   /** Memory directory root */
   memoryDir?: string;
+  /**
+   * Path to the sub-agent runner script `delegate_task` spawns. Defaults to the
+   * compiled subagent-entry.js next to this module. Override in tests to point at
+   * a fixture runner.
+   */
+  subagentRunnerPath?: string;
+  /** Hard timeout (ms) for a delegated sub-agent (default 5 minutes). */
+  delegateTimeoutMs?: number;
 }
+
+/** The compiled sub-agent runner, resolved relative to this module (dist/core/agent-tools → ../subagent-entry.js). */
+const DEFAULT_SUBAGENT_RUNNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'subagent-entry.js');
 
 /**
  * Create the full set of extra tools matching Hermes' tool registry.
@@ -51,7 +63,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const fileHandlers = createEnhancedFileToolHandlers(config.workspaceRoot);
   const visionHandlers = createVisionToolHandlers(config.apiKey);
   const executeCodeHandlers = createExecuteCodeToolHandlers();
-  const delegateHandlers = createDelegateToolHandlers(config.agentServerUrl);
+  const delegateHandlers = createDelegateToolHandlers({
+    runnerPath: config.subagentRunnerPath ?? DEFAULT_SUBAGENT_RUNNER,
+    ...(config.delegateTimeoutMs !== undefined ? { timeoutMs: config.delegateTimeoutMs } : {}),
+  });
   const todoHandlers = createTodoToolHandlers();
   const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
   const skillHandlers = createSkillToolHandlers(skillsRoot);

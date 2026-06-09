@@ -23,6 +23,10 @@ import { loadPersonality } from './lib/personality.js';
 const PORT = parseInt(process.env.PEHLICHI_PORT || '18830', 10);
 const HOST = process.env.PEHLICHI_HOST || '127.0.0.1';
 
+// Model configuration: env vars override defaults
+const MODEL = process.env.AGENT_MODEL || 'mimo-v2.5';
+const BASE_URL = process.env.AGENT_BASE_URL || 'https://api.xiaomimimo.com/v1';
+
 // Load agent info once at startup
 const skin = loadSkin();
 const personality = loadPersonality();
@@ -41,6 +45,8 @@ function resolveApiKey(): string | undefined {
 // Full agent chat session (with tool-calling loop)
 const chat = new AgentChatSession({
   apiKey: resolveApiKey(),
+  baseUrl: BASE_URL,
+  model: MODEL,
   workspaceRoot: '/pehverse/repos/pehlichi',
   agentServerUrl: `http://127.0.0.1:${PORT}`,
 });
@@ -73,7 +79,7 @@ const server = createServer(async (req, res) => {
     return json(res, 200, {
       status: 'ok',
       agent: skin.branding.agent_name,
-      model: 'mimo-v2.5',
+      model: MODEL,
       uptime: process.uptime(),
       historyLength: chat.getHistory().length,
       toolCount: chat.getToolNames().length,
@@ -170,7 +176,7 @@ const server = createServer(async (req, res) => {
       id: skin.branding.agent_name.toLowerCase(),
       name: skin.branding.agent_name,
       personality: personality.name,
-      model: 'mimo-v2.5',
+      model: MODEL,
       tools: chat.getToolNames().length,
       status: 'active',
       uptime: process.uptime(),
@@ -183,7 +189,7 @@ const server = createServer(async (req, res) => {
       agent: skin.branding.agent_name,
       tools: chat.getToolNames(),
       endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
-      model: 'mimo-v2.5',
+      model: MODEL,
       features: ['tool_calling', 'streaming', 'conversation_memory', 'progressive_disclosure'],
     });
   }
@@ -196,7 +202,7 @@ server.listen(PORT, HOST, () => {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`  🐿  ${skin.branding.agent_name} — Agent Server`);
   console.log(`  Personality: ${personality.name}`);
-  console.log(`  Model: mimo-v2.5`);
+  console.log(`  Model: ${MODEL}`);
   console.log(`  Tools: ${chat.getToolNames().length} registered`);
   console.log(`  Listening: http://${HOST}:${PORT}`);
   console.log(`  Endpoints:`);

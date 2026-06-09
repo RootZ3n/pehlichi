@@ -1,17 +1,29 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
+import {
+  CHECKPOINT_KEEP,
+  listCheckpointFiles,
+  loadLatestCheckpoint,
+  saveCheckpoint,
+} from "./checkpoint.js";
+import { createDelegateToolHandlers } from "./agent-tools/delegate-tools.js";
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
 import { runAgent } from "./loop.js";
+import { clearProcessRegistry } from "./process-registry.js";
 import type { AgentProfile } from "./profile.js";
-import type { ToolDef } from "./tools.js";
+import { createToolRegistry, type ToolContext, type ToolDef } from "./tools.js";
 import {
   createLabStore,
   createWorkspace,
   scenarioActions,
 } from "./scenario.js";
+
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const testProfile: AgentProfile = {
   name: "TestAgent",
@@ -230,5 +242,290 @@ test("6. extraTools seam: agent-supplied tools are registered alongside core", a
   } finally {
     rmSync(workspace, { recursive: true, force: true });
     rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+// ── Item 2: CHECKPOINTING ─────────────────────────────────────────────────────
+
+test("7. checkpoint module: saves are pruned to the last N; loadLatest returns the newest", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cp-mod-"));
+  try {
+    for (let it = 1; it <= 5; it++) {
+      saveCheckpoint(dir, { iteration: it, timestamp: it * 10, messages: [{ role: "user", content: `m${it}` }], taskId: "T" });
+    }
+    // Only the last CHECKPOINT_KEEP (3) survive; loadLatest is the highest iteration.
+    assert.equal(listCheckpointFiles(dir).length, CHECKPOINT_KEEP);
+    const latest = loadLatestCheckpoint(dir);
+    assert.ok(latest);
+    assert.equal(latest.iteration, 5);
+    assert.equal(latest.messages[0]?.content, "m5");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("8. loop checkpointing: a run periodically writes checkpoints, pruned to the last 3", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const checkpointDir = join(workspace, ".checkpoints");
+  // 6 narrate steps then done — with checkpointEvery:1 the loop saves 6 times.
+  const actions: DriverAction[] = [
+    ...Array.from({ length: 6 }, (_unused, i): DriverAction => ({ kind: "narrate", phase: "other", text: `step ${i}` })),
+    { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      checkpointDir,
+      checkpointEvery: 1,
+    });
+    assert.equal(result.ok, true);
+    // Pruned to the last 3; the newest reflects the 6th completed iteration.
+    assert.equal(listCheckpointFiles(checkpointDir).length, CHECKPOINT_KEEP);
+    const latest = loadLatestCheckpoint(checkpointDir);
+    assert.ok(latest);
+    assert.equal(latest.iteration, 6);
+    assert.ok(latest.messages.length > 0, "checkpoint captured the conversation");
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("9. loop resume: resumeFromCheckpoint continues from the saved iteration", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const checkpointDir = join(workspace, ".checkpoints");
+  // Seed a checkpoint AT the iteration cap. On resume the loop starts at i=50 and
+  // trips the guard immediately — proving startIteration came from the checkpoint.
+  // (Without resume it would start at 0 and reach `done` on the first action.)
+  saveCheckpoint(checkpointDir, {
+    iteration: 50,
+    timestamp: 1,
+    messages: [{ role: "system", content: "resumed" }, { role: "user", content: "earlier work" }],
+    taskId: "t",
+  });
+  const actions: DriverAction[] = [{ kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } }];
+  try {
+    await assert.rejects(
+      runAgent({
+        profile: testProfile,
+        task: "t",
+        workspaceRoot: workspace,
+        labStoreRoot: labStore,
+        driver: new ScriptedDriver(actions),
+        maxIterations: 50,
+        checkpointDir,
+        resumeFromCheckpoint: true,
+      }),
+      /exceeded max iterations/,
+    );
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+// ── Item 3: PARTIAL RESULTS ON EXHAUSTION ─────────────────────────────────────
+
+test("10. partialOnExhaustion: exhausting the budget returns a partial result with accomplishments", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  // i=0 runs a successful tool (one accomplishment), then narrates until exhaustion.
+  const actions: DriverAction[] = [
+    { kind: "tool", tool: "terminal", args: { command: "echo built" } },
+    { kind: "narrate", phase: "other", text: "still going" },
+    { kind: "narrate", phase: "other", text: "still going" },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      maxIterations: 3,
+      partialOnExhaustion: true,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.partial, true);
+    assert.ok((result.accomplished?.length ?? 0) >= 1, "recorded at least one accomplishment");
+    assert.match(result.output ?? "", /Budget exhausted after 3 steps/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("11. without partialOnExhaustion, exhaustion still throws (proven behavior unchanged)", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const actions: DriverAction[] = Array.from({ length: 3 }, (): DriverAction => ({ kind: "narrate", phase: "other", text: "x" }));
+  try {
+    await assert.rejects(
+      runAgent({
+        profile: testProfile,
+        task: "t",
+        workspaceRoot: workspace,
+        labStoreRoot: labStore,
+        driver: new ScriptedDriver(actions),
+        maxIterations: 2,
+      }),
+      /exceeded max iterations/,
+    );
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+// ── Item 4: PLANNING STEP ─────────────────────────────────────────────────────
+
+test("12. planning enabled: a numbered plan is captured and progress is tracked", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const actions: DriverAction[] = [
+    { kind: "narrate", phase: "investigate", text: "My plan:\n1. inspect the file\n2. apply the fix\n3. verify it" },
+    { kind: "tool", tool: "terminal", args: { command: "echo one" } },
+    { kind: "tool", tool: "terminal", args: { command: "echo two" } },
+    { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+    });
+    assert.equal(result.ok, true);
+    assert.ok(result.plan, "a plan was captured");
+    assert.equal(result.plan.steps.length, 3);
+    assert.equal(result.plan.progress, 2); // two successful tool calls advanced progress
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("13. planning disabled (plan:false): no plan is produced", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const actions: DriverAction[] = [
+    { kind: "narrate", phase: "investigate", text: "My plan:\n1. step one\n2. step two" },
+    { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      plan: false,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.plan, undefined);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+// ── Item 5: BACKGROUND PROCESS SUPPORT ────────────────────────────────────────
+
+test("14. background process: start via terminal, write+poll, kill, then wait reports killed", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const ctx: ToolContext = { workspaceRoot: workspace, labStoreRoot: labStore, store: {} };
+  const registry = createToolRegistry();
+  const terminal = registry.get("terminal");
+  const procTool = registry.get("process");
+  assert.ok(terminal && procTool, "terminal and process tools are registered");
+  try {
+    // `cat` echoes its stdin back — a long-lived process we can drive.
+    const started = await terminal.handler({ command: "cat", background: true }, ctx);
+    assert.equal(started.ok, true);
+    const sessionId = started.output.match(/session_id=(\S+)/)?.[1];
+    assert.ok(sessionId, "terminal returned a session_id");
+
+    // list shows it running
+    const listed = await procTool.handler({ action: "list" }, ctx);
+    assert.match(listed.output, new RegExp(`${sessionId}.*running`));
+
+    // write to stdin, give it a moment, then poll for the echoed output
+    await procTool.handler({ action: "write", session_id: sessionId, data: "ping\n" }, ctx);
+    await delay(150);
+    const polled = await procTool.handler({ action: "poll", session_id: sessionId }, ctx);
+    assert.equal(polled.ok, true);
+    assert.match(polled.output, /ping/);
+
+    // kill it, then wait should report it is no longer running
+    const killed = await procTool.handler({ action: "kill", session_id: sessionId }, ctx);
+    assert.equal(killed.ok, true);
+    const waited = await procTool.handler({ action: "wait", session_id: sessionId, timeoutMs: 2000 }, ctx);
+    assert.match(waited.output, /killed/);
+
+    // an unknown session is a clean error, not a throw
+    const unknown = await procTool.handler({ action: "poll", session_id: "bg-does-not-exist" }, ctx);
+    assert.equal(unknown.ok, false);
+    assert.match(unknown.error ?? "", /unknown session/);
+  } finally {
+    clearProcessRegistry();
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+// ── Item 6: REAL SUBAGENT SPAWNING ────────────────────────────────────────────
+
+test("15. delegate_task spawns a REAL separate process and returns its JSON result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "subagent-fixture-"));
+  const runner = join(dir, "echo-runner.cjs");
+  // A real, standalone runner: reads the JSON job on stdin, prints a JSON result.
+  writeFileSync(
+    runner,
+    [
+      "let data='';",
+      "process.stdin.on('data',c=>data+=c);",
+      "process.stdin.on('end',()=>{",
+      "  let job={}; try{job=JSON.parse(data)}catch{}",
+      "  process.stdout.write(JSON.stringify({ok:true,output:`handled: ${job.goal} pid=${process.pid}`})+'\\n');",
+      "});",
+    ].join("\n"),
+  );
+  try {
+    const handlers = createDelegateToolHandlers({ runnerPath: runner });
+    const delegate = handlers.get("delegate_task");
+    assert.ok(delegate);
+    const res = await delegate({ goal: "compile the module" }, { workspaceRoot: dir, labStoreRoot: dir, store: {} });
+    assert.equal(res.ok, true);
+    assert.match(res.output, /handled: compile the module/);
+    // Proof it ran in a SEPARATE process: a different pid than this test process.
+    const pid = Number(res.output.match(/pid=(\d+)/)?.[1]);
+    assert.ok(pid > 0 && pid !== process.pid, "sub-agent ran in its own process");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("16. delegate_task enforces a timeout: a hung sub-agent is killed and reported", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "subagent-hang-"));
+  const runner = join(dir, "hang-runner.cjs");
+  // Never reads stdin, never exits — the parent must time it out and kill it.
+  writeFileSync(runner, "setInterval(()=>{}, 1000);\n");
+  try {
+    const handlers = createDelegateToolHandlers({ runnerPath: runner, timeoutMs: 300 });
+    const delegate = handlers.get("delegate_task");
+    assert.ok(delegate);
+    const res = await delegate({ goal: "loop forever" }, { workspaceRoot: dir, labStoreRoot: dir, store: {} });
+    assert.equal(res.ok, false);
+    assert.match(res.error ?? "", /timed out/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

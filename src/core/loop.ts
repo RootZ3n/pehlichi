@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
 
+import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import type { Driver, Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
 import type { AgentProfile } from "./profile.js";
@@ -22,7 +23,7 @@ import {
   type ToolResult,
 } from "./tools.js";
 
-const DEFAULT_MAX_ITERATIONS = 25;
+const DEFAULT_MAX_ITERATIONS = 50;
 
 export interface RunAgentOptions {
   readonly profile: AgentProfile;
@@ -32,7 +33,7 @@ export interface RunAgentOptions {
   readonly labStoreRoot: string;
   readonly driver: Driver;
   readonly sinks?: readonly EventSink[];
-  /** Runaway guard. Default 25. */
+  /** Runaway guard. Default 50. */
   readonly maxIterations?: number;
   /** Inject a store (tests); otherwise one is bound to labStoreRoot. */
   readonly store?: Store;
@@ -77,6 +78,50 @@ export interface RunAgentOptions {
   readonly extraTools?: readonly ToolDef[];
   /** Injectable clock for deterministic event timestamps. */
   readonly clock?: () => number;
+  /**
+   * CHECKPOINTING (opt-in): when set, the loop saves a JSON snapshot of the running
+   * conversation (messages + iteration) to this directory every `checkpointEvery`
+   * iterations, keeping only the most recent few (see checkpoint.ts). Callers conventionally
+   * pass `<workspaceRoot>/.checkpoints`. Unset ⇒ no checkpointing (behavior unchanged).
+   */
+  readonly checkpointDir?: string;
+  /** Save a checkpoint every N iterations (default 5). Only used when `checkpointDir` is set. */
+  readonly checkpointEvery?: number;
+  /** When true (and `checkpointDir` has a checkpoint), resume from the latest checkpoint. */
+  readonly resumeFromCheckpoint?: boolean;
+  /** Correlation id stored in checkpoints (defaults to the task string). */
+  readonly taskId?: string;
+  /**
+   * PARTIAL RESULTS (opt-in): when true, exhausting the iteration budget RETURNS a
+   * partial result ({ ok:false, partial:true, accomplished, output }) instead of
+   * throwing. Unset/false ⇒ exhaustion throws "exceeded max iterations" exactly as
+   * before, so the proven runaway-guard contract is unchanged for callers that do
+   * not opt in.
+   */
+  readonly partialOnExhaustion?: boolean;
+  /**
+   * PLANNING (default ON; pass `false` to disable): when enabled, the run is asked
+   * up front to lay out a numbered plan. The first numbered list the model narrates
+   * is captured as the plan, progress is advanced as tool calls succeed, and the
+   * plan/progress are surfaced back into the transcript and in the returned result.
+   * Enabling adds only transcript messages (no extra driver turns, no new event
+   * kinds), so a run with a scripted/sequenced driver behaves identically.
+   */
+  readonly plan?: boolean;
+}
+
+/** What a finished (or budget-exhausted) run reports back to its caller. */
+export interface RunAgentResult {
+  /** True when the run reached `done`; false when the budget was exhausted (partial). */
+  readonly ok: boolean;
+  /** True iff the run ended by exhausting its iteration budget (only with `partialOnExhaustion`). */
+  readonly partial?: boolean;
+  /** One human-readable entry per successful tool call, in order. */
+  readonly accomplished?: readonly string[];
+  /** Closing message: the summary root cause on `done`, or the budget-exhausted notice. */
+  readonly output?: string;
+  /** The numbered plan captured at the start (when planning is enabled) and how many steps completed. */
+  readonly plan?: { readonly steps: readonly string[]; readonly progress: number };
 }
 
 export interface RunAgentInShadowOptions extends Omit<RunAgentOptions, "workspaceRoot"> {
@@ -113,9 +158,14 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
   }
 }
 
-/** Run one agent session to completion (done) or failure (throw). */
-export async function runAgent(opts: RunAgentOptions): Promise<void> {
-  const emitter = new EventEmitter(opts.sinks ?? [], opts.clock ?? Date.now);
+/**
+ * Run one agent session to completion (`done`) or failure. Returns a result
+ * describing how it ended. On a budget-exhausted run it either returns a partial
+ * result (when `partialOnExhaustion` is set) or throws (the default, unchanged).
+ */
+export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
+  const clock = opts.clock ?? Date.now;
+  const emitter = new EventEmitter(opts.sinks ?? [], clock);
   const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const workspaceRoot = resolve(opts.workspaceRoot);
   const store = opts.store ?? createStore({ root: opts.labStoreRoot });
@@ -172,9 +222,44 @@ export async function runAgent(opts: RunAgentOptions): Promise<void> {
     { role: "user", content: opts.task },
   ];
 
-  for (let i = 0; ; i++) {
+  // PLANNING (item 4): ask for a numbered plan up front. Default ON; opts.plan===false
+  // disables. Enabling only appends transcript messages, so a scripted-driver run's
+  // action sequence and event stream are unchanged.
+  const planningEnabled = opts.plan !== false;
+  if (planningEnabled) {
+    messages.push({ role: "user", content: PLAN_INSTRUCTION });
+  }
+  const planSteps: string[] = [];
+  let planProgress = 0;
+
+  // CHECKPOINTING (item 2): config + opt-in resume. Resuming REPLACES the fresh
+  // transcript with the saved one and continues from the saved iteration.
+  const checkpointEvery = opts.checkpointEvery ?? 5;
+  const taskId = opts.taskId ?? opts.task;
+  let startIteration = 0;
+  if (opts.checkpointDir !== undefined && opts.resumeFromCheckpoint === true) {
+    const cp = loadLatestCheckpoint(opts.checkpointDir);
+    if (cp !== undefined) {
+      messages.length = 0;
+      messages.push(...cp.messages);
+      startIteration = cp.iteration;
+    }
+  }
+
+  // PARTIAL RESULTS (item 3): every successful tool call appends an accomplishment.
+  const accomplished: string[] = [];
+  const planResult = () => (planningEnabled && planSteps.length > 0 ? { plan: { steps: planSteps, progress: planProgress } } : {});
+
+  for (let i = startIteration; ; i++) {
     if (i >= maxIterations) {
       const message = `exceeded max iterations (${maxIterations})`;
+      // Opt-in: return a partial result describing what was accomplished instead of
+      // throwing. Default (unset) preserves the proven fail-loud runaway guard.
+      if (opts.partialOnExhaustion === true) {
+        const output = `Budget exhausted after ${i} steps. Completed: ${accomplished.length > 0 ? accomplished.join("; ") : "nothing"}`;
+        emitter.emit({ kind: "narrate", phase: "other", text: output });
+        return { ok: false, partial: true, accomplished, output, ...planResult() };
+      }
       emitter.emit({ kind: "error", where: "loop", message });
       throw new Error(message);
     }
@@ -194,6 +279,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<void> {
       case "narrate": {
         emitter.emit({ kind: "narrate", phase: action.phase, text: action.text });
         messages.push({ role: "assistant", content: `[${action.phase}] ${action.text}` });
+        // PLANNING: the first numbered list the model narrates becomes the plan.
+        if (planningEnabled && planSteps.length === 0) {
+          const parsed = parsePlan(action.text);
+          if (parsed.length > 0) {
+            planSteps.push(...parsed);
+            messages.push({ role: "user", content: `[plan] recorded ${planSteps.length} steps; progress will be tracked.` });
+          }
+        }
         break;
       }
       case "root-cause": {
@@ -246,6 +339,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<void> {
         // here. A call that never executed (e.g. textual-call-detected) produces
         // NO such message — the model has nothing to cite for it.
         messages.push({ role: "tool", content: toolResultForHistory(action.tool, result) });
+        // PARTIAL RESULTS: record the accomplishment; advance plan progress.
+        if (result.ok) {
+          accomplished.push(`${action.tool}: ${firstLine(result.output) || "ok"}`);
+          if (planningEnabled && planSteps.length > 0 && planProgress < planSteps.length) {
+            planProgress += 1;
+            messages.push({ role: "user", content: `[plan-progress] ${planProgress}/${planSteps.length} steps complete.` });
+          }
+        }
         break;
       }
       case "textual-call-detected": {
@@ -276,8 +377,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<void> {
           verification: action.summary.verification,
         });
         emitter.emit({ kind: "done" });
-        return;
+        return { ok: true, accomplished, output: action.summary.rootCause, ...planResult() };
       }
+    }
+
+    // CHECKPOINTING: after completing the (i+1)-th iteration, persist a snapshot
+    // every `checkpointEvery` iterations (only when a checkpoint dir is wired).
+    if (opts.checkpointDir !== undefined && checkpointEvery > 0 && (i + 1) % checkpointEvery === 0) {
+      saveCheckpoint(opts.checkpointDir, { iteration: i + 1, timestamp: clock(), messages, taskId });
     }
   }
 }
@@ -306,6 +413,30 @@ function validateSummary(
     emitter.emit({ kind: "error", where: "done", message });
     throw new Error(message);
   }
+}
+
+/** The up-front planning request appended to the transcript when planning is enabled. */
+const PLAN_INSTRUCTION =
+  "Before acting, lay out a brief numbered plan (1., 2., 3., ...) of the steps you will take to " +
+  "accomplish the task. Then proceed, executing each step in order.";
+
+/** Extract a numbered plan from narration: lines like "1. do x" / "2) do y". */
+function parsePlan(text: string): string[] {
+  const steps: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*\d+[.)]\s+(.+?)\s*$/);
+    if (m && m[1] !== undefined) steps.push(m[1]);
+  }
+  return steps;
+}
+
+/** First non-empty line of a string, trimmed (for compact accomplishment entries). */
+function firstLine(s: string): string {
+  for (const line of s.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.length > 0) return t;
+  }
+  return "";
 }
 
 function messageOf(err: unknown): string {

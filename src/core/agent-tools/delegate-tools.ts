@@ -1,9 +1,19 @@
 /**
- * DELEGATE TASK TOOL — spawn sub-agents.
+ * DELEGATE TASK TOOL — spawn a REAL sub-agent process.
  *
  * Tool name matches Hermes: delegate_task.
- * Spawns a child agent process to handle a task independently.
+ *
+ * Earlier this POSTed back to the agent's own /chat server — the "sub-agent" was
+ * the same process answering itself. This version spawns a genuinely SEPARATE node
+ * process (the sub-agent runner) that runs its OWN agent loop with its OWN
+ * conversation and tool registry. Communication is a single JSON job written to the
+ * child's stdin and a single JSON result read from its stdout. The parent blocks
+ * until the child reports a result or a hard timeout (default 5 minutes) fires, at
+ * which point the child is killed and a timeout error is returned. There is no
+ * shared state between parent and child beyond that stdin/stdout channel.
  */
+import { spawn } from 'node:child_process';
+
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
 const obj = (
@@ -14,7 +24,7 @@ const obj = (
 export const delegateToolSpecs: ToolSpec[] = [
   {
     name: 'delegate_task',
-    description: 'Spawn a sub-agent to handle a task. Returns the agent\'s final summary.',
+    description: 'Spawn a sub-agent (a separate process) to handle a task. Returns the agent\'s final summary.',
     parameters: obj(
       {
         goal: { type: 'string', description: 'What the sub-agent should accomplish' },
@@ -26,47 +36,112 @@ export const delegateToolSpecs: ToolSpec[] = [
   },
 ];
 
-const DELEGATE_TIMEOUT = 300_000; // 5 minutes
+/** Default sub-agent budget: 5 minutes. */
+export const DELEGATE_TIMEOUT = 300_000;
 
-export function createDelegateToolHandlers(agentServerUrl: string): Map<string, ToolHandler> {
+/** What a delegated sub-agent prints to stdout (a single JSON object). */
+export interface SubagentResult {
+  readonly ok: boolean;
+  readonly output: string;
+  readonly error?: string;
+}
+
+export interface DelegateConfig {
+  /**
+   * Path to a node script that runs ONE sub-agent: it reads a JSON job
+   * ({ goal, context, toolsets }) on stdin and prints a JSON SubagentResult on
+   * stdout. In production this is the compiled subagent-entry.js; tests point it
+   * at a fixture runner so the real spawn/communication/timeout path is exercised
+   * without a model.
+   */
+  readonly runnerPath: string;
+  /** Node executable to spawn (defaults to the current process's node). */
+  readonly nodePath?: string;
+  /** Args inserted BEFORE the runner path (e.g. ["--import", "tsx"] to run TS directly). */
+  readonly nodeArgs?: readonly string[];
+  /** Hard timeout in ms before the child is killed (default 300000). */
+  readonly timeoutMs?: number;
+}
+
+export function createDelegateToolHandlers(config: DelegateConfig): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
+  const nodePath = config.nodePath ?? process.execPath;
+  const nodeArgs = config.nodeArgs ?? [];
+  const timeoutMs = config.timeoutMs ?? DELEGATE_TIMEOUT;
 
   handlers.set('delegate_task', async (args): Promise<ToolResult> => {
     const goal = args.goal as string;
     const context = (args.context as string) ?? '';
     const toolsets = (args.toolsets as string[]) ?? ['terminal', 'file', 'web'];
-
-    try {
-      // Build the delegation prompt
-      const prompt = [
-        `TASK: ${goal}`,
-        context ? `\nCONTEXT:\n${context}` : '',
-        `\nTOOLSETS: ${toolsets.join(', ')}`,
-        '\nComplete the task and provide a clear summary of what you did and the results.',
-      ].join('\n');
-
-      // Send to the agent's own server as a chat message
-      const response = await fetch(`${agentServerUrl}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `[DELEGATED TASK]\n${prompt}` }),
-        signal: AbortSignal.timeout(DELEGATE_TIMEOUT),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'unknown');
-        return { ok: false, output: '', error: `Delegation failed: ${response.status} ${errorText.slice(0, 200)}` };
-      }
-
-      const data = await response.json() as any;
-      return {
-        ok: true,
-        output: data.content || data.error || 'No response from sub-agent',
-      };
-    } catch (err) {
-      return { ok: false, output: '', error: `Delegation failed: ${err instanceof Error ? err.message : String(err)}` };
-    }
+    const job = JSON.stringify({ goal, context, toolsets });
+    return runSubagent(nodePath, [...nodeArgs, config.runnerPath], job, timeoutMs);
   });
 
   return handlers;
+}
+
+/**
+ * Spawn the runner, hand it the job on stdin, and resolve with its result. The
+ * promise NEVER rejects — a spawn failure, non-zero exit, or timeout all resolve to
+ * a `{ ok:false }` ToolResult so the loop treats it like any other tool failure.
+ */
+function runSubagent(cmd: string, argv: string[], job: string, timeoutMs: number): Promise<ToolResult> {
+  return new Promise<ToolResult>((resolveResult) => {
+    const child = spawn(cmd, argv, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const settle = (r: ToolResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveResult(r);
+    };
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      settle({ ok: false, output: stdout.trim(), error: `sub-agent timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (d: string) => { stdout += d; });
+    child.stderr?.on('data', (d: string) => { stderr += d; });
+    child.on('error', (err) => settle({ ok: false, output: '', error: `failed to spawn sub-agent: ${err.message}` }));
+    child.on('close', (code) => {
+      const parsed = parseResult(stdout);
+      if (parsed !== undefined) {
+        settle({ ok: parsed.ok, output: parsed.output, ...(parsed.error !== undefined ? { error: parsed.error } : {}) });
+        return;
+      }
+      // No parsable result — report the exit and a slice of stderr for diagnosis.
+      settle(
+        code === 0
+          ? { ok: true, output: stdout.trim() }
+          : { ok: false, output: stdout.trim(), error: `sub-agent exited ${code ?? 'null'}: ${stderr.slice(0, 300)}` },
+      );
+    });
+
+    child.stdin?.write(job);
+    child.stdin?.end();
+  });
+}
+
+/** Parse the LAST JSON object the runner printed (so leading diagnostics are tolerated). */
+function parseResult(stdout: string): SubagentResult | undefined {
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line === undefined || !line.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      if (typeof parsed.ok === 'boolean' && typeof parsed.output === 'string') {
+        return { ok: parsed.ok, output: parsed.output, ...(typeof parsed.error === 'string' ? { error: parsed.error } : {}) };
+      }
+    } catch {
+      // not JSON — keep scanning earlier lines
+    }
+  }
+  return undefined;
 }

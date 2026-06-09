@@ -14,6 +14,15 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
+import {
+  getProcess,
+  killProcess,
+  listProcesses,
+  pollProcess,
+  spawnBackground,
+  waitProcess,
+  writeProcess,
+} from "./process-registry.js";
 import { ToolError } from "./workspace.js";
 
 // Re-export ToolSpec so the agent-tools (which import ToolSpec/ToolHandler/ToolResult/ToolDef
@@ -96,11 +105,35 @@ export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistr
           {
             command: { type: "string", description: "Shell command to run (cwd is the workspace)." },
             timeoutMs: { type: "number", description: "Optional timeout in ms (default 60000)." },
+            background: {
+              type: "boolean",
+              description:
+                "Run the command in the background (non-blocking). Returns a session_id; drive it with the `process` tool.",
+            },
           },
           ["command"],
         ),
       },
       handler: terminalTool,
+    },
+    {
+      spec: {
+        name: "process",
+        description:
+          "Manage background processes started by `terminal` (background:true). Actions: " +
+          "list (all sessions), poll (new output + status), wait (block until done/timeout), " +
+          "kill (terminate), write (send to stdin).",
+        parameters: obj(
+          {
+            action: { type: "string", enum: ["list", "poll", "wait", "kill", "write"], description: "What to do." },
+            session_id: { type: "string", description: "Target process session id (not needed for list)." },
+            data: { type: "string", description: "For write: bytes to send to the process stdin." },
+            timeoutMs: { type: "number", description: "For wait: max ms to block (default 30000)." },
+          },
+          ["action"],
+        ),
+      },
+      handler: processTool,
     },
     // ── Agent-supplied tools (tool-registration seam) ──────────────────────────
     ...(extraTools ?? []),
@@ -139,6 +172,16 @@ const terminalTool: ToolHandler = async (args, ctx) => {
 
   const env = buildTerminalEnv(cwd);
   const envKeys = Object.keys(env).sort();
+
+  // BACKGROUND mode (item 5): spawn async and return a session id immediately.
+  // The same locked cwd + from-empty env confine it exactly like a foreground run.
+  if (args.background === true) {
+    const sessionId = spawnBackground(command, { cwd, env }, Date.now());
+    return {
+      ok: true,
+      output: `started background process: session_id=${sessionId}\nUse the \`process\` tool (poll/wait/kill/write) to drive it.`,
+    };
+  }
 
   const start = Date.now();
   const res = spawnSync(command, {
@@ -180,6 +223,66 @@ const terminalTool: ToolHandler = async (args, ctx) => {
   return exitCode === 0
     ? { ok: true, output, receipt }
     : { ok: false, output, error: `command exited with code ${exitCode}`, receipt };
+};
+
+// ── process handler (background process management) ──────────────────────────
+
+/**
+ * Drive background processes started by `terminal` (background:true). Stateless
+ * itself — all state lives in the process registry, so any handler invocation in
+ * the same run can reach a previously started process by session id.
+ */
+const processTool: ToolHandler = async (args) => {
+  const action = str(args, "action");
+
+  if (action === "list") {
+    const procs = listProcesses();
+    const lines = procs.map((p) => `${p.sessionId} [${p.status}${p.exitCode !== null ? ` exit=${p.exitCode}` : ""}] ${p.command}`);
+    return { ok: true, output: procs.length === 0 ? "(no background processes)" : lines.join("\n") };
+  }
+
+  const sessionId = str(args, "session_id");
+
+  switch (action) {
+    case "poll": {
+      const proc = getProcess(sessionId);
+      const out = pollProcess(sessionId);
+      if (proc === undefined || out === undefined) {
+        return { ok: false, output: "", error: `unknown session: ${sessionId}` };
+      }
+      const parts = [`status: ${proc.status}${proc.exitCode !== null ? ` exit=${proc.exitCode}` : ""}`];
+      if (out.newStdout.length > 0) parts.push(`stdout:\n${out.newStdout}`);
+      if (out.newStderr.length > 0) parts.push(`stderr:\n${out.newStderr}`);
+      return { ok: true, output: parts.join("\n") };
+    }
+    case "wait": {
+      const timeout = optInt(args, "timeoutMs") ?? 30_000;
+      const status = await waitProcess(sessionId, timeout);
+      if (status === undefined) return { ok: false, output: "", error: `unknown session: ${sessionId}` };
+      const proc = getProcess(sessionId);
+      const exited = status !== "running";
+      return {
+        ok: exited,
+        output: `status: ${status}${proc && proc.exitCode !== null ? ` exit=${proc.exitCode}` : ""}`,
+        ...(exited ? {} : { error: `wait timed out after ${timeout}ms (still running)` }),
+      };
+    }
+    case "kill": {
+      const ok = killProcess(sessionId);
+      return ok
+        ? { ok: true, output: `killed ${sessionId}` }
+        : { ok: false, output: "", error: `unknown session: ${sessionId}` };
+    }
+    case "write": {
+      const data = str(args, "data");
+      const ok = writeProcess(sessionId, data);
+      return ok
+        ? { ok: true, output: `wrote ${data.length} chars to ${sessionId}` }
+        : { ok: false, output: "", error: `cannot write to session: ${sessionId} (unknown or stdin closed)` };
+    }
+    default:
+      return { ok: false, output: "", error: `unknown process action: ${action}` };
+  }
 };
 
 // ── terminal hardening helpers ───────────────────────────────────────────────
