@@ -29,6 +29,7 @@ import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
 import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
 import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
 import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
+import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -74,10 +75,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const memoryDir = config.memoryDir ?? join(config.workspaceRoot, 'memories');
   const memoryHandlers = createMemoryToolHandlers({ memoryDir });
   const cronHandlers = createCronToolHandlers(async (prompt: string) => {
-    // Default cron execution: log the prompt (actual execution would need a chat session)
     console.log(`[cron] Executing scheduled task: ${prompt.slice(0, 100)}`);
     return `Task "${prompt.slice(0, 50)}" executed at ${new Date().toISOString()}`;
   });
+  const clarifyHandlers = createClarifyToolHandlers();
 
   const tools: ToolDef[] = [];
 
@@ -138,6 +139,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Cron tools
   for (const spec of cronToolSpecs) {
     const handler = cronHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Clarify tools
+  for (const spec of clarifyToolSpecs) {
+    const handler = clarifyHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
