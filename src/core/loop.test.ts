@@ -513,6 +513,108 @@ test("15. delegate_task spawns a REAL separate process and returns its JSON resu
   }
 });
 
+// ── Blocker 6: APPROVAL GATES ─────────────────────────────────────────────────
+
+test("17. approvalCallback rejects a tool: the handler never runs and a rejection is fed back", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const { events, sink } = capture();
+  let handlerRan = false;
+  const guardedTool: ToolDef = {
+    spec: { name: "danger", description: "would mutate", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } },
+    handler: async () => { handlerRan = true; return { ok: true, output: "mutated" }; },
+  };
+  const actions: DriverAction[] = [
+    { kind: "tool", tool: "danger", args: {} },
+    { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      sinks: [sink],
+      extraTools: [guardedTool],
+      approvalCallback: ({ tool }) => ({ approved: tool !== "danger", reason: "writes are gated" }),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(handlerRan, false, "the rejected tool's handler must NOT execute");
+    const res = events.find((e) => e.kind === "tool-result" && e.tool === "danger");
+    assert.ok(res && res.kind === "tool-result");
+    assert.equal(res.ok, false);
+    assert.match(res.error ?? "", /tool not approved: writes are gated/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("18. no approvalCallback (default): every tool executes normally", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const { events, sink } = capture();
+  const actions: DriverAction[] = [
+    { kind: "tool", tool: "terminal", args: { command: "echo approved" } },
+    { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    const result = await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      sinks: [sink],
+    });
+    assert.equal(result.ok, true);
+    const res = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
+    assert.ok(res && res.kind === "tool-result");
+    assert.equal(res.ok, true);
+    assert.match(res.output, /approved/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("19. priorMessages seeds prior conversation between the system prompt and the task", async () => {
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  // A driver that records the transcript it was handed on the FIRST turn, so we can
+  // assert the seeded turns landed in order between system and the new task.
+  let seen: { role: string; content: string }[] = [];
+  const recordingDriver = {
+    calls: 0,
+    async next(ctx: { messages: { role: string; content: string }[] }): Promise<DriverAction> {
+      if (this.calls++ === 0) seen = ctx.messages.map((m) => ({ role: m.role, content: m.content }));
+      return { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } };
+    },
+  };
+  try {
+    await runAgent({
+      profile: testProfile,
+      task: "new question",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: recordingDriver,
+      plan: false,
+      priorMessages: [
+        { role: "user", content: "earlier question" },
+        { role: "assistant", content: "earlier answer" },
+      ],
+    });
+    assert.equal(seen[0]?.role, "system");
+    assert.equal(seen[1]?.content, "earlier question");
+    assert.equal(seen[2]?.content, "earlier answer");
+    assert.equal(seen[3]?.content, "new question");
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
 test("16. delegate_task enforces a timeout: a hung sub-agent is killed and reported", async () => {
   const dir = mkdtempSync(join(tmpdir(), "subagent-hang-"));
   const runner = join(dir, "hang-runner.cjs");

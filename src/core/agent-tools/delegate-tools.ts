@@ -46,12 +46,25 @@ export interface SubagentResult {
   readonly error?: string;
 }
 
+/**
+ * The job written to a sub-agent's stdin. `delegatedFrom` is the COORDINATION chain
+ * (Blocker 7): the ordered list of goals along the delegation path that led here.
+ * A child appends its own goal before spawning a grandchild, so the chain grows with
+ * depth and a repeat anywhere in it is a cycle.
+ */
+export interface SubagentJob {
+  readonly goal: string;
+  readonly context: string;
+  readonly toolsets: string[];
+  readonly delegatedFrom: string[];
+}
+
 export interface DelegateConfig {
   /**
    * Path to a node script that runs ONE sub-agent: it reads a JSON job
-   * ({ goal, context, toolsets }) on stdin and prints a JSON SubagentResult on
-   * stdout. In production this is the compiled subagent-entry.js; tests point it
-   * at a fixture runner so the real spawn/communication/timeout path is exercised
+   * ({ goal, context, toolsets, delegatedFrom }) on stdin and prints a JSON
+   * SubagentResult on stdout. In production this is the subagent entry; tests point
+   * it at a fixture runner so the real spawn/communication/timeout path is exercised
    * without a model.
    */
   readonly runnerPath: string;
@@ -59,8 +72,20 @@ export interface DelegateConfig {
   readonly nodePath?: string;
   /** Args inserted BEFORE the runner path (e.g. ["--import", "tsx"] to run TS directly). */
   readonly nodeArgs?: readonly string[];
-  /** Hard timeout in ms before the child is killed (default 300000). */
+  /** Hard timeout in ms before the child is killed (default 300000 — 5 minutes). */
   readonly timeoutMs?: number;
+  /**
+   * COORDINATION (Blocker 7): the delegation chain that led to THIS agent — the goals
+   * of every ancestor delegation, oldest first. Empty/unset for a top-level agent. The
+   * handler appends the new goal and refuses to spawn when that goal is already in the
+   * chain (a cycle, e.g. A→B→A), so circular delegation is caught BEFORE a child spawns.
+   */
+  readonly delegatedFrom?: readonly string[];
+}
+
+/** Normalize a goal into the stable key used for cycle detection. */
+export function delegationKey(goal: string): string {
+  return goal.trim();
 }
 
 export function createDelegateToolHandlers(config: DelegateConfig): Map<string, ToolHandler> {
@@ -68,13 +93,27 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
   const nodePath = config.nodePath ?? process.execPath;
   const nodeArgs = config.nodeArgs ?? [];
   const timeoutMs = config.timeoutMs ?? DELEGATE_TIMEOUT;
+  const chain = config.delegatedFrom ?? [];
 
   handlers.set('delegate_task', async (args): Promise<ToolResult> => {
     const goal = args.goal as string;
     const context = (args.context as string) ?? '';
     const toolsets = (args.toolsets as string[]) ?? ['terminal', 'file', 'web'];
-    const job = JSON.stringify({ goal, context, toolsets });
-    return runSubagent(nodePath, [...nodeArgs, config.runnerPath], job, timeoutMs);
+
+    // CIRCULAR DELEGATION PROTECTION: refuse BEFORE spawning if this goal already
+    // appears in the chain that led here. The child never starts, so a cycle cannot
+    // consume a process slot or a timeout.
+    const key = delegationKey(goal);
+    if (chain.includes(key)) {
+      return {
+        ok: false,
+        output: '',
+        error: `circular delegation detected: "${key}" is already in the delegation chain [${chain.join(' -> ')}]`,
+      };
+    }
+
+    const job: SubagentJob = { goal, context, toolsets, delegatedFrom: [...chain, key] };
+    return runSubagent(nodePath, [...nodeArgs, config.runnerPath], JSON.stringify(job), timeoutMs);
   });
 
   return handlers;

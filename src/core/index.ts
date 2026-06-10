@@ -58,6 +58,7 @@ export {
   type ToolHandler,
   type ToolRegistry,
   type ToolResult,
+  type TerminalReceipt,
 } from "./tools.js";
 
 export { resolveInWorkspace, ToolError } from "./workspace.js";
@@ -70,8 +71,12 @@ export {
   runAgent,
   runAgentInShadow,
   type RunAgentOptions,
+  type RunAgentResult,
   type RunAgentInShadowOptions,
   type ShadowRunResult,
+  type ApprovalCallback,
+  type ToolApprovalRequest,
+  type ToolApprovalDecision,
 } from "./loop.js";
 
 export { createStdoutSink, formatEvent } from "./sinks/stdout.js";

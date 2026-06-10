@@ -1,8 +1,14 @@
 /**
- * CRON TOOL — scheduled task execution.
+ * CRON TOOL — scheduled task execution (Blocker 3: real execution + persistence).
  *
  * Tool name matches Hermes: cronjob.
  * Manages scheduled tasks that run at specified intervals or one-shot times.
+ *
+ * Two production gaps this closes:
+ *   1. The `execute` callback now runs a REAL agent loop (wired in index.ts), not a
+ *      stub that returns a string without doing anything.
+ *   2. Jobs are PERSISTED to a JSON file and RELOADED on startup, so a schedule
+ *      survives a process restart instead of living only in memory.
  *
  * Actions:
  *   create — schedule a new task (returns job_id)
@@ -12,6 +18,8 @@
  *   resume — resume a paused job
  *   remove — delete a job
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
@@ -37,7 +45,7 @@ export const cronToolSpecs: ToolSpec[] = [
   },
 ];
 
-interface ScheduledJob {
+export interface ScheduledJob {
   id: string;
   name: string;
   prompt: string;
@@ -47,13 +55,29 @@ interface ScheduledJob {
   lastRunAt: number | null;
   nextRunAt: number | null;
   runCount: number;
+  /** Last result text from the executed agent loop (truncated). Not persisted-critical. */
+  lastResult?: string;
+  /** Live timer — NEVER persisted (not serializable). */
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const jobs = new Map<string, ScheduledJob>();
-let jobCounter = 0;
+/** The persisted shape of a job (everything except the live timer). */
+type PersistedJob = Omit<ScheduledJob, 'timer'>;
 
-function parseSchedule(schedule: string): number {
+export interface CronOptions {
+  /** Path to the JSON file jobs are persisted to / reloaded from. Unset => in-memory only. */
+  readonly persistPath?: string;
+  /** Injectable clock for deterministic timestamps in tests. */
+  readonly clock?: () => number;
+  /**
+   * When false (the default in tests), persisted jobs are reloaded but NOT armed with
+   * live timers — so a test can assert reload happened without a background timer
+   * firing. Production passes true so reloaded active jobs resume on their schedule.
+   */
+  readonly rearmOnLoad?: boolean;
+}
+
+function parseSchedule(schedule: string, now: number): number {
   // Parse "30m", "2h", "1d" into milliseconds
   const match = schedule.match(/^(\d+)([mhd])$/);
   if (match) {
@@ -67,36 +91,69 @@ function parseSchedule(schedule: string): number {
   }
   // Try ISO timestamp
   const ts = new Date(schedule).getTime();
-  if (!isNaN(ts)) return ts - Date.now();
+  if (!isNaN(ts)) return Math.max(0, ts - now);
   // Default: 1 hour
   return 60 * 60 * 1000;
 }
 
-function scheduleNext(job: ScheduledJob, execute: (job: ScheduledJob) => Promise<void>): void {
-  if (job.status !== 'active') return;
-  const delay = parseSchedule(job.schedule);
-  job.nextRunAt = Date.now() + delay;
-  job.timer = setTimeout(async () => {
-    await execute(job);
-    job.runCount++;
-    job.lastRunAt = Date.now();
-    if (job.status === 'active') {
-      scheduleNext(job, execute);
-    }
-  }, delay);
-}
-
 export function createCronToolHandlers(
   execute: (prompt: string) => Promise<string>,
+  options: CronOptions = {},
 ): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
+  const clock = options.clock ?? Date.now;
+  // Per-instance state — no module-level leakage across registries/tests.
+  const jobs = new Map<string, ScheduledJob>();
+  let jobCounter = 0;
+
+  const persist = (): void => {
+    if (options.persistPath === undefined) return;
+    const dir = dirname(options.persistPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const list: PersistedJob[] = Array.from(jobs.values()).map(({ timer: _timer, ...rest }) => rest);
+    writeFileSync(options.persistPath, JSON.stringify(list, null, 2));
+  };
+
+  const scheduleNext = (job: ScheduledJob): void => {
+    if (job.status !== 'active') return;
+    const delay = parseSchedule(job.schedule, clock());
+    job.nextRunAt = clock() + delay;
+    job.timer = setTimeout(async () => {
+      await executeJob(job);
+      if (job.status === 'active') scheduleNext(job);
+    }, delay);
+    // Don't keep the event loop alive solely for a scheduled job.
+    job.timer.unref?.();
+  };
 
   async function executeJob(job: ScheduledJob): Promise<void> {
     try {
       job.status = 'active';
-      await execute(job.prompt);
-    } catch {
+      const result = await execute(job.prompt);
+      job.lastResult = result.slice(0, 500);
+      job.runCount++;
+      job.lastRunAt = clock();
+    } catch (err) {
       job.status = 'failed';
+      job.lastResult = `failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    persist();
+  }
+
+  // ── RELOAD persisted jobs on startup ────────────────────────────────────────
+  if (options.persistPath !== undefined && existsSync(options.persistPath)) {
+    try {
+      const raw = readFileSync(options.persistPath, 'utf-8');
+      const list = JSON.parse(raw) as PersistedJob[];
+      for (const pj of list) {
+        const job: ScheduledJob = { ...pj, timer: null };
+        jobs.set(job.id, job);
+        // Re-arm only active jobs, and only when asked (production), so a reload in a
+        // test does not spawn a live background timer.
+        if (job.status === 'active' && options.rearmOnLoad === true) scheduleNext(job);
+      }
+    } catch {
+      // A corrupt store is non-fatal: start empty rather than crash on boot.
     }
   }
 
@@ -108,7 +165,7 @@ export function createCronToolHandlers(
         const prompt = args.prompt as string;
         const schedule = (args.schedule as string) ?? '1h';
         const name = (args.name as string) ?? `job-${++jobCounter}`;
-        const id = `cron-${Date.now()}-${jobCounter}`;
+        const id = `cron-${clock()}-${++jobCounter}`;
 
         const job: ScheduledJob = {
           id,
@@ -116,7 +173,7 @@ export function createCronToolHandlers(
           prompt,
           schedule,
           status: 'active',
-          createdAt: Date.now(),
+          createdAt: clock(),
           lastRunAt: null,
           nextRunAt: null,
           runCount: 0,
@@ -124,7 +181,8 @@ export function createCronToolHandlers(
         };
 
         jobs.set(id, job);
-        scheduleNext(job, executeJob);
+        scheduleNext(job);
+        persist();
 
         return {
           ok: true,
@@ -154,9 +212,7 @@ export function createCronToolHandlers(
         const job = jobs.get(args.job_id as string);
         if (!job) return { ok: false, output: '', error: `Job ${args.job_id} not found` };
         await executeJob(job);
-        job.runCount++;
-        job.lastRunAt = Date.now();
-        return { ok: true, output: `Job "${job.name}" executed.` };
+        return { ok: true, output: `Job "${job.name}" executed.\n${job.lastResult ?? ''}` };
       }
 
       case 'pause': {
@@ -165,6 +221,7 @@ export function createCronToolHandlers(
         job.status = 'paused';
         if (job.timer) clearTimeout(job.timer);
         job.timer = null;
+        persist();
         return { ok: true, output: `Job "${job.name}" paused.` };
       }
 
@@ -172,7 +229,8 @@ export function createCronToolHandlers(
         const job = jobs.get(args.job_id as string);
         if (!job) return { ok: false, output: '', error: `Job ${args.job_id} not found` };
         job.status = 'active';
-        scheduleNext(job, executeJob);
+        scheduleNext(job);
+        persist();
         return { ok: true, output: `Job "${job.name}" resumed.` };
       }
 
@@ -181,6 +239,7 @@ export function createCronToolHandlers(
         if (!job) return { ok: false, output: '', error: `Job ${args.job_id} not found` };
         if (job.timer) clearTimeout(job.timer);
         jobs.delete(args.job_id as string);
+        persist();
         return { ok: true, output: `Job "${job.name}" removed.` };
       }
 

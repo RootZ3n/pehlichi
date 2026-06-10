@@ -19,6 +19,10 @@ import type { ToolDef } from '../tools.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { runAgentInShadow } from '../loop.js';
+import { MimoDriver } from '../drivers/mimo.js';
+import type { AgentEvent, AgentProfile } from '../index.js';
+
 import { browserToolSpecs, createBrowserToolHandlers } from './browser-tools.js';
 import { webToolSpecs, createWebToolHandlers } from './web-tools.js';
 import { enhancedFileToolSpecs, createEnhancedFileToolHandlers } from './enhanced-file-tools.js';
@@ -30,6 +34,7 @@ import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
 import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
 import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
 import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js';
+import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -44,16 +49,89 @@ export interface AgentToolConfig {
   memoryDir?: string;
   /**
    * Path to the sub-agent runner script `delegate_task` spawns. Defaults to the
-   * compiled subagent-entry.js next to this module. Override in tests to point at
-   * a fixture runner.
+   * sub-agent entry next to this module, with the extension and node args chosen
+   * automatically for the runtime (see resolveSubagentRunner). Override in tests to
+   * point at a fixture runner.
    */
   subagentRunnerPath?: string;
+  /**
+   * Node args inserted BEFORE the runner path when spawning the sub-agent. Defaults
+   * to `['--import','tsx']` under tsx (so the `.ts` entry runs directly) and `[]`
+   * when running compiled `.js`. Override alongside `subagentRunnerPath` in tests.
+   */
+  subagentNodeArgs?: readonly string[];
   /** Hard timeout (ms) for a delegated sub-agent (default 5 minutes). */
   delegateTimeoutMs?: number;
+  /**
+   * COORDINATION (Blocker 7): the SHARED directory agent_sync reads/writes so the
+   * agents can exchange results. Defaults to $AGENT_SYNC_DIR, else the sibling
+   * lab-store's `.agent-sync` dir — one source of truth for the whole lab.
+   */
+  coordinationDir?: string;
+  /** This agent's id, recorded on each agent_sync entry. Defaults to the workspace basename. */
+  agentId?: string;
+  /**
+   * PERSISTENCE (Blocker 3): where cron jobs are persisted (a JSON file). Defaults to
+   * `<workspaceRoot>/.cron-jobs.json`. Jobs are reloaded and active ones rescheduled
+   * when the registry is built, so schedules survive a restart.
+   */
+  cronStorePath?: string;
+  /**
+   * Override the cron execute callback (tests inject a mock so no model runs). Unset =>
+   * the default runs a REAL agent loop in a disposable shadow workspace.
+   */
+  cronExecute?: (prompt: string) => Promise<string>;
 }
 
-/** The compiled sub-agent runner, resolved relative to this module (dist/core/agent-tools → ../subagent-entry.js). */
-const DEFAULT_SUBAGENT_RUNNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'subagent-entry.js');
+/**
+ * The default cron executor (Blocker 3): runs a REAL, independent agent loop in a
+ * fresh disposable shadow workspace and returns its closing summary. This is what
+ * makes a scheduled job actually DO work instead of reporting a hollow success.
+ */
+function defaultCronExecute(config: AgentToolConfig): (prompt: string) => Promise<string> {
+  const profile: AgentProfile = {
+    name: 'CronRunner',
+    role: 'builder',
+    personaPreamble: 'You are a scheduled task runner. Accomplish the task, then finish with done.',
+    skillTags: [],
+  };
+  return async (prompt: string): Promise<string> => {
+    const events: AgentEvent[] = [];
+    const labStore = join(config.workspaceRoot, '.cron-store');
+    await runAgentInShadow({
+      profile,
+      task: prompt,
+      labStoreRoot: labStore,
+      driver: new MimoDriver(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
+      sinks: [(e) => events.push(e)],
+      plan: false,
+    });
+    const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
+    return summary
+      ? [summary.rootCause, ...summary.changes, ...summary.verification].join('\n')
+      : '(cron job finished without a summary)';
+  };
+}
+
+/**
+ * Resolve the sub-agent runner for the CURRENT runtime.
+ *
+ * Under tsx, this module is loaded as `src/core/agent-tools/index.ts`, so
+ * `import.meta.url` ends in `.ts`; the sibling `subagent-entry.js` does NOT exist
+ * (only the `.ts` source does), and a `.js` runner path would fail to spawn. We
+ * detect that by the extension of THIS module's own path: a `.ts` module means we
+ * are under tsx, so the runner is `subagent-entry.ts` spawned with `--import tsx`.
+ * Compiled (`.js`) mode keeps the proven `.js` runner with no extra node args.
+ */
+export function resolveSubagentRunner(): { runnerPath: string; nodeArgs: readonly string[] } {
+  const thisFile = fileURLToPath(import.meta.url);
+  const underTsx = thisFile.endsWith('.ts');
+  const ext = underTsx ? '.ts' : '.js';
+  return {
+    runnerPath: join(dirname(thisFile), '..', `subagent-entry${ext}`),
+    nodeArgs: underTsx ? ['--import', 'tsx'] : [],
+  };
+}
 
 /**
  * Create the full set of extra tools matching Hermes' tool registry.
@@ -65,8 +143,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const fileHandlers = createEnhancedFileToolHandlers(config.workspaceRoot);
   const visionHandlers = createVisionToolHandlers(config.apiKey);
   const executeCodeHandlers = createExecuteCodeToolHandlers();
+  const resolved = resolveSubagentRunner();
   const delegateHandlers = createDelegateToolHandlers({
-    runnerPath: config.subagentRunnerPath ?? DEFAULT_SUBAGENT_RUNNER,
+    runnerPath: config.subagentRunnerPath ?? resolved.runnerPath,
+    nodeArgs: config.subagentNodeArgs ?? resolved.nodeArgs,
     ...(config.delegateTimeoutMs !== undefined ? { timeoutMs: config.delegateTimeoutMs } : {}),
   });
   const todoHandlers = createTodoToolHandlers();
@@ -74,10 +154,20 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const skillHandlers = createSkillToolHandlers(skillsRoot);
   const memoryDir = config.memoryDir ?? join(config.workspaceRoot, 'memories');
   const memoryHandlers = createMemoryToolHandlers({ memoryDir });
-  const cronHandlers = createCronToolHandlers(async (prompt: string) => {
-    console.log(`[cron] Executing scheduled task: ${prompt.slice(0, 100)}`);
-    return `Task "${prompt.slice(0, 50)}" executed at ${new Date().toISOString()}`;
-  });
+  // CRON (Blocker 3): the execute callback runs a REAL agent loop in a disposable
+  // shadow workspace and returns its summary — not a stub string. Jobs persist to a
+  // JSON file and active ones re-arm on the next process start.
+  const cronExecute = config.cronExecute ?? defaultCronExecute(config);
+  const cronStorePath = config.cronStorePath ?? join(config.workspaceRoot, '.cron-jobs.json');
+  const cronHandlers = createCronToolHandlers(cronExecute, { persistPath: cronStorePath, rearmOnLoad: true });
+
+  // COORDINATION (Blocker 7): agent_sync over a shared directory.
+  const coordinationDir = config.coordinationDir
+    ?? process.env.AGENT_SYNC_DIR
+    ?? join(config.workspaceRoot, '..', 'lab-store', '.agent-sync');
+  const agentId = config.agentId ?? config.workspaceRoot.split('/').filter(Boolean).pop() ?? 'agent';
+  const coordinationHandlers = createCoordinationToolHandlers({ syncDir: coordinationDir, agentId });
+
   const clarifyHandlers = createClarifyToolHandlers();
 
   const tools: ToolDef[] = [];
@@ -145,6 +235,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Clarify tools
   for (const spec of clarifyToolSpecs) {
     const handler = clarifyHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Coordination tools (agent_sync)
+  for (const spec of coordinationToolSpecs) {
+    const handler = coordinationHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

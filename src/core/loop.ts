@@ -25,6 +25,9 @@ import {
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
+/** The decision used when no approval callback is wired: approve every tool. */
+const APPROVED: ToolApprovalDecision = { approved: true };
+
 export interface RunAgentOptions {
   readonly profile: AgentProfile;
   readonly task: string;
@@ -108,7 +111,47 @@ export interface RunAgentOptions {
    * kinds), so a run with a scripted/sequenced driver behaves identically.
    */
   readonly plan?: boolean;
+  /**
+   * APPROVAL GATE (opt-in): called BEFORE each tool handler runs. Returning
+   * `{ approved:false }` refuses the call — the handler NEVER executes and the loop
+   * feeds back `{ ok:false, error:"tool not approved: <reason>" }` exactly like any
+   * other tool failure, so the model grounds its next turn on the rejection. Unset =>
+   * every tool is approved (backward compatible). Production wires a callback that
+   * auto-approves read-only tools and gates write/destructive ones. The check runs
+   * AFTER the registry/lane lookup, so an unknown or out-of-lane tool is reported as
+   * such (it never reaches the approval gate or a handler).
+   */
+  readonly approvalCallback?: ApprovalCallback;
+  /**
+   * CONVERSATION SEEDING (opt-in): prior turns inserted between the system prompt and
+   * this run's task, so an HTTP chat server can preserve context across requests by
+   * threading the accumulated transcript through successive `runAgent` calls. Unset =>
+   * the transcript is exactly [system, task(, plan)] as before. Checkpoint resume still
+   * takes precedence: a resumed run REPLACES the whole transcript with the saved one.
+   */
+  readonly priorMessages?: readonly Message[];
 }
+
+/** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
+export interface ToolApprovalRequest {
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+  readonly ctx: ToolContext;
+}
+
+/** The verdict an ApprovalCallback returns for one tool call. */
+export interface ToolApprovalDecision {
+  readonly approved: boolean;
+  /** Human-readable reason surfaced in the refusal error when `approved` is false. */
+  readonly reason?: string;
+}
+
+/**
+ * The approval gate seam. Sync or async. The core knows "a run MAY gate tool calls,"
+ * never WHICH policy — the concrete policy is supplied as run config, mirroring how
+ * the tool allowlist and memory wiring are run config.
+ */
+export type ApprovalCallback = (req: ToolApprovalRequest) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
 
 /** What a finished (or budget-exhausted) run reports back to its caller. */
 export interface RunAgentResult {
@@ -217,10 +260,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     }
   }
   const systemPrompt = buildSystemPrompt(opts.profile, modules, specs, activeSkill);
-  const messages: Message[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: opts.task },
-  ];
+  const messages: Message[] = [{ role: "system", content: systemPrompt }];
+  // CONVERSATION SEEDING: prior turns ride between the system prompt and the new
+  // task so a chat server can preserve context across requests. Empty/unset => the
+  // transcript is exactly [system, task] as before.
+  if (opts.priorMessages !== undefined && opts.priorMessages.length > 0) {
+    messages.push(...opts.priorMessages);
+  }
+  messages.push({ role: "user", content: opts.task });
 
   // PLANNING (item 4): ask for a numbered plan up front. Default ON; opts.plan===false
   // disables. Enabling only appends transcript messages, so a scripted-driver run's
@@ -310,10 +357,24 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
             : `unknown tool: ${action.tool}`;
           result = { ok: false, output: "", error: reason };
         } else {
-          try {
-            result = await def.handler(action.args, ctx);
-          } catch (err) {
-            result = { ok: false, output: "", error: messageOf(err) };
+          // APPROVAL GATE: a known, in-lane tool still passes the approval policy
+          // (when one is wired) BEFORE its handler runs. A refusal short-circuits to
+          // a failure result; the handler is never invoked. Unset callback => approve.
+          const decision = opts.approvalCallback
+            ? await opts.approvalCallback({ tool: action.tool, args: action.args, ctx })
+            : APPROVED;
+          if (!decision.approved) {
+            result = {
+              ok: false,
+              output: "",
+              error: `tool not approved: ${decision.reason ?? "rejected by approval policy"}`,
+            };
+          } else {
+            try {
+              result = await def.handler(action.args, ctx);
+            } catch (err) {
+              result = { ok: false, output: "", error: messageOf(err) };
+            }
           }
         }
 

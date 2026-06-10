@@ -1,22 +1,31 @@
 #!/usr/bin/env tsx
 /**
- * Pehlichi HTTP Server — the squirrel's API home.
+ * Ptah HTTP Server — the lab task runner.
  *
- * NOW WITH FULL TOOL-CALLING LOOP.
- * Wraps AgentChatSession in an HTTP API so Peh can run as a systemd service.
- * Endpoints:
- *   GET  /health          — service health check
- *   GET  /tools           — list all available tools
- *   POST /chat            — send a message, get a response (with tool execution)
- *   POST /chat/stream     — send a message, get SSE streaming response
- *   GET  /info            — agent info (skin, personality)
- *   POST /reset           — reset conversation
+ * Blocker 1: production now runs on the HARDENED KERNEL. Every /chat request drives
+ * the kernel's `runAgent()` (via KernelChatSession) instead of an ad-hoc fetch loop:
+ * the kernel tool registry, the kernel event stream, validateSummary on `done`,
+ * approval gate, and partial-on-exhaustion all apply. The old AgentChatSession is
+ * preserved (its infrastructure lives on in KernelChatSession / ResilientDriver) but
+ * is no longer the request path.
  */
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { AgentChatSession } from './lib/agent-chat.js';
+
+import {
+  MimoDriver,
+  ScriptedDriver,
+  createToolRegistry,
+  type Driver,
+  type DriverAction,
+  type AgentEvent,
+} from '../../src/core/index.js';
+import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
+import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
+import { pehProfile } from '../../src/profile.js';
+import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
 
@@ -27,11 +36,6 @@ const HOST = process.env.PEHLICHI_HOST || '127.0.0.1';
 const MODEL = process.env.AGENT_MODEL || 'mimo-v2.5';
 const BASE_URL = process.env.AGENT_BASE_URL || 'https://api.xiaomimimo.com/v1';
 
-// Load agent info once at startup
-const skin = loadSkin();
-const personality = loadPersonality();
-
-// Resolve API key: env var → ~/bok fallback
 function resolveApiKey(): string | undefined {
   if (process.env.MIMO_API_KEY) return process.env.MIMO_API_KEY;
   try {
@@ -42,186 +46,222 @@ function resolveApiKey(): string | undefined {
   return undefined;
 }
 
-// Full agent chat session (with tool-calling loop)
-const chat = new AgentChatSession({
-  apiKey: resolveApiKey(),
-  baseUrl: BASE_URL,
-  model: MODEL,
-  workspaceRoot: '/pehverse/repos/pehlichi',
-  agentServerUrl: `http://127.0.0.1:${PORT}`,
-});
-
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString()));
-      } catch {
-        resolve({});
-      }
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString())); } catch { resolve({}); }
     });
     req.on('error', reject);
   });
 }
 
-function json(res: ServerResponse, status: number, data: unknown) {
+function json(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
+export interface PehServerOptions {
+  readonly port?: number;
+  readonly host?: string;
+  readonly workspaceRoot?: string;
+  readonly labStoreRoot?: string;
+  /** Inject a driver (tests pass a ScriptedDriver; production uses a resilient MimoDriver). */
+  readonly driver?: Driver;
+  readonly maxIterations?: number;
+  /** Allow write/destructive tools without gating (default false — writes require approval). */
+  readonly allowWrites?: boolean;
+}
 
-  // Health check
-  if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, {
-      status: 'ok',
-      agent: skin.branding.agent_name,
-      model: MODEL,
-      uptime: process.uptime(),
-      historyLength: chat.getHistory().length,
-      toolCount: chat.getToolNames().length,
-    });
-  }
+/**
+ * Build the Ptah HTTP server WITHOUT listening. Exposes the kernel session and tool
+ * names so tests can drive the real request path with an injected driver.
+ */
+export function createPehServer(opts: PehServerOptions = {}): {
+  server: Server;
+  session: KernelChatSession;
+  toolNames: string[];
+} {
+  const skin = loadSkin();
+  const personality = loadPersonality();
+  const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/pehlichi';
+  const labStoreRoot = opts.labStoreRoot ?? process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store');
+  const apiKey = resolveApiKey();
 
-  // List all available tools
-  if (req.method === 'GET' && url.pathname === '/tools') {
-    return json(res, 200, {
-      agent: skin.branding.agent_name,
-      tools: chat.getToolNames(),
-      count: chat.getToolNames().length,
-    });
-  }
+  // The kernel's tool source: the full agent tool suite (Blocker 1).
+  const extraTools = createFullToolRegistry({
+    workspaceRoot,
+    agentServerUrl: `http://${opts.host ?? HOST}:${opts.port ?? PORT}`,
+    ...(apiKey !== undefined ? { apiKey } : {}),
+  });
+  const registry = createToolRegistry(extraTools);
+  const toolNames = [...registry.keys()];
 
-  // Agent info
-  if (req.method === 'GET' && url.pathname === '/info') {
-    return json(res, 200, {
-      agent: skin.branding.agent_name,
-      personality: personality.name,
-      voice_summary: personality.voice_summary,
-      intensity: personality.intensity,
-      primary_color: skin.theme.primary,
-      welcome: skin.branding.welcome,
-      goodbye: skin.branding.goodbye,
-      toolCount: chat.getToolNames().length,
-    });
-  }
+  // Production driver: a resilient MimoDriver (circuit breaker + retry). Tests inject
+  // a ScriptedDriver so the whole kernel path runs with no network.
+  const breaker = new CircuitBreaker(detectProviderId(BASE_URL), { failureThreshold: 5, cooldownMs: 30_000, successThreshold: 3 });
+  const driver = opts.driver ?? new ResilientDriver(
+    new MimoDriver({ baseUrl: BASE_URL, model: MODEL, ...(apiKey !== undefined ? { apiKey } : {}) }),
+    breaker,
+  );
 
-  // Chat (non-streaming) — with full tool-calling loop
-  if (req.method === 'POST' && url.pathname === '/chat') {
-    const body = await parseBody(req);
-    const message = body.message as string;
-    if (!message) {
-      return json(res, 400, { error: 'message is required' });
-    }
+  const session = new KernelChatSession({
+    profile: pehProfile,
+    driver,
+    workspaceRoot,
+    labStoreRoot,
+    extraTools,
+    ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
+    approvalCallback: defaultApprovalPolicy({ allowWrites: opts.allowWrites === true }),
+  });
 
-    try {
-      const response = await chat.send(message);
+  const server = createHttpServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${HOST}:${opts.port ?? PORT}`);
+
+    if (req.method === 'GET' && url.pathname === '/health') {
       return json(res, 200, {
-        content: response.content,
+        status: 'ok',
         agent: skin.branding.agent_name,
-        thinkingVerb: response.thinkingVerb,
-        toolCalls: response.toolCalls?.map((tc) => ({
-          name: tc.name,
-          args: tc.args,
-          ok: tc.result.ok,
-          output: tc.result.output?.slice(0, 500),
-          error: tc.result.error?.slice(0, 200),
-        })),
-      });
-    } catch (err) {
-      return json(res, 500, {
-        error: err instanceof Error ? err.message : String(err),
+        model: MODEL,
+        uptime: process.uptime(),
+        historyLength: session.getHistory().length,
+        toolCount: toolNames.length,
       });
     }
-  }
 
-  // Chat (SSE streaming) — with tool execution events
-  if (req.method === 'POST' && url.pathname === '/chat/stream') {
-    const body = await parseBody(req);
-    const message = body.message as string;
-    if (!message) {
-      return json(res, 400, { error: 'message is required' });
+    if (req.method === 'GET' && url.pathname === '/tools') {
+      return json(res, 200, { agent: skin.branding.agent_name, tools: toolNames, count: toolNames.length });
     }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-
-    try {
-      const response = await chat.send(message, (chunk) => {
-        res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    if (req.method === 'GET' && url.pathname === '/info') {
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        personality: personality.name,
+        voice_summary: personality.voice_summary,
+        intensity: personality.intensity,
+        primary_color: skin.theme.primary,
+        welcome: skin.branding.welcome,
+        goodbye: skin.branding.goodbye,
+        toolCount: toolNames.length,
       });
-      res.write(`data: ${JSON.stringify({ done: true, content: response.content, toolCalls: response.toolCalls?.length ?? 0 })}\n\n`);
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`);
     }
-    res.end();
-    return;
-  }
 
-  // Reset conversation
-  if (req.method === 'POST' && url.pathname === '/reset') {
-    chat.reset();
-    return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
-  }
+    if (req.method === 'POST' && url.pathname === '/chat') {
+      const body = await parseBody(req);
+      const message = body.message as string;
+      if (!message) return json(res, 400, { error: 'message is required' });
 
-  // Agent identity
-  if (req.method === 'GET' && url.pathname === '/agent') {
-    return json(res, 200, {
-      id: skin.branding.agent_name.toLowerCase(),
-      name: skin.branding.agent_name,
-      personality: personality.name,
-      model: MODEL,
-      tools: chat.getToolNames().length,
-      status: 'active',
-      uptime: process.uptime(),
-    });
-  }
+      try {
+        const response = await session.send(message);
+        const payload = {
+          content: response.content,
+          agent: skin.branding.agent_name,
+          ok: response.ok,
+          partial: response.partial,
+          accomplished: response.accomplished,
+          thinkingVerb: response.thinkingVerb,
+          injectionDetected: response.injectionDetected,
+          // Blocker 5: structured tool calls WITH receipts — nothing is stripped.
+          toolCalls: response.toolCalls.map((tc) => ({
+            name: tc.name,
+            args: tc.args,
+            ok: tc.ok,
+            output: tc.output?.slice(0, 2000),
+            error: tc.error?.slice(0, 500),
+            receipt: tc.receipt,
+          })),
+        };
+        // Blocker 2: a budget-exhausted run is NOT a stale 200 — it is a clear partial
+        // with an explicit non-200 status so callers know the session needs /reset or
+        // a narrower task.
+        return json(res, response.partial ? 422 : 200, payload);
+      } catch (err) {
+        return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
 
-  // Capabilities
-  if (req.method === 'GET' && url.pathname === '/capabilities') {
-    return json(res, 200, {
-      agent: skin.branding.agent_name,
-      tools: chat.getToolNames(),
-      endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
-      model: MODEL,
-      features: ['tool_calling', 'streaming', 'conversation_memory', 'progressive_disclosure'],
-    });
-  }
+    if (req.method === 'POST' && url.pathname === '/chat/stream') {
+      const body = await parseBody(req);
+      const message = body.message as string;
+      if (!message) return json(res, 400, { error: 'message is required' });
 
-  // 404
-  json(res, 404, { error: 'not found' });
-});
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+      try {
+        // Blocker 5: stream EVERY kernel event (tool-call/result/receipt/summary) as SSE.
+        const response = await session.send(message, (e: AgentEvent) => {
+          res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
+        });
+        res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
+      } catch (err) {
+        res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`);
+      }
+      res.end();
+      return;
+    }
 
-server.listen(PORT, HOST, () => {
-  console.log(`\n${'═'.repeat(60)}`);
-  console.log(`  🐿  ${skin.branding.agent_name} — Agent Server`);
-  console.log(`  Personality: ${personality.name}`);
-  console.log(`  Model: ${MODEL}`);
-  console.log(`  Tools: ${chat.getToolNames().length} registered`);
-  console.log(`  Listening: http://${HOST}:${PORT}`);
-  console.log(`  Endpoints:`);
-  console.log(`    GET  /health       — health check`);
-  console.log(`    GET  /tools        — list all tools`);
-  console.log(`    GET  /info         — agent info`);
-  console.log(`    POST /chat         — send message (with tool execution)`);
-  console.log(`    POST /chat/stream  — streaming chat`);
-  console.log(`    POST /reset        — reset conversation`);
-  console.log(`${'═'.repeat(60)}\n`);
-  console.log(`  ${skin.branding.welcome}\n`);
-});
+    if (req.method === 'POST' && url.pathname === '/reset') {
+      session.reset();
+      return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
+    }
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('\n  🐿 Farewell, good sir. May your acorns be plentiful.\n');
-  server.close(() => process.exit(0));
-});
-process.on('SIGINT', () => {
-  console.log('\n  🐿 Caught a signal! Scurrying away...\n');
-  server.close(() => process.exit(0));
-});
+    if (req.method === 'GET' && url.pathname === '/agent') {
+      return json(res, 200, {
+        id: skin.branding.agent_name.toLowerCase(),
+        name: skin.branding.agent_name,
+        personality: personality.name,
+        model: MODEL,
+        tools: toolNames.length,
+        status: 'active',
+        uptime: process.uptime(),
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/capabilities') {
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        tools: toolNames,
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
+        model: MODEL,
+        features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
+      });
+    }
+
+    json(res, 404, { error: 'not found' });
+  });
+
+  return { server, session, toolNames };
+}
+
+/** Detect provider ID from base URL (for the circuit breaker). */
+function detectProviderId(baseUrl: string): string {
+  const url = baseUrl.toLowerCase();
+  if (url.includes('xiaomimimo') || url.includes('mimo')) return 'mimo';
+  if (url.includes('openrouter')) return 'openrouter';
+  if (url.includes('localhost') || url.includes('127.0.0.1')) return 'local';
+  return 'unknown';
+}
+
+// Avoid an unused-import lint in environments that tree-shake; ScriptedDriver is part
+// of the public injection surface used by tests via createPehServer({ driver }).
+export { ScriptedDriver, type DriverAction };
+
+// ── Auto-listen when run directly (production) ───────────────────────────────
+const isMain = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  const skin = loadSkin();
+  const personality = loadPersonality();
+  const { server } = createPehServer();
+  server.listen(PORT, HOST, () => {
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);
+    console.log(`  Personality: ${personality.name}`);
+    console.log(`  Model: ${MODEL}`);
+    console.log(`  Listening: http://${HOST}:${PORT}`);
+    console.log(`${'═'.repeat(60)}\n`);
+    console.log(`  ${skin.branding.welcome}\n`);
+  });
+
+  process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
+  process.on('SIGINT', () => { server.close(() => process.exit(0)); });
+}

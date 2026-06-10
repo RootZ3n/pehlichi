@@ -16,12 +16,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { MimoDriver, runAgentInShadow, type AgentEvent, type AgentProfile } from './index.js';
+import { MimoDriver, runAgentInShadow, type AgentEvent, type AgentProfile, type ToolDef } from './index.js';
+import {
+  createDelegateToolHandlers,
+  delegateToolSpecs,
+} from './agent-tools/delegate-tools.js';
+import { resolveSubagentRunner } from './agent-tools/index.js';
 
 interface Job {
   readonly goal: string;
   readonly context?: string;
   readonly toolsets?: string[];
+  /** COORDINATION (Blocker 7): the delegation chain (ancestor goals) that led here. */
+  readonly delegatedFrom?: string[];
 }
 
 const SUBAGENT_PROFILE: AgentProfile = {
@@ -62,11 +69,38 @@ async function main(): Promise<void> {
     return;
   }
 
+  // CIRCULAR DELEGATION PROTECTION (defense-in-depth): even if a cyclic job slips
+  // past the parent's pre-spawn check, a chain that contains a repeat is refused
+  // HERE, before any model runs, so an A→B→A cycle cannot start work.
+  const chain = Array.isArray(job.delegatedFrom) ? job.delegatedFrom : [];
+  if (new Set(chain).size !== chain.length) {
+    print({
+      ok: false,
+      output: '',
+      error: `circular delegation detected: the delegation chain repeats an entry [${chain.join(' -> ')}]`,
+    });
+    return;
+  }
+
   const task = [
     `TASK: ${job.goal}`,
     job.context ? `\nCONTEXT:\n${job.context}` : '',
     '\nComplete the task and finish with done, summarizing what you did and the results.',
   ].join('\n');
+
+  // COORDINATION: give the sub-agent its OWN delegate tool, carrying the chain that
+  // led here, so a deeper delegation keeps growing the chain and stays cycle-protected.
+  const runner = resolveSubagentRunner();
+  const delegateHandlers = createDelegateToolHandlers({
+    runnerPath: runner.runnerPath,
+    nodeArgs: runner.nodeArgs,
+    delegatedFrom: chain,
+  });
+  const extraTools: ToolDef[] = [];
+  for (const spec of delegateToolSpecs) {
+    const handler = delegateHandlers.get(spec.name);
+    if (handler) extraTools.push({ spec, handler });
+  }
 
   const labStore = mkdtempSync(join(tmpdir(), 'subagent-store-'));
   const events: AgentEvent[] = [];
@@ -79,6 +113,7 @@ async function main(): Promise<void> {
       driver: new MimoDriver(),
       sinks: [(e) => events.push(e)],
       plan: false,
+      extraTools,
     });
     const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
     const output = summary
