@@ -82,3 +82,17 @@ export function pruneCheckpoints(dir: string, keep = CHECKPOINT_KEEP): void {
     rmSync(join(dir, f), { force: true });
   }
 }
+
+/**
+ * Delete EVERY checkpoint file in `dir` (C4). A `/reset` must erase the pre-reset
+ * transcript from disk, not just from memory — otherwise prune keeps the highest
+ * iterations while a fresh post-reset checkpoint starts at a LOW iteration, so
+ * loadLatestCheckpoint (which picks the HIGHEST) resurrects the old conversation on the
+ * next restart. Clearing the directory guarantees the next load sees only post-reset
+ * state. Safe to call when the dir is missing or already empty.
+ */
+export function clearCheckpoints(dir: string): void {
+  for (const f of listCheckpointFiles(dir)) {
+    rmSync(join(dir, f), { force: true });
+  }
+}

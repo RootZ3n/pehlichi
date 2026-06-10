@@ -23,6 +23,7 @@
  */
 import {
   runAgent,
+  isUsageReportingDriver,
   type Driver,
   type DriverAction,
   type DriverContext,
@@ -31,10 +32,11 @@ import {
   type ToolDef,
   type ApprovalCallback,
   type TerminalReceipt,
+  type TokenUsage,
 } from '../../../src/core/index.js';
 import { createFullToolRegistry, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
 import type { AgentProfile } from '../../../src/core/profile.js';
-import { saveCheckpoint, loadLatestCheckpoint } from '../../../src/core/checkpoint.js';
+import { saveCheckpoint, loadLatestCheckpoint, clearCheckpoints } from '../../../src/core/checkpoint.js';
 // The default approval policy lives in the core now (shared with delegated sub-agents,
 // N5). Re-exported below so existing importers (`./lib/kernel-session.js`) keep working.
 import { defaultApprovalPolicy } from '../../../src/core/approval-policy.js';
@@ -90,6 +92,14 @@ export class ResilientDriver implements Driver {
     private readonly inner: Driver,
     private readonly breaker: CircuitBreaker,
   ) {}
+
+  /**
+   * H4: forward the usage-reporting capability when the wrapped driver has it, so the
+   * session can drain real token usage even through the resilience decorator.
+   */
+  drainUsage(): TokenUsage[] {
+    return isUsageReportingDriver(this.inner) ? this.inner.drainUsage() : [];
+  }
 
   async next(ctx: DriverContext): Promise<DriverAction> {
     if (!this.breaker.allow()) {
@@ -175,6 +185,17 @@ export class KernelChatSession {
   reset(): void {
     this.history = [];
     this.turnCount = 0;
+    // C4 (transcript resurrection): a /reset must ERASE the on-disk checkpoints, not
+    // just the in-memory transcript. Otherwise the next turn writes a fresh checkpoint at
+    // a LOW iteration while prune keeps the higher pre-reset ones, and loadLatestCheckpoint
+    // (which selects the HIGHEST iteration) resurrects the old conversation on restart.
+    if (this.opts.checkpointDir !== undefined) {
+      try {
+        clearCheckpoints(this.opts.checkpointDir);
+      } catch {
+        // Best-effort: a failed clear must not break /reset itself.
+      }
+    }
     // N7: a reset must also clear the production infrastructure state the session owns,
     // not just the transcript — otherwise token accounting leaks across a /reset. (The
     // circuit breaker lives in the injected ResilientDriver, not the session, so it is
@@ -224,6 +245,15 @@ export class KernelChatSession {
       ...(this.opts.memoryStoreRoot !== undefined ? { memoryStoreRoot: this.opts.memoryStoreRoot } : {}),
       ...(this.opts.clock !== undefined ? { clock: this.opts.clock } : {}),
     });
+
+    // H4: drain the REAL token usage the driver recorded during this run into the
+    // TokenMonitor. Previously the monitor was wired but never fed, so it always read
+    // zero; now every model call's usage is accounted for and surfaced as tokenUsage.
+    if (isUsageReportingDriver(this.opts.driver)) {
+      for (const u of this.opts.driver.drainUsage()) {
+        this.tokenMonitor.recordUsage(u);
+      }
+    }
 
     const toolCalls = collectToolCalls(events);
     const content = result.ok ? summaryText(events) : (result.output ?? 'Budget exhausted.');

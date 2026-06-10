@@ -77,9 +77,11 @@ export interface CronOptions {
   readonly rearmOnLoad?: boolean;
 }
 
+const INTERVAL_RE = /^(\d+)([mhd])$/;
+
 function parseSchedule(schedule: string, now: number): number {
   // Parse "30m", "2h", "1d" into milliseconds
-  const match = schedule.match(/^(\d+)([mhd])$/);
+  const match = schedule.match(INTERVAL_RE);
   if (match) {
     const n = parseInt(match[1]!, 10);
     const unit = match[2];
@@ -94,6 +96,17 @@ function parseSchedule(schedule: string, now: number): number {
   if (!isNaN(ts)) return Math.max(0, ts - now);
   // Default: 1 hour
   return 60 * 60 * 1000;
+}
+
+/**
+ * A one-shot schedule is a concrete ISO timestamp, not a recurring interval. H7: a
+ * one-shot job fires ONCE; after it runs it must be marked completed and never
+ * rescheduled. Previously scheduleNext re-armed it with the SAME past timestamp, whose
+ * delay clamps to 0 — an unbounded, instantaneous refire loop.
+ */
+function isOneShot(schedule: string): boolean {
+  if (INTERVAL_RE.test(schedule)) return false; // "30m"/"2h"/"1d" recur
+  return !isNaN(new Date(schedule).getTime()); // a parseable date => one-shot
 }
 
 export function createCronToolHandlers(
@@ -120,6 +133,15 @@ export function createCronToolHandlers(
     job.nextRunAt = clock() + delay;
     job.timer = setTimeout(async () => {
       await executeJob(job);
+      // H7: a one-shot (ISO timestamp) job fires exactly once. Mark it completed and
+      // do NOT reschedule — re-arming with the same past timestamp would refire forever.
+      if (isOneShot(job.schedule)) {
+        if (job.status === 'active') job.status = 'completed';
+        job.nextRunAt = null;
+        job.timer = null;
+        persist();
+        return;
+      }
       if (job.status === 'active') scheduleNext(job);
     }, delay);
     // Don't keep the event loop alive solely for a scheduled job.
@@ -128,7 +150,9 @@ export function createCronToolHandlers(
 
   async function executeJob(job: ScheduledJob): Promise<void> {
     try {
-      job.status = 'active';
+      // A one-shot mid-run stays 'active'; the caller transitions it to 'completed'
+      // after this resolves. A recurring job is (re)affirmed active while it runs.
+      if (job.status !== 'completed') job.status = 'active';
       const result = await execute(job.prompt);
       job.lastResult = result.slice(0, 500);
       job.runCount++;

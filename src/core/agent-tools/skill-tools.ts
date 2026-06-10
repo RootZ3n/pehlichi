@@ -27,9 +27,38 @@
  *   # Skill Title
  *   Full instructions...
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync, rmSync, realpathSync } from 'node:fs';
+import { join, dirname, relative, isAbsolute, resolve, sep } from 'node:path';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
+
+/**
+ * Resolve `filePath` INSIDE `skillDir`, rejecting any escape (H5). `join(skillDir, ..)`
+ * happily produces a path OUTSIDE the skill dir for inputs like `../../etc/passwd` or an
+ * absolute path, which let skill_view / write_file / remove_file read or write anywhere on
+ * disk. We resolve (collapsing `..`), then prefix-check, then follow symlinks via realpath
+ * (a symlink inside the dir can still point out). Returns null on any escape.
+ */
+function confineToSkill(skillDir: string, filePath: string): string | null {
+  if (typeof filePath !== 'string' || filePath.length === 0) return null;
+  const root = resolve(skillDir);
+  const abs = resolve(root, filePath);
+  const rel = relative(root, abs);
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  // Symlink check: resolve the nearest existing ancestor and re-check the real path.
+  let dir = abs;
+  const tail: string[] = [];
+  while (!existsSync(dir)) {
+    const parent = dirname(dir);
+    if (parent === dir) return abs;
+    tail.unshift(dir.slice(parent.length + 1));
+    dir = parent;
+  }
+  const realRoot = existsSync(root) ? realpathSync(root) : root;
+  const realAbs = tail.length === 0 ? realpathSync(dir) : resolve(realpathSync(dir), ...tail);
+  const realRel = relative(realRoot, realAbs);
+  if (realRel === '..' || realRel.startsWith(`..${sep}`) || isAbsolute(realRel)) return null;
+  return abs;
+}
 
 const obj = (
   properties: Record<string, unknown>,
@@ -132,8 +161,11 @@ export function createSkillToolHandlers(skillsRoot: string): Map<string, ToolHan
       }
 
       if (filePath) {
-        // Tier 3: load linked file
-        const fullPath = join(skillDir, filePath);
+        // Tier 3: load linked file — confined to the skill directory (H5).
+        const fullPath = confineToSkill(skillDir, filePath);
+        if (fullPath === null) {
+          return { ok: false, output: '', error: `file_path "${filePath}" escapes the skill directory` };
+        }
         if (!existsSync(fullPath)) {
           const available = listLinkedFiles(skillDir);
           return {
@@ -439,9 +471,10 @@ function writeSkillFile(root: string, name: string, filePath: string, content: s
     return { ok: false, output: '', error: `Skill "${name}" not found` };
   }
 
-  // Validate file path is within skill directory
-  const fullPath = join(skillDir, filePath);
-  if (!fullPath.startsWith(skillDir)) {
+  // Validate file path is within skill directory (H5: resolve + symlink check, not a
+  // weak prefix test that `../sibling` or an absolute path can defeat).
+  const fullPath = confineToSkill(skillDir, filePath);
+  if (fullPath === null) {
     return { ok: false, output: '', error: 'File path must be within the skill directory' };
   }
 
@@ -463,8 +496,8 @@ function removeSkillFile(root: string, name: string, filePath: string): ToolResu
     return { ok: false, output: '', error: `Skill "${name}" not found` };
   }
 
-  const fullPath = join(skillDir, filePath);
-  if (!fullPath.startsWith(skillDir)) {
+  const fullPath = confineToSkill(skillDir, filePath);
+  if (fullPath === null) {
     return { ok: false, output: '', error: 'File path must be within the skill directory' };
   }
 

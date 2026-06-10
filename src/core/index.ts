@@ -16,11 +16,14 @@ export {
 
 export {
   ScriptedDriver,
+  isUsageReportingDriver,
   type Driver,
   type DriverAction,
   type DriverContext,
   type Message,
   type ToolSpec,
+  type TokenUsage,
+  type UsageReportingDriver,
 } from "./driver.js";
 
 export {

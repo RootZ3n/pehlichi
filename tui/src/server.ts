@@ -11,8 +11,10 @@
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   MimoDriver,
@@ -57,6 +59,27 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
+/**
+ * C1: the running commit, so an operator can VERIFY which build is live (the audit
+ * found fixes that were committed but never deployed). Prefer an explicit
+ * $PEHLICHI_COMMIT / VERSION file (set at deploy), else read `git rev-parse` from the repo,
+ * else 'unknown'. Resolved once at module load.
+ */
+function resolveCommit(): string {
+  if (process.env.PEHLICHI_COMMIT) return process.env.PEHLICHI_COMMIT.trim();
+  const here = dirname(fileURLToPath(import.meta.url));
+  try {
+    return readFileSync(join(here, '..', '..', 'VERSION'), 'utf-8').trim();
+  } catch { /* no VERSION file — fall through to git */ }
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf-8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const COMMIT = resolveCommit();
+
 function json(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
@@ -78,6 +101,14 @@ export interface PehServerOptions {
    * a driver leave it off, so no checkpoint files are written during a test run.
    */
   readonly checkpointDir?: string;
+  /**
+   * ENDPOINT AUTH (H1): a bearer token required on /chat and /chat/stream. Defaults to
+   * $IKBI_CHAT_TOKEN. When set, a request MUST send `Authorization: Bearer <token>` or it
+   * is rejected 401. When UNSET, the chat endpoints are open but the server forces a
+   * read-only posture on the production listen path (an unauthenticated network caller
+   * can never drive write/destructive tools).
+   */
+  readonly chatToken?: string;
 }
 
 /**
@@ -117,18 +148,62 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // H6: checkpoint in production (no injected driver), stay off under test injection.
   const checkpointDir = opts.checkpointDir ?? (opts.driver ? undefined : join(labStoreRoot, '.checkpoints', 'pehlichi'));
 
-  const session = new KernelChatSession({
-    profile: pehProfile,
-    driver,
-    workspaceRoot,
-    labStoreRoot,
-    extraTools,
-    ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
-    approvalCallback: defaultApprovalPolicy({ allowWrites: opts.allowWrites === true }),
-    ...(checkpointDir !== undefined ? { checkpointDir } : {}),
-  });
+  // H1: endpoint auth. A configured token gates /chat; an injected driver (tests /
+  // embedding) keeps its explicit write posture, while the production listen path with
+  // NO token is forced read-only so an unauthenticated caller cannot drive writes.
+  const chatToken = opts.chatToken ?? process.env.IKBI_CHAT_TOKEN;
+  const hasChatToken = typeof chatToken === 'string' && chatToken.length > 0;
+  const isInjected = opts.driver !== undefined;
+  const allowWritesEffective = isInjected
+    ? opts.allowWrites === true
+    : (opts.allowWrites === true && hasChatToken);
+  if (!isInjected && opts.allowWrites === true && !hasChatToken) {
+    console.warn('[auth] IKBI_CHAT_TOKEN is unset — forcing READ-ONLY mode for network /chat requests.');
+  }
+
+  // H2 (cross-room bleed): every Matrix room (and DM) gets its OWN KernelChatSession so
+  // one room's transcript is NEVER visible in another's context. Sessions are created on
+  // demand and keyed by room id; a request without a room id uses the 'default' session
+  // (the one returned to embedders/tests). Each room also gets its own checkpoint subdir
+  // so per-room history persists independently and never clobbers another room's.
+  const makeSession = (roomKey: string): KernelChatSession =>
+    new KernelChatSession({
+      profile: pehProfile,
+      driver,
+      workspaceRoot,
+      labStoreRoot,
+      extraTools,
+      taskId: `pehlichi-${roomKey}`,
+      ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
+      approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
+      ...(checkpointDir !== undefined ? { checkpointDir: join(checkpointDir, sanitizeRoomKey(roomKey)) } : {}),
+    });
+
+  const sessions = new Map<string, KernelChatSession>();
+  const sessionFor = (roomKey: string): KernelChatSession => {
+    let s = sessions.get(roomKey);
+    if (s === undefined) {
+      s = makeSession(roomKey);
+      sessions.set(roomKey, s);
+    }
+    return s;
+  };
+  // The 'default' session backs requests with no room id and is the one returned below.
+  const session = sessionFor('default');
+
+  /**
+   * H1: verify the bearer token on a chat request. Returns true when no token is
+   * configured (open, but read-only on the production path). A configured token requires
+   * an exact `Authorization: Bearer <token>` match.
+   */
+  const chatAuthorized = (req: IncomingMessage): boolean => {
+    if (!hasChatToken) return true;
+    const header = req.headers['authorization'];
+    return typeof header === 'string' && header === `Bearer ${chatToken}`;
+  };
 
   const server = createHttpServer(async (req, res) => {
+   try {
     const url = new URL(req.url ?? '/', `http://${HOST}:${opts.port ?? PORT}`);
 
     if (req.method === 'GET' && url.pathname === '/health') {
@@ -136,6 +211,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         status: 'ok',
         agent: skin.branding.agent_name,
         model: MODEL,
+        commit: COMMIT, // C1: verify which build is actually running.
         uptime: process.uptime(),
         historyLength: session.getHistory().length,
         toolCount: toolNames.length,
@@ -160,9 +236,15 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     if (req.method === 'POST' && url.pathname === '/chat') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
+
+      // H2: route to THIS room's session — no cross-room context bleed.
+      const roomSession = sessionFor(roomKeyOf(body));
 
       // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
       // request can be traced; a missing id is stamped (and logged as anonymous) rather
@@ -174,7 +256,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       console.log(`[chat] caller=${callerId} corr=${correlationId}`);
 
       try {
-        const response = await session.send(message);
+        const response = await roomSession.send(message);
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
@@ -203,14 +285,20 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     if (req.method === 'POST' && url.pathname === '/chat/stream') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
 
+      // H2: route to THIS room's session — no cross-room context bleed.
+      const roomSession = sessionFor(roomKeyOf(body));
+
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
       try {
         // Blocker 5: stream EVERY kernel event (tool-call/result/receipt/summary) as SSE.
-        const response = await session.send(message, (e: AgentEvent) => {
+        const response = await roomSession.send(message, (e: AgentEvent) => {
           res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
         });
         res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
@@ -222,7 +310,18 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     if (req.method === 'POST' && url.pathname === '/reset') {
-      session.reset();
+      // H2: reset only the targeted room's session when a roomId is supplied; with no
+      // room context, reset EVERY room (a global wipe). Each reset clears that session's
+      // on-disk checkpoints too (C4), so the cleared transcript cannot resurrect.
+      const body = await parseBody(req);
+      const ctx = body['context'];
+      const hasRoom = ctx && typeof ctx === 'object'
+        && typeof (ctx as Record<string, unknown>)['roomId'] === 'string';
+      if (hasRoom) {
+        sessionFor(roomKeyOf(body)).reset();
+      } else {
+        for (const s of sessions.values()) s.reset();
+      }
       return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
     }
 
@@ -249,9 +348,44 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     json(res, 404, { error: 'not found' });
+   } catch (err) {
+    // C3 (client-abort crash): a client that aborts mid-request rejects parseBody (and
+    // can reject any in-flight await). Awaiting that at the top level used to surface as
+    // an UNHANDLED REJECTION and crash the process. Catch EVERYTHING here: if the socket
+    // is already gone, close it; otherwise return a clean 500. The process stays up.
+    const aborted = req.aborted === true || res.writableEnded || res.destroyed;
+    if (aborted || res.headersSent) {
+      try { res.destroy(); } catch { /* socket already gone */ }
+      return;
+    }
+    try {
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    } catch {
+      try { res.destroy(); } catch { /* nothing more we can do */ }
+    }
+   }
   });
 
   return { server, session, toolNames };
+}
+
+/**
+ * Derive the per-room session key from a /chat body's context (H2). Matrix supplies
+ * `context.roomId`; anything else falls back to 'default'. Returned verbatim — it is
+ * sanitized only when used as a checkpoint DIRECTORY name (sanitizeRoomKey).
+ */
+function roomKeyOf(body: Record<string, unknown>): string {
+  const ctx = body['context'];
+  if (ctx && typeof ctx === 'object') {
+    const rid = (ctx as Record<string, unknown>)['roomId'];
+    if (typeof rid === 'string' && rid.length > 0) return rid;
+  }
+  return 'default';
+}
+
+/** Make a room id safe as a single path segment for its checkpoint subdir. */
+function sanitizeRoomKey(key: string): string {
+  return key.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 128) || 'default';
 }
 
 /** Detect provider ID from base URL (for the circuit breaker). */
@@ -278,6 +412,7 @@ if (isMain) {
     console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);
     console.log(`  Personality: ${personality.name}`);
     console.log(`  Model: ${MODEL}`);
+    console.log(`  Commit: ${COMMIT}`); // C1: which build is live.
     console.log(`  Listening: http://${HOST}:${PORT}`);
     console.log(`${'═'.repeat(60)}\n`);
     console.log(`  ${skin.branding.welcome}\n`);

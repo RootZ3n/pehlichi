@@ -13,7 +13,7 @@
  * The deterministic loop tests never touch this — the real-model proof is the
  * separate sanity:mimo entrypoint.
  */
-import type { Driver, DriverAction, DriverContext, Message, ToolSpec } from "../driver.js";
+import type { DriverAction, DriverContext, Message, ToolSpec, TokenUsage, UsageReportingDriver } from "../driver.js";
 import type { Phase } from "../events.js";
 
 const DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
@@ -69,7 +69,7 @@ Each turn, reply with EXACTLY ONE of:
    {"kind":"narrate","phase":"investigate"|"act"|"verify"|"other","text":"<one short line>"}
 For kinds 2-4 emit ONLY the JSON object, no surrounding prose.`;
 
-export class MimoDriver implements Driver {
+export class MimoDriver implements UsageReportingDriver {
   readonly baseUrl: string;
   readonly model: string;
   readonly keyed: boolean;
@@ -78,6 +78,15 @@ export class MimoDriver implements Driver {
   private readonly temperature: number | undefined;
   private readonly requestTimeoutMs: number;
   private readonly fetchImpl: FetchLike;
+  /** H4: token usage accumulated since the last drain (real numbers from the API). */
+  private pendingUsage: TokenUsage[] = [];
+
+  /** H4: return and clear usage recorded since the last call (UsageReportingDriver). */
+  drainUsage(): TokenUsage[] {
+    const drained = this.pendingUsage;
+    this.pendingUsage = [];
+    return drained;
+  }
 
   constructor(opts: MimoDriverOptions = {}) {
     const key = opts.apiKey ?? process.env["MIMO_API_KEY"];
@@ -132,8 +141,25 @@ export class MimoDriver implements Driver {
       throw new MimoError(`malformed JSON from mimo: ${messageOf(cause)}`);
     }
 
-    return completionToAction(parseChatCompletion(json), ctx.tools.map((t) => t.name));
+    const parsed = parseChatCompletion(json);
+    // H4: record the REAL token usage the provider reported, so the session's
+    // TokenMonitor reflects actual consumption instead of staying at zero.
+    if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);
+    return completionToAction(parsed, ctx.tools.map((t) => t.name));
   }
+}
+
+/** Extract OpenAI-shaped usage ({ prompt_tokens, completion_tokens, ... }) if present. */
+export function parseUsage(json: unknown): TokenUsage | undefined {
+  if (!isRecord(json) || !isRecord(json.usage)) return undefined;
+  const u = json.usage;
+  const input = typeof u.prompt_tokens === "number" ? u.prompt_tokens : 0;
+  const output = typeof u.completion_tokens === "number" ? u.completion_tokens : 0;
+  // Cached-prompt tokens, when the provider reports them (prompt_tokens_details).
+  const details = isRecord(u.prompt_tokens_details) ? u.prompt_tokens_details : undefined;
+  const cached = details && typeof details.cached_tokens === "number" ? details.cached_tokens : 0;
+  if (input === 0 && output === 0 && cached === 0) return undefined;
+  return { input, output, cached };
 }
 
 // ── pure helpers (offline-testable) ──────────────────────────────────────────
@@ -178,6 +204,8 @@ export interface ParsedCompletion {
   readonly content: string;
   readonly toolCalls: Array<{ id: string; name: string; arguments: string }>;
   readonly finishReason: string;
+  /** H4: real token usage from the provider response, when present. */
+  readonly usage?: TokenUsage;
 }
 
 /** Validate the provider JSON and extract content / tool calls / finish reason. */
@@ -196,10 +224,12 @@ export function parseChatCompletion(json: unknown): ParsedCompletion {
   }
 
   const toolCalls = parseToolCalls(message.tool_calls);
+  const usage = parseUsage(json);
   return {
     content: typeof rawContent === "string" ? rawContent : "",
     toolCalls,
     finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown",
+    ...(usage !== undefined ? { usage } : {}),
   };
 }
 

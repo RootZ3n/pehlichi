@@ -89,7 +89,18 @@ export interface DelegateConfig {
    * delegation can never escalate authority beyond the parent.
    */
   readonly allowWrites?: boolean;
+  /**
+   * DEPTH LIMIT (H8): the maximum delegation depth — how many delegation hops are
+   * allowed from the top-level agent. `delegatedFrom.length` IS the current depth, so a
+   * spawn is refused once it would exceed maxDepth. Default 2 (top-level → child →
+   * grandchild); a grandchild may not delegate further. Without this, a chain of
+   * delegations can spawn processes without bound.
+   */
+  readonly maxDepth?: number;
 }
+
+/** Default maximum delegation depth (top-level → child → grandchild). */
+export const DEFAULT_MAX_DELEGATION_DEPTH = 2;
 
 /** Normalize a goal into the stable key used for cycle detection. */
 export function delegationKey(goal: string): string {
@@ -103,6 +114,7 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
   const timeoutMs = config.timeoutMs ?? DELEGATE_TIMEOUT;
   const chain = config.delegatedFrom ?? [];
   const allowWrites = config.allowWrites === true;
+  const maxDepth = config.maxDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
 
   handlers.set('delegate_task', async (args): Promise<ToolResult> => {
     const goal = args.goal as string;
@@ -111,13 +123,25 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
 
     // CIRCULAR DELEGATION PROTECTION: refuse BEFORE spawning if this goal already
     // appears in the chain that led here. The child never starts, so a cycle cannot
-    // consume a process slot or a timeout.
+    // consume a process slot or a timeout. Checked BEFORE the depth limit so a cycle is
+    // always reported as a cycle (even when the chain has also reached max depth).
     const key = delegationKey(goal);
     if (chain.includes(key)) {
       return {
         ok: false,
         output: '',
         error: `circular delegation detected: "${key}" is already in the delegation chain [${chain.join(' -> ')}]`,
+      };
+    }
+
+    // DEPTH LIMIT (H8): the chain that led here IS the current depth. Refuse BEFORE
+    // spawning when one more hop would exceed maxDepth, so an unbounded delegation
+    // chain cannot consume process slots and resources without limit.
+    if (chain.length >= maxDepth) {
+      return {
+        ok: false,
+        output: '',
+        error: `delegation depth limit reached (max ${maxDepth}): chain is [${chain.join(' -> ')}]. Complete this work directly instead of delegating further.`,
       };
     }
 

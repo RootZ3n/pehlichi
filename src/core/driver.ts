@@ -45,6 +45,28 @@ export interface Driver {
   next(ctx: DriverContext): Promise<DriverAction>;
 }
 
+/** Token usage from a single model call, in the shape TokenMonitor records. */
+export interface TokenUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cached?: number;
+}
+
+/**
+ * H4: an OPTIONAL capability a driver may implement to surface real token usage from
+ * the model response. The core loop does not require it; consumers that want token
+ * accounting (the chat session's TokenMonitor) drain accumulated usage after a run.
+ * `drainUsage` returns everything recorded since the last drain and clears it.
+ */
+export interface UsageReportingDriver extends Driver {
+  drainUsage(): TokenUsage[];
+}
+
+/** Narrow a Driver to the usage-reporting capability (duck-typed on `drainUsage`). */
+export function isUsageReportingDriver(d: Driver): d is UsageReportingDriver {
+  return typeof (d as Partial<UsageReportingDriver>).drainUsage === "function";
+}
+
 /**
  * Deterministic test driver: replays a canned list of actions in order.
  * Throws if asked for more actions than it was given — a runaway loop or a

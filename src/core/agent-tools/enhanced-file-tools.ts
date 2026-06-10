@@ -6,7 +6,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, relative, dirname, basename } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import { resolveInWorkspace } from '../workspace.js';
 
@@ -144,14 +144,20 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
         const noMatch = `No matches for "${pattern}"`;
         const ranEmpty = (err: unknown): boolean => (err as { status?: number })?.status === 1;
 
+        // C2 (RCE): NEVER build a shell command string from user input. `execSync`
+        // runs through /bin/sh, and JSON.stringify-quoting is NOT shell-safe — inside
+        // double quotes a pattern like `$(touch pwned)` or a backtick still executes.
+        // `execFileSync` spawns the binary directly with an argv array: the search
+        // pattern is passed as a literal argument, never parsed by a shell. The `--`
+        // separator additionally stops a pattern starting with `-` being read as a flag.
         const rgArgs = ['--no-heading', '--line-number', '--max-count', String(limit)];
         if (fileGlob) {
           rgArgs.push('--glob', fileGlob);
         }
-        rgArgs.push(pattern, searchPath);
+        rgArgs.push('--', pattern, searchPath);
 
         try {
-          const output = execSync(`rg ${rgArgs.map((a) => JSON.stringify(a)).join(' ')}`, {
+          const output = execFileSync('rg', rgArgs, {
             encoding: 'utf8',
             timeout: 10_000,
             maxBuffer: 512 * 1024,
@@ -159,10 +165,10 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
           return { ok: true, output: output.trim() || noMatch };
         } catch (rgErr) {
           if (ranEmpty(rgErr)) return { ok: true, output: noMatch };
-          // rg was unavailable or errored — fall back to grep.
-          const grepArgs = ['-rn', '--include', fileGlob || '*', pattern, searchPath];
+          // rg was unavailable or errored — fall back to grep (also shell-free).
+          const grepArgs = ['-rn', '--include', fileGlob || '*', '--', pattern, searchPath];
           try {
-            const output = execSync(`grep ${grepArgs.map((a) => JSON.stringify(a)).join(' ')}`, {
+            const output = execFileSync('grep', grepArgs, {
               encoding: 'utf8',
               timeout: 10_000,
               maxBuffer: 512 * 1024,
