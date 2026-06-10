@@ -15,17 +15,24 @@ import type { AgentProfile } from "./core/profile.js";
 
 /**
  * Peh's tool permissions — config (a run-level allowlist), not behavior.
- * Memory (her workspace) + read/search over input context; NO builder tools, so
- * "stay in lane" is structural. Mirrors the `allowedTools` declared on the
- * peh-coordinator skillpack; passed to runAgent via `toolNames`.
+ * Memory + read/search + skill management (self-improvement). NO builder tools
+ * (write_file, patch, terminal, process), so "stay in lane" is structural.
+ * Mirrors the `allowedTools` declared on the peh-coordinator skillpack;
+ * passed to runAgent via `toolNames`.
  */
 export const coordinatorToolNames: readonly string[] = Object.freeze([
-  "read",
-  "search",
-  "memory_view",
-  "memory_query_current",
-  "memory_create",
-  "memory_supersede",
+  // Read + search (no mutation)
+  "read_file",
+  "search_files",
+  // Memory (persistent curated memory — two stores: memory + user)
+  "memory",
+  // Self-improvement (skill management — learn, improve, teach)
+  "skills_list",
+  "skill_view",
+  "skill_manage",
+  // Lightweight workflow
+  "todo",
+  "clarify",
 ]);
 
 export const pehProfile: AgentProfile = {
