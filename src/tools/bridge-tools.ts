@@ -72,11 +72,20 @@ export const bridgeToolSpecs: ToolSpec[] = [
         method: { type: "string", description: "HTTP method (GET, POST)" },
         path: { type: "string", description: "Endpoint path (e.g. '/health', '/api/profile')" },
         body: { type: "object", description: "Request body for POST requests" },
+        timeout_ms: {
+          type: "number",
+          description:
+            "Per-request timeout in ms (default 120000). Real agent tasks take minutes; " +
+            "raise this for long-running endpoints so the call doesn't abort prematurely (B7).",
+        },
       },
       ["service", "method", "path"],
     ),
   },
 ];
+
+/** Default bridge.request timeout — real agent work takes minutes, not 30s (B7). */
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
 /** Create the bridge tool handlers. */
 export function createBridgeToolHandlers(config: { agentId?: string } = {}): Map<string, ToolHandler> {
@@ -121,11 +130,15 @@ export function createBridgeToolHandlers(config: { agentId?: string } = {}): Map
       return { ok: false, output: "", error: `Unknown service: ${service}` };
     }
 
+    const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0
+      ? args.timeout_ms
+      : DEFAULT_REQUEST_TIMEOUT_MS;
+
     try {
       const fetchOpts: RequestInit = {
         method,
         headers: callerHeaders(agentId),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(timeoutMs),
       };
       if (body && method === "POST") {
         fetchOpts.headers = { ...callerHeaders(agentId), "Content-Type": "application/json" };
