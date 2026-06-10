@@ -5,9 +5,10 @@
  * Supplements the core's basic read/write/search with Hermes-level features.
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, relative, resolve, dirname, basename } from 'node:path';
+import { join, relative, dirname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
+import { resolveInWorkspace } from '../workspace.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -135,7 +136,14 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
           output: results.length > 0 ? results.join('\n') : `No files matching "${pattern}"`,
         };
       } else {
-        // Search file contents with ripgrep
+        // Search file contents with ripgrep. CRITICAL (H4): a search command exit
+        // code of 1 means "ran fine, found nothing" — a real result. ANY OTHER
+        // failure (bad regex, ENOENT, timeout, permission) means the search never
+        // produced an answer, and must surface as ok:false. Reporting "No matches"
+        // for a search that failed makes a model believe the pattern is absent.
+        const noMatch = `No matches for "${pattern}"`;
+        const ranEmpty = (err: unknown): boolean => (err as { status?: number })?.status === 1;
+
         const rgArgs = ['--no-heading', '--line-number', '--max-count', String(limit)];
         if (fileGlob) {
           rgArgs.push('--glob', fileGlob);
@@ -148,9 +156,10 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
             timeout: 10_000,
             maxBuffer: 512 * 1024,
           });
-          return { ok: true, output: output.trim() || `No matches for "${pattern}"` };
-        } catch {
-          // Fallback to grep if rg not available
+          return { ok: true, output: output.trim() || noMatch };
+        } catch (rgErr) {
+          if (ranEmpty(rgErr)) return { ok: true, output: noMatch };
+          // rg was unavailable or errored — fall back to grep.
           const grepArgs = ['-rn', '--include', fileGlob || '*', pattern, searchPath];
           try {
             const output = execSync(`grep ${grepArgs.map((a) => JSON.stringify(a)).join(' ')}`, {
@@ -158,9 +167,15 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
               timeout: 10_000,
               maxBuffer: 512 * 1024,
             });
-            return { ok: true, output: output.trim() || `No matches for "${pattern}"` };
-          } catch {
-            return { ok: true, output: `No matches for "${pattern}"` };
+            return { ok: true, output: output.trim() || noMatch };
+          } catch (grepErr) {
+            if (ranEmpty(grepErr)) return { ok: true, output: noMatch };
+            // Neither searcher ran successfully — this is a FAILURE, not "no matches".
+            return {
+              ok: false,
+              output: '',
+              error: `search failed for "${pattern}": ${grepErr instanceof Error ? grepErr.message : String(grepErr)}`,
+            };
           }
         }
       }
@@ -199,31 +214,16 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
         };
       }
 
-      // Fuzzy match — try normalizing whitespace
-      const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-      if (normalize(content).includes(normalize(oldString))) {
-        // Find the actual match with surrounding context
-        const normalized = normalize(oldString);
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-          if (normalize(lines[i] ?? '').includes(normalized.slice(0, 30))) {
-            // Found approximate location — do line-level replacement
-            const before = lines.slice(0, i).join('\n');
-            const after = lines.slice(i + 1).join('\n');
-            const newContent = `${before}\n${newString}\n${after}`;
-            writeFileSync(filePath, newContent, 'utf8');
-            return {
-              ok: true,
-              output: `Patched ${filePath} (fuzzy match at line ${i + 1})`,
-            };
-          }
-        }
-      }
-
+      // NO FUZZY APPLICATION (H3). The old fuzzy mode replaced the first line whose
+      // normalized text merely CONTAINED the first 30 chars of old_string — which can
+      // hit the wrong line and corrupt the file while still reporting ok:true. When the
+      // exact match fails we make NO change and ask the caller for an exact old_string.
       return {
         ok: false,
         output: '',
-        error: `No match found. The old_string was not found in the file.`,
+        error:
+          `exact match failed — no changes made. old_string was not found verbatim in ${filePath}. ` +
+          `Provide the exact text to replace (including whitespace and indentation).`,
       };
     } catch (err) {
       return { ok: false, output: '', error: `Patch failed: ${err instanceof Error ? err.message : String(err)}` };
@@ -233,12 +233,15 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
   return handlers;
 }
 
-/** Resolve a path relative to workspace root. */
+/**
+ * Resolve a path INSIDE the workspace, rejecting any escape (absolute path, `~`,
+ * or `..` traversal). Confinement is the same discipline the kernel uses for every
+ * file/exec tool — previously this passed absolute/`~` paths through verbatim, which
+ * let a tool read or write anywhere on disk (H2). A violation throws ToolError, which
+ * the loop surfaces as a clean ok:false tool failure.
+ */
 function resolvePath(workspaceRoot: string, path: string): string {
-  if (path.startsWith('/') || path.startsWith('~')) {
-    return path.replace(/^~/, process.env.HOME || '/home/zen');
-  }
-  return resolve(workspaceRoot, path);
+  return resolveInWorkspace(workspaceRoot, path);
 }
 
 /** Find files matching a glob pattern. */

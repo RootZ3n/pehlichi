@@ -57,6 +57,8 @@ export interface SubagentJob {
   readonly context: string;
   readonly toolsets: string[];
   readonly delegatedFrom: string[];
+  /** APPROVAL (N5): the approval posture the sub-agent must run under. */
+  readonly approvalPolicy: { readonly allowWrites: boolean };
 }
 
 export interface DelegateConfig {
@@ -81,6 +83,12 @@ export interface DelegateConfig {
    * chain (a cycle, e.g. A→B→A), so circular delegation is caught BEFORE a child spawns.
    */
   readonly delegatedFrom?: readonly string[];
+  /**
+   * APPROVAL (N5): whether the spawning policy permits write/destructive tools. The
+   * spawned sub-agent inherits this posture (default false => writes gated off), so
+   * delegation can never escalate authority beyond the parent.
+   */
+  readonly allowWrites?: boolean;
 }
 
 /** Normalize a goal into the stable key used for cycle detection. */
@@ -94,6 +102,7 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
   const nodeArgs = config.nodeArgs ?? [];
   const timeoutMs = config.timeoutMs ?? DELEGATE_TIMEOUT;
   const chain = config.delegatedFrom ?? [];
+  const allowWrites = config.allowWrites === true;
 
   handlers.set('delegate_task', async (args): Promise<ToolResult> => {
     const goal = args.goal as string;
@@ -112,7 +121,7 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
       };
     }
 
-    const job: SubagentJob = { goal, context, toolsets, delegatedFrom: [...chain, key] };
+    const job: SubagentJob = { goal, context, toolsets, delegatedFrom: [...chain, key], approvalPolicy: { allowWrites } };
     return runSubagent(nodePath, [...nodeArgs, config.runnerPath], JSON.stringify(job), timeoutMs);
   });
 

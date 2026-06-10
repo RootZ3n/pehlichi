@@ -34,6 +34,10 @@ import {
 } from '../../../src/core/index.js';
 import { createFullToolRegistry, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
 import type { AgentProfile } from '../../../src/core/profile.js';
+import { saveCheckpoint, loadLatestCheckpoint } from '../../../src/core/checkpoint.js';
+// The default approval policy lives in the core now (shared with delegated sub-agents,
+// N5). Re-exported below so existing importers (`./lib/kernel-session.js`) keep working.
+import { defaultApprovalPolicy } from '../../../src/core/approval-policy.js';
 
 // Production infrastructure (preserved from agent-chat.ts).
 import { CircuitBreaker } from '../../../src/core/agent-tools/circuit-breaker.js';
@@ -118,7 +122,22 @@ export interface KernelChatSessionOptions {
   readonly maxIterations?: number;
   /** The approval policy (Blocker 6). Defaults to read-only-auto-approve, writes gated off. */
   readonly approvalCallback?: ApprovalCallback;
+  /**
+   * TOOL LANE (H1): when set, the run is narrowed to exactly these tool names — both
+   * what the model is shown AND what may execute. Unset => the full registry, unchanged.
+   * A restricted profile (e.g. Luna) passes its allowlist so it cannot serve tools its
+   * profile forbids (write_file, terminal, …).
+   */
+  readonly toolNames?: readonly string[];
   readonly memoryStoreRoot?: string;
+  /**
+   * CHECKPOINTING (H6): when set, the session resumes its conversation from the latest
+   * checkpoint in this directory on construction and writes a fresh checkpoint after
+   * every turn, so a restart is no longer total amnesia. Unset => no checkpointing.
+   */
+  readonly checkpointDir?: string;
+  /** Identity stamped into checkpoints (default 'kernel-session'). */
+  readonly taskId?: string;
   readonly clock?: () => number;
 }
 
@@ -130,10 +149,23 @@ export class KernelChatSession {
   private readonly tokenMonitor: TokenMonitor;
   /** Accumulated prior turns, threaded into each run via the kernel's priorMessages seam. */
   private history: Message[] = [];
+  /** Monotonic turn counter — the checkpoint iteration (H6). */
+  private turnCount = 0;
 
   constructor(opts: KernelChatSessionOptions) {
     this.opts = opts;
     this.tokenMonitor = new TokenMonitor({ model: 'kernel' });
+
+    // CHECKPOINT RESUME (H6): on a restart, pick up the conversation where the last
+    // turn left off instead of starting blank. No checkpoint dir / no saved file =>
+    // a fresh session, unchanged.
+    if (opts.checkpointDir !== undefined) {
+      const cp = loadLatestCheckpoint(opts.checkpointDir);
+      if (cp !== undefined) {
+        this.history = [...cp.messages];
+        this.turnCount = cp.iteration;
+      }
+    }
   }
 
   getHistory(): readonly Message[] {
@@ -142,6 +174,12 @@ export class KernelChatSession {
 
   reset(): void {
     this.history = [];
+    this.turnCount = 0;
+    // N7: a reset must also clear the production infrastructure state the session owns,
+    // not just the transcript — otherwise token accounting leaks across a /reset. (The
+    // circuit breaker lives in the injected ResilientDriver, not the session, so it is
+    // reset at the driver layer.)
+    this.tokenMonitor.reset();
   }
 
   async send(userMessage: string, onEvent?: (e: AgentEvent) => void): Promise<KernelChatResponse> {
@@ -182,6 +220,7 @@ export class KernelChatSession {
       priorMessages: this.history, // Blocker 1: preserve conversation context.
       plan: false,
       ...(this.opts.approvalCallback !== undefined ? { approvalCallback: this.opts.approvalCallback } : {}),
+      ...(this.opts.toolNames !== undefined ? { toolNames: this.opts.toolNames } : {}), // H1: tool lane.
       ...(this.opts.memoryStoreRoot !== undefined ? { memoryStoreRoot: this.opts.memoryStoreRoot } : {}),
       ...(this.opts.clock !== undefined ? { clock: this.opts.clock } : {}),
     });
@@ -192,6 +231,23 @@ export class KernelChatSession {
     // Thread this turn into the running transcript for the next request.
     this.history.push({ role: 'user', content: task });
     this.history.push({ role: 'assistant', content });
+
+    // CHECKPOINT SAVE (H6): persist the conversation after every turn so a crash or
+    // restart resumes from here. Best-effort — a checkpoint write must never break a
+    // chat turn that already succeeded.
+    if (this.opts.checkpointDir !== undefined) {
+      const clock = this.opts.clock ?? Date.now;
+      try {
+        saveCheckpoint(this.opts.checkpointDir, {
+          iteration: ++this.turnCount,
+          timestamp: clock(),
+          messages: this.history,
+          taskId: this.opts.taskId ?? 'kernel-session',
+        });
+      } catch {
+        // Swallow checkpoint I/O errors — the turn's result still stands.
+      }
+    }
 
     return {
       content,
@@ -244,18 +300,7 @@ export function buildAgentTools(config: AgentToolConfig): ToolDef[] {
 }
 
 /**
- * A default approval policy (Blocker 6): auto-approve read-only tools, gate the rest.
- * Production wires this so the kernel refuses write/destructive tools unless approved.
+ * The default approval policy (Blocker 6) now lives in the core so delegated sub-agents
+ * share it (N5). Re-exported here unchanged so existing importers keep working.
  */
-const READ_ONLY_TOOLS = new Set([
-  'read_file', 'search_files', 'list_files', 'web_search', 'web_extract',
-  'memory_read', 'memory_search', 'lab_context_read', 'agent_sync', 'todo', 'clarify',
-]);
-export function defaultApprovalPolicy(opts?: { allowWrites?: boolean }): ApprovalCallback {
-  const allowWrites = opts?.allowWrites === true;
-  return ({ tool }) => {
-    if (READ_ONLY_TOOLS.has(tool)) return { approved: true };
-    if (allowWrites) return { approved: true };
-    return { approved: false, reason: `write/destructive tool "${tool}" requires approval` };
-  };
-}
+export { defaultApprovalPolicy };

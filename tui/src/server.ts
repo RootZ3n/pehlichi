@@ -72,6 +72,12 @@ export interface PehServerOptions {
   readonly maxIterations?: number;
   /** Allow write/destructive tools without gating (default false — writes require approval). */
   readonly allowWrites?: boolean;
+  /**
+   * CHECKPOINTING (H6): directory for crash-safe conversation checkpoints. When unset,
+   * production defaults it under the lab store (so a restart resumes); tests that inject
+   * a driver leave it off, so no checkpoint files are written during a test run.
+   */
+  readonly checkpointDir?: string;
 }
 
 /**
@@ -94,6 +100,8 @@ export function createPehServer(opts: PehServerOptions = {}): {
     workspaceRoot,
     agentServerUrl: `http://${opts.host ?? HOST}:${opts.port ?? PORT}`,
     ...(apiKey !== undefined ? { apiKey } : {}),
+    // N5: delegated sub-agents inherit THIS server's write posture, never more.
+    delegateAllowWrites: opts.allowWrites === true,
   });
   const registry = createToolRegistry(extraTools);
   const toolNames = [...registry.keys()];
@@ -106,6 +114,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
     breaker,
   );
 
+  // H6: checkpoint in production (no injected driver), stay off under test injection.
+  const checkpointDir = opts.checkpointDir ?? (opts.driver ? undefined : join(labStoreRoot, '.checkpoints', 'pehlichi'));
+
   const session = new KernelChatSession({
     profile: pehProfile,
     driver,
@@ -114,6 +125,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
     extraTools,
     ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
     approvalCallback: defaultApprovalPolicy({ allowWrites: opts.allowWrites === true }),
+    ...(checkpointDir !== undefined ? { checkpointDir } : {}),
   });
 
   const server = createHttpServer(async (req, res) => {
@@ -151,6 +163,15 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
+
+      // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
+      // request can be traced; a missing id is stamped (and logged as anonymous) rather
+      // than silently accepted as if it came from nowhere.
+      const callerId = (req.headers['x-agent-id'] as string) || 'anonymous';
+      const correlationId = (req.headers['x-correlation-id'] as string)
+        || `pehlichi-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      res.setHeader('X-Correlation-Id', correlationId);
+      console.log(`[chat] caller=${callerId} corr=${correlationId}`);
 
       try {
         const response = await session.send(message);
@@ -262,6 +283,26 @@ if (isMain) {
     console.log(`  ${skin.branding.welcome}\n`);
   });
 
-  process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
-  process.on('SIGINT', () => { server.close(() => process.exit(0)); });
+  // GRACEFUL SHUTDOWN (H10): stop accepting new connections, let in-flight requests
+  // (a running chat turn drains via server.close's keep-alive handling) finish, then
+  // exit. A hard deadline guarantees `systemctl stop` never hangs on a stuck turn.
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n${signal} received — draining in-flight requests…`);
+    const forced = setTimeout(() => {
+      console.error('Shutdown deadline reached — forcing exit.');
+      process.exit(1);
+    }, 10_000);
+    forced.unref();
+    server.close((err) => {
+      clearTimeout(forced);
+      if (err) { console.error('Error during shutdown:', err); process.exit(1); }
+      console.log('Shutdown complete.');
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }

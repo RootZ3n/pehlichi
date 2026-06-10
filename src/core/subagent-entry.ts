@@ -22,6 +22,7 @@ import {
   delegateToolSpecs,
 } from './agent-tools/delegate-tools.js';
 import { resolveSubagentRunner } from './agent-tools/index.js';
+import { defaultApprovalPolicy } from './approval-policy.js';
 
 interface Job {
   readonly goal: string;
@@ -29,6 +30,12 @@ interface Job {
   readonly toolsets?: string[];
   /** COORDINATION (Blocker 7): the delegation chain (ancestor goals) that led here. */
   readonly delegatedFrom?: string[];
+  /**
+   * APPROVAL (N5): the approval posture inherited from the parent. Absent => the
+   * restrictive default (writes gated off), so a delegated sub-agent never gains
+   * write authority the spawning policy did not have.
+   */
+  readonly approvalPolicy?: { readonly allowWrites?: boolean };
 }
 
 const SUBAGENT_PROFILE: AgentProfile = {
@@ -90,11 +97,14 @@ async function main(): Promise<void> {
 
   // COORDINATION: give the sub-agent its OWN delegate tool, carrying the chain that
   // led here, so a deeper delegation keeps growing the chain and stays cycle-protected.
+  const allowWrites = job.approvalPolicy?.allowWrites === true;
   const runner = resolveSubagentRunner();
   const delegateHandlers = createDelegateToolHandlers({
     runnerPath: runner.runnerPath,
     nodeArgs: runner.nodeArgs,
     delegatedFrom: chain,
+    // Carry the SAME approval posture down to any grandchild this sub-agent spawns.
+    allowWrites,
   });
   const extraTools: ToolDef[] = [];
   for (const spec of delegateToolSpecs) {
@@ -114,6 +124,10 @@ async function main(): Promise<void> {
       sinks: [(e) => events.push(e)],
       plan: false,
       extraTools,
+      // APPROVAL GATE (N5): a delegated sub-agent runs under the SAME approval policy
+      // a fresh session would — writes gated off unless the parent explicitly granted
+      // them. Without this the loop defaults to approve-everything.
+      approvalCallback: defaultApprovalPolicy({ allowWrites }),
     });
     const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
     const output = summary

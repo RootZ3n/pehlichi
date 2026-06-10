@@ -12,7 +12,7 @@
  *   list      — list all keys with their writer/timestamp
  *   broadcast — append a value to a shared, append-only broadcast log
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
@@ -80,7 +80,16 @@ export function createCoordinationToolHandlers(config: CoordinationConfig): Map<
             return { ok: false, output: '', error: 'write requires a key' };
           }
           const entry: SyncEntry = { key, value: String(args.value ?? ''), agentId: config.agentId, ts: clock() };
-          writeFileSync(keyFile(config.syncDir, key), JSON.stringify(entry, null, 2));
+          // ATOMIC WRITE (N2): write to a per-writer temp file, then rename into place.
+          // rename(2) is atomic within a directory, so a concurrent reader never sees a
+          // half-written entry and two agents writing the same key never tear the file —
+          // the last rename wins cleanly instead of interleaving bytes.
+          const dest = keyFile(config.syncDir, key);
+          const safe = key.replace(/[^a-zA-Z0-9._-]/g, '_');
+          // Temp name ends in `.tmp` (not `.json`) so a concurrent `list` never sees it.
+          const tmp = join(config.syncDir, `.${safe}.${process.pid}.${clock()}.tmp`);
+          writeFileSync(tmp, JSON.stringify(entry, null, 2));
+          renameSync(tmp, dest);
           return { ok: true, output: `wrote "${key}" (${entry.value.length} chars) as ${config.agentId}` };
         }
         case 'read': {

@@ -34,6 +34,20 @@ function getServiceUrl(service: string): string | undefined {
   return `http://localhost:${port}`;
 }
 
+/**
+ * Caller identity + correlation headers (H8). Every bridge call carries WHO is calling
+ * (X-Agent-Id) and a unique X-Correlation-Id so a request can be traced across services
+ * and a receiving server can attribute and audit it — instead of bare, anonymous HTTP
+ * that any process on localhost could forge indistinguishably.
+ */
+function callerHeaders(agentId: string): Record<string, string> {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return {
+    'X-Agent-Id': agentId,
+    'X-Correlation-Id': `${agentId}-${Date.now()}-${rand}`,
+  };
+}
+
 /** The bridge tool specs — advertised to the model. */
 export const bridgeToolSpecs: ToolSpec[] = [
   {
@@ -65,8 +79,9 @@ export const bridgeToolSpecs: ToolSpec[] = [
 ];
 
 /** Create the bridge tool handlers. */
-export function createBridgeToolHandlers(): Map<string, ToolHandler> {
+export function createBridgeToolHandlers(config: { agentId?: string } = {}): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
+  const agentId = config.agentId ?? process.env.AGENT_ID ?? "unknown";
 
   handlers.set("bridge.health", async (args): Promise<ToolResult> => {
     const service = args.service as string;
@@ -75,7 +90,7 @@ export function createBridgeToolHandlers(): Map<string, ToolHandler> {
       return { ok: false, output: "", error: `Unknown service: ${service}. Available: ${Object.keys(SERVICE_PORTS).join(", ")}` };
     }
     try {
-      const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
+      const response = await fetch(`${url}/health`, { headers: callerHeaders(agentId), signal: AbortSignal.timeout(5000) });
       const data = await response.json();
       return {
         ok: response.ok,
@@ -109,10 +124,11 @@ export function createBridgeToolHandlers(): Map<string, ToolHandler> {
     try {
       const fetchOpts: RequestInit = {
         method,
+        headers: callerHeaders(agentId),
         signal: AbortSignal.timeout(30000),
       };
       if (body && method === "POST") {
-        fetchOpts.headers = { "Content-Type": "application/json" };
+        fetchOpts.headers = { ...callerHeaders(agentId), "Content-Type": "application/json" };
         fetchOpts.body = JSON.stringify(body);
       }
 

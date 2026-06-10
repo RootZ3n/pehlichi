@@ -63,6 +63,13 @@ export interface AgentToolConfig {
   /** Hard timeout (ms) for a delegated sub-agent (default 5 minutes). */
   delegateTimeoutMs?: number;
   /**
+   * APPROVAL (N5): whether delegated sub-agents may run write/destructive tools.
+   * Defaults to false — a sub-agent inherits the restrictive posture so delegation
+   * cannot escalate authority beyond the agent that spawned it. Servers thread their
+   * own write posture (`allowWrites`) in here.
+   */
+  delegateAllowWrites?: boolean;
+  /**
    * COORDINATION (Blocker 7): the SHARED directory agent_sync reads/writes so the
    * agents can exchange results. Defaults to $AGENT_SYNC_DIR, else the sibling
    * lab-store's `.agent-sync` dir — one source of truth for the whole lab.
@@ -148,6 +155,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
     runnerPath: config.subagentRunnerPath ?? resolved.runnerPath,
     nodeArgs: config.subagentNodeArgs ?? resolved.nodeArgs,
     ...(config.delegateTimeoutMs !== undefined ? { timeoutMs: config.delegateTimeoutMs } : {}),
+    ...(config.delegateAllowWrites !== undefined ? { allowWrites: config.delegateAllowWrites } : {}),
   });
   const todoHandlers = createTodoToolHandlers();
   const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
