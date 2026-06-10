@@ -20,6 +20,13 @@ const neverDoneDriver: Driver = {
   },
 };
 
+/** A driver that finishes immediately on every turn with a valid summary. */
+const alwaysDoneDriver: Driver = {
+  async next(): Promise<DriverAction> {
+    return { kind: 'done', summary: { rootCause: 'r', changes: ['c'], verification: ['v'] } };
+  },
+};
+
 async function withServer<T>(
   opts: PehServerOptions,
   fn: (base: string) => Promise<T>,
@@ -193,11 +200,167 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
         assert.ok(caps.features.includes('kernel_loop'));
         assert.deepEqual(
           caps.endpoints,
-          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
+          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status'],
         );
 
         const reset = await fetch(`${base}/reset`, { method: 'POST' });
         assert.equal(reset.status, 200);
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+// ── BLOCKER-1: per-caller session map is bounded by an idle TTL ────────────────
+
+test('B1. idle sessions are evicted past the TTL; /health reports the count', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  let clock = 1_000; // injected, advanceable clock
+  try {
+    await withServer(
+      { driver: alwaysDoneDriver, workspaceRoot: ws, labStoreRoot: store, sessionTtlMs: 1_000, now: () => clock },
+      async (base) => {
+        const chat = (roomId: string) => fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'hi', context: { roomId } }),
+        });
+        const health = async () => (await fetch(`${base}/health`)).json() as any;
+
+        // Two distinct rooms => default + room-a + room-b live in the map.
+        await chat('room-a');
+        await chat('room-b');
+        let h = await health();
+        assert.equal(h.sessions, 3, 'default + room-a + room-b are resident');
+        assert.equal(h.sessionsEvicted, 0);
+
+        // Advance well past the TTL, then drive ONE more request. The inline eviction at
+        // the top of /chat reclaims both idle rooms; 'default' is never evicted.
+        clock += 5_000;
+        await chat('room-c');
+        h = await health();
+        assert.equal(h.sessions, 2, 'only default + the fresh room-c remain');
+        assert.equal(h.sessionsEvicted, 2, 'room-a and room-b were evicted');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('B1. /health surfaces instanceId and cronJobs for the operator (H1/H3)', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  try {
+    await withServer(
+      { driver: neverDoneDriver, workspaceRoot: ws, labStoreRoot: store },
+      async (base) => {
+        const h = await (await fetch(`${base}/health`)).json() as any;
+        assert.match(h.instanceId, /^\d+:\d+$/, 'instanceId is port:PID');
+        assert.equal(typeof h.cronJobs, 'number');
+        assert.equal(typeof h.sessions, 'number');
+        assert.equal(typeof h.sessionsEvicted, 'number');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+// ── BLOCKER-2 / H4: bridge tasks are pollable by their X-Task-Id ───────────────
+
+test('B2. /task/:id/status reports completed for a finished task and 404 for an unknown one', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  try {
+    await withServer(
+      { driver: alwaysDoneDriver, workspaceRoot: ws, labStoreRoot: store },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-done' },
+          body: JSON.stringify({ message: 'do it' }),
+        });
+        assert.equal(res.status, 200);
+
+        const done = await (await fetch(`${base}/task/task-done/status`)).json() as any;
+        assert.equal(done.taskId, 'task-done');
+        assert.equal(done.status, 'completed');
+
+        const unknown = await fetch(`${base}/task/nope-xyz/status`);
+        assert.equal(unknown.status, 404);
+        assert.equal((await unknown.json() as any).status, 'not-found');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('B2. /task/:id/status reports failed when the run errors', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  // An invalid summary (empty changes) makes validateSummary reject => /chat 500 => task failed.
+  const badDriver: Driver = {
+    async next(): Promise<DriverAction> {
+      return { kind: 'done', summary: { rootCause: 'r', changes: [], verification: ['v'] } };
+    },
+  };
+  try {
+    await withServer(
+      { driver: badDriver, workspaceRoot: ws, labStoreRoot: store },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-fail' },
+          body: JSON.stringify({ message: 'finish badly' }),
+        });
+        assert.equal(res.status, 500);
+        const status = await (await fetch(`${base}/task/task-fail/status`)).json() as any;
+        assert.equal(status.status, 'failed');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('B2. /task/:id/status reports running while the task is in flight', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const blockingDriver: Driver = {
+    async next(): Promise<DriverAction> {
+      await gate; // block until the test releases it
+      return { kind: 'done', summary: { rootCause: 'r', changes: ['c'], verification: ['v'] } };
+    },
+  };
+  try {
+    await withServer(
+      { driver: blockingDriver, workspaceRoot: ws, labStoreRoot: store },
+      async (base) => {
+        const inflight = fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-run' },
+          body: JSON.stringify({ message: 'long task' }),
+        });
+        // Give the server a moment to register the task before the driver blocks.
+        await new Promise((r) => setTimeout(r, 100));
+        const running = await (await fetch(`${base}/task/task-run/status`)).json() as any;
+        assert.equal(running.status, 'running');
+
+        release();
+        await inflight;
+        const done = await (await fetch(`${base}/task/task-run/status`)).json() as any;
+        assert.equal(done.status, 'completed');
       },
     );
   } finally {

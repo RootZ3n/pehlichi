@@ -8,6 +8,14 @@
  * approval gate, and partial-on-exhaustion all apply. The old AgentChatSession is
  * preserved (its infrastructure lives on in KernelChatSession / ResilientDriver) but
  * is no longer the request path.
+ *
+ * TWO-INSTANCE PATTERN (audit H1): in the lab this agent is run as TWO systemd services
+ * on adjacent ports (e.g. `lab-pehlichi` on 18830 and `lab-peh` on 18831) — typically one
+ * dedicated to the Matrix bridge and one to the HTTP/API surface. The instances are NOT
+ * coordinated: each keeps its OWN session map, its OWN cron store (`.cron-jobs.json`), and
+ * both answer bridge calls. This is intentional (do not consolidate without a reason). To
+ * make the split observable, `/health` reports an `instanceId` (port + PID) and a `cronJobs`
+ * count so an operator can tell the two apart and see which one owns which schedules.
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -109,6 +117,18 @@ export interface PehServerOptions {
    * can never drive write/destructive tools).
    */
   readonly chatToken?: string;
+  /**
+   * SESSION EVICTION (BLOCKER-1): how long an idle per-room session may live before it is
+   * evicted. Every unique caller/room creates a KernelChatSession; without a TTL the map
+   * grows unbounded and leaks memory for the life of the process. Defaults to
+   * $TRIO_SESSION_TTL_MS, else 4 hours. The 'default' session (embedders/tests) is never
+   * evicted.
+   */
+  readonly sessionTtlMs?: number;
+  /** How often the background cleanup timer sweeps stale sessions/tasks. Default 5 min. */
+  readonly cleanupIntervalMs?: number;
+  /** Injectable clock (ms). Tests advance it to drive TTL eviction deterministically. Default Date.now. */
+  readonly now?: () => number;
 }
 
 /**
@@ -119,6 +139,10 @@ export function createPehServer(opts: PehServerOptions = {}): {
   server: Server;
   session: KernelChatSession;
   toolNames: string[];
+  /** BLOCKER-1: evict idle sessions past TTL now; returns how many were evicted (for tests). */
+  evictStaleSessions: () => number;
+  /** Live count of resident per-room sessions (for tests). */
+  sessionCount: () => number;
 } {
   const skin = loadSkin();
   const personality = loadPersonality();
@@ -179,17 +203,76 @@ export function createPehServer(opts: PehServerOptions = {}): {
       ...(checkpointDir !== undefined ? { checkpointDir: join(checkpointDir, sanitizeRoomKey(roomKey)) } : {}),
     });
 
-  const sessions = new Map<string, KernelChatSession>();
+  // BLOCKER-1: each per-room session carries a lastAccessedAt so idle ones can be evicted.
+  interface SessionEntry { session: KernelChatSession; lastAccessedAt: number; }
+  const now = opts.now ?? Date.now;
+  const sessionTtlMs = opts.sessionTtlMs
+    ?? (process.env.TRIO_SESSION_TTL_MS ? parseInt(process.env.TRIO_SESSION_TTL_MS, 10) : 4 * 60 * 60 * 1000);
+  const cleanupIntervalMs = opts.cleanupIntervalMs ?? 5 * 60 * 1000;
+  let sessionsEvicted = 0;
+
+  const sessions = new Map<string, SessionEntry>();
   const sessionFor = (roomKey: string): KernelChatSession => {
-    let s = sessions.get(roomKey);
-    if (s === undefined) {
-      s = makeSession(roomKey);
-      sessions.set(roomKey, s);
+    let entry = sessions.get(roomKey);
+    if (entry === undefined) {
+      entry = { session: makeSession(roomKey), lastAccessedAt: now() };
+      sessions.set(roomKey, entry);
+    } else {
+      entry.lastAccessedAt = now();
     }
-    return s;
+    return entry.session;
   };
   // The 'default' session backs requests with no room id and is the one returned below.
+  // It is NEVER evicted (it is the long-lived embedder/test handle).
   const session = sessionFor('default');
+
+  /**
+   * BLOCKER-1: evict every idle session older than the TTL (never 'default'). Called before
+   * each request AND on a periodic timer, so the map can't grow unbounded over weeks of
+   * operation. Evictions are logged at info level for the operator.
+   */
+  const evictStaleSessions = (): number => {
+    const cutoff = now() - sessionTtlMs;
+    let evicted = 0;
+    for (const [key, entry] of sessions) {
+      if (key === 'default') continue;
+      if (entry.lastAccessedAt < cutoff) {
+        sessions.delete(key);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      sessionsEvicted += evicted;
+      console.log(`[sessions] evicted ${evicted} idle session(s) (ttl=${sessionTtlMs}ms); ${sessions.size} resident, ${sessionsEvicted} evicted total`);
+    }
+    return evicted;
+  };
+
+  // BLOCKER-2 / H4 (callee side): track bridge-originated tasks by their X-Task-Id so a
+  // caller that timed out can poll `/task/<id>/status` and learn whether the orphaned work
+  // actually completed (running | completed | failed | not-found).
+  type TaskState = 'running' | 'completed' | 'failed';
+  interface TaskRecord { status: TaskState; caller: string; correlationId: string; startedAt: number; finishedAt?: number; partial?: boolean; }
+  const tasks = new Map<string, TaskRecord>();
+  const TASK_RETENTION_MS = Math.max(sessionTtlMs, 60 * 60 * 1000);
+  const evictStaleTasks = (): void => {
+    const cutoff = now() - TASK_RETENTION_MS;
+    for (const [id, rec] of tasks) {
+      if (rec.status !== 'running' && (rec.finishedAt ?? rec.startedAt) < cutoff) tasks.delete(id);
+    }
+  };
+
+  /** Count persisted cron jobs for /health (H3). Best-effort — 0 if the store is absent. */
+  const cronJobCount = (): number => {
+    try {
+      const raw = readFileSync(join(workspaceRoot, '.cron-jobs.json'), 'utf-8');
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list.length : 0;
+    } catch { return 0; }
+  };
+
+  // Instance identity (H1): which of the two co-located instances answered.
+  const instanceId = `${opts.port ?? PORT}:${process.pid}`;
 
   /**
    * H1: verify the bearer token on a chat request. Returns true when no token is
@@ -210,12 +293,39 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         status: 'ok',
         agent: skin.branding.agent_name,
+        instanceId,            // H1: port:PID — distinguishes the two co-located instances.
         model: MODEL,
         commit: COMMIT, // C1: verify which build is actually running.
         uptime: process.uptime(),
         historyLength: session.getHistory().length,
         toolCount: toolNames.length,
+        sessions: sessions.size,        // BLOCKER-1: resident per-room sessions.
+        sessionsEvicted,                // BLOCKER-1: total evicted since start.
+        cronJobs: cronJobCount(),       // H3: scheduled jobs this instance owns.
       });
+    }
+
+    // BLOCKER-2 / H4: poll the status of a bridge-originated task by its X-Task-Id. A caller
+    // whose bridge.request timed out polls here to recover an orphaned result instead of
+    // assuming permanent failure. Unknown ids return 404 with status 'not-found'.
+    if (req.method === 'GET') {
+      const m = url.pathname.match(/^\/task\/([^/]+)\/status$/);
+      if (m) {
+        const id = decodeURIComponent(m[1] ?? '');
+        const rec = tasks.get(id);
+        if (rec === undefined) {
+          return json(res, 404, { taskId: id, status: 'not-found' });
+        }
+        return json(res, 200, {
+          taskId: id,
+          status: rec.status,
+          caller: rec.caller,
+          correlationId: rec.correlationId,
+          partial: rec.partial ?? false,
+          startedAt: rec.startedAt,
+          finishedAt: rec.finishedAt ?? null,
+        });
+      }
     }
 
     if (req.method === 'GET' && url.pathname === '/tools') {
@@ -239,6 +349,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (!chatAuthorized(req)) {
         return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
       }
+      // BLOCKER-1: opportunistic eviction on the request path keeps the map bounded even
+      // if the periodic timer is starved.
+      evictStaleSessions();
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
@@ -255,8 +368,16 @@ export function createPehServer(opts: PehServerOptions = {}): {
       res.setHeader('X-Correlation-Id', correlationId);
       console.log(`[chat] caller=${callerId} corr=${correlationId}`);
 
+      // BLOCKER-2 (callee): register a bridge-originated task so its status is pollable.
+      const taskId = (req.headers['x-task-id'] as string) || undefined;
+      if (taskId) tasks.set(taskId, { status: 'running', caller: callerId, correlationId, startedAt: now() });
+
       try {
         const response = await roomSession.send(message);
+        if (taskId) {
+          const rec = tasks.get(taskId);
+          if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
+        }
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
@@ -280,6 +401,10 @@ export function createPehServer(opts: PehServerOptions = {}): {
         // a narrower task.
         return json(res, response.partial ? 422 : 200, payload);
       } catch (err) {
+        if (taskId) {
+          const rec = tasks.get(taskId);
+          if (rec) { rec.status = 'failed'; rec.finishedAt = now(); }
+        }
         return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
     }
@@ -288,6 +413,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (!chatAuthorized(req)) {
         return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
       }
+      evictStaleSessions(); // BLOCKER-1
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
@@ -295,14 +421,29 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // H2: route to THIS room's session — no cross-room context bleed.
       const roomSession = sessionFor(roomKeyOf(body));
 
+      // BLOCKER-2 (callee): track the streamed task too so it is pollable on timeout.
+      const streamCaller = (req.headers['x-agent-id'] as string) || 'anonymous';
+      const streamCorr = (req.headers['x-correlation-id'] as string)
+        || `${skin.branding.agent_name.toLowerCase()}-stream-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const streamTaskId = (req.headers['x-task-id'] as string) || undefined;
+      if (streamTaskId) tasks.set(streamTaskId, { status: 'running', caller: streamCaller, correlationId: streamCorr, startedAt: now() });
+
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
       try {
         // Blocker 5: stream EVERY kernel event (tool-call/result/receipt/summary) as SSE.
         const response = await roomSession.send(message, (e: AgentEvent) => {
           res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
         });
+        if (streamTaskId) {
+          const rec = tasks.get(streamTaskId);
+          if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
+        }
         res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
       } catch (err) {
+        if (streamTaskId) {
+          const rec = tasks.get(streamTaskId);
+          if (rec) { rec.status = 'failed'; rec.finishedAt = now(); }
+        }
         res.write(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`);
       }
       res.end();
@@ -320,7 +461,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (hasRoom) {
         sessionFor(roomKeyOf(body)).reset();
       } else {
-        for (const s of sessions.values()) s.reset();
+        for (const entry of sessions.values()) entry.session.reset();
       }
       return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
     }
@@ -341,7 +482,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status'],
         model: MODEL,
         features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
       });
@@ -366,7 +507,14 @@ export function createPehServer(opts: PehServerOptions = {}): {
    }
   });
 
-  return { server, session, toolNames };
+  // BLOCKER-1: periodic background sweep so stale sessions are reclaimed even when no
+  // request arrives to trigger the inline eviction. Unref'd so it never keeps the process
+  // alive, and cleared on close so tests don't leak a timer.
+  const cleanupTimer = setInterval(() => { evictStaleSessions(); evictStaleTasks(); }, cleanupIntervalMs);
+  cleanupTimer.unref();
+  server.on('close', () => clearInterval(cleanupTimer));
+
+  return { server, session, toolNames, evictStaleSessions, sessionCount: () => sessions.size };
 }
 
 /**
