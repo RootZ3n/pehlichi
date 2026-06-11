@@ -65,6 +65,10 @@ export const coordinatorToolNames: readonly string[] = Object.freeze([
   // Coordination
   "todo",
   "clarify",
+  // Delegation (coordinator MUST be able to delegate)
+  "delegate_task",
+  "cronjob",
+  "execute_code",
 ]);
 
 export const pehProfile: AgentProfile = {
