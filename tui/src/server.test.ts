@@ -200,11 +200,48 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
         assert.ok(caps.features.includes('kernel_loop'));
         assert.deepEqual(
           caps.endpoints,
-          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status'],
+          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge'],
         );
 
         const reset = await fetch(`${base}/reset`, { method: 'POST' });
         assert.equal(reset.status, 200);
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('UI read model: /api/sessions, /api/memories, /api/agents, /api/bridge respond with the expected shape', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  try {
+    await withServer(
+      { driver: neverDoneDriver, workspaceRoot: ws, labStoreRoot: store },
+      async (base) => {
+        const sessions = await (await fetch(`${base}/api/sessions`)).json() as any;
+        assert.ok(Array.isArray(sessions.sessions), 'sessions is an array');
+        assert.ok(sessions.sessions.some((s: any) => s.isDefault), 'the default session is present');
+        assert.equal(typeof sessions.ttlMs, 'number');
+
+        const memories = await (await fetch(`${base}/api/memories`)).json() as any;
+        assert.ok(Array.isArray(memories.pastLives), 'pastLives is an array');
+        assert.ok(memories.pastLives.length >= 1, 'at least one past life is surfaced');
+        assert.ok(memories.pastLives[0].name && 'era' in memories.pastLives[0], 'past life has name + era');
+        assert.ok(Array.isArray(memories.entries), 'entries is an array (best-effort)');
+
+        const agents = await (await fetch(`${base}/api/agents`)).json() as any;
+        assert.ok(Array.isArray(agents.agents), 'agents is an array');
+        assert.ok(agents.agents.length >= 1, 'at least one ecosystem agent');
+        assert.ok(agents.self && typeof agents.self.tools === 'number', 'self block reports tool count');
+
+        const bridge = await (await fetch(`${base}/api/bridge`)).json() as any;
+        assert.ok(Array.isArray(bridge.bridges), 'bridges is an array');
+        assert.equal(typeof bridge.connected, 'number');
+        // CORS header lets the file:// / cross-origin UI engine read these.
+        const cors = (await fetch(`${base}/api/agents`)).headers.get('access-control-allow-origin');
+        assert.equal(cors, '*', 'read model is CORS-open for the local UI');
       },
     );
   } finally {

@@ -758,5 +758,12 @@ function boot(){
 window.boot=boot;
 boot();
 </script>
+<!-- ── Live backend layer (loaded AFTER the inline engine so its globals exist).
+     api.js → client · scenes.js → live workspace data · peh-guide.js → journal ·
+     app.js → glue (status dot, command bar, overrides). All pure vanilla JS. ── -->
+<script src="api.js"></script>
+<script src="scenes.js"></script>
+<script src="peh-guide.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

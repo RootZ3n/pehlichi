@@ -39,6 +39,8 @@ import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
 import { ChatSession } from './lib/chat.js';
+import { bridgeRegistry } from '../../src/core/bridges/registry.js';
+import { listMemory } from 'lab-memory';
 
 const PORT = parseInt(process.env.PEHLICHI_PORT || '18830', 10);
 const HOST = process.env.PEHLICHI_HOST || '127.0.0.1';
@@ -90,7 +92,14 @@ function resolveCommit(): string {
 const COMMIT = resolveCommit();
 
 function json(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  // CORS: the read-only UI engine (ui/index.html) is opened from file:// or a
+  // separate static origin and only issues simple GETs — a permissive ACAO lets
+  // it reach this localhost-bound server. The listener binds 127.0.0.1, so this
+  // never widens the network surface beyond the local machine.
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+  });
   res.end(JSON.stringify(data));
 }
 
@@ -328,6 +337,97 @@ export function createPehServer(opts: PehServerOptions = {}): {
       });
     }
 
+    // ── UI ENGINE READ MODEL (ui/index.html) ─────────────────────────────────
+    // Four read-only projections the Settlement world map pulls when a scene is
+    // opened. All are GET, all derive from data this process already holds — no
+    // new writes, no new auth surface. Each is best-effort: a missing data source
+    // degrades to an empty list rather than a 500, so a scene always renders.
+
+    // Active per-room sessions Peh is coordinating (The Keep / hub).
+    if (req.method === 'GET' && url.pathname === '/api/sessions') {
+      const nowMs = now();
+      const list = [...sessions.entries()].map(([key, entry]) => ({
+        roomKey: key,
+        isDefault: key === 'default',
+        historyLength: entry.session.getHistory().length,
+        lastAccessedAt: entry.lastAccessedAt,
+        idleMs: Math.max(0, nowMs - entry.lastAccessedAt),
+      }));
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        count: list.length,
+        evicted: sessionsEvicted,
+        ttlMs: sessionTtlMs,
+        converseSessions: converseSessions.size,
+        sessions: list,
+      });
+    }
+
+    // Past-life memories (The Memory Vaults / Campsite). Canonical past lives from
+    // the personality file, plus any curated lab-memory entries (best-effort).
+    if (req.method === 'GET' && url.pathname === '/api/memories') {
+      const rawLives = personality.past_lives;
+      const pastLives = (rawLives && typeof rawLives === 'object')
+        ? Object.entries(rawLives as Record<string, { name?: string; era?: string; traits?: string; speech_quirks?: string }>)
+            .map(([project, l]) => ({
+              project,
+              name: l?.name ?? project,
+              era: l?.era ?? '',
+              traits: l?.traits ?? '',
+              speechQuirks: l?.speech_quirks ?? '',
+            }))
+        : [];
+      let entries: unknown[] = [];
+      try {
+        entries = listMemory().map((m) => ({
+          id: m.id, title: m.title, description: m.description,
+          project: m.project, status: m.status, version: m.version, tags: m.tags,
+        }));
+      } catch { /* no curated store yet — past lives alone are enough */ }
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        pastLives,
+        entries,
+        count: pastLives.length + entries.length,
+      });
+    }
+
+    // Ecosystem agents Peh coordinates (Council Chamber / Training Grounds).
+    if (req.method === 'GET' && url.pathname === '/api/agents') {
+      const agents = bridgeRegistry.list().map((b) => ({
+        id: b.name,
+        name: b.name,
+        description: b.description,
+        port: b.port,
+        status: b.status,
+      }));
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        self: { id: skin.branding.agent_name.toLowerCase(), name: skin.branding.agent_name, model: MODEL, tools: toolNames.length },
+        count: agents.length,
+        agents,
+      });
+    }
+
+    // Bridge connections (The Observatory / Gateway). The configured connection
+    // map — name, port, reachability status — without live-probing (which would
+    // block the request on unreachable peers).
+    if (req.method === 'GET' && url.pathname === '/api/bridge') {
+      const bridges = bridgeRegistry.list().map((b) => ({
+        name: b.name,
+        description: b.description,
+        port: b.port,
+        status: b.status,
+        url: b.port > 0 ? `http://localhost:${b.port}` : null,
+      }));
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        count: bridges.length,
+        connected: bridges.filter((b) => b.status === 'available').length,
+        bridges,
+      });
+    }
+
     // BLOCKER-2 / H4: poll the status of a bridge-originated task by its X-Task-Id. A caller
     // whose bridge.request timed out polls here to recover an orphaned result instead of
     // assuming permanent failure. Unknown ids return 404 with status 'not-found'.
@@ -529,7 +629,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge'],
         model: MODEL,
         features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
       });
