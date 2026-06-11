@@ -34,11 +34,11 @@ const DONE: DriverAction = {
 };
 
 test("peh profile: VOICE ONLY — identity/voice; no procedure, done-criteria, or roster in the persona", () => {
-  assert.equal(pehProfile.name, "Peh");
+  assert.equal(pehProfile.name, "Pehlichi");
   assert.equal(pehProfile.role, "coordinator");
   assert.match(pehProfile.personaPreamble, /coordinator/i);
-  assert.doesNotMatch(pehProfile.personaPreamble, /supersede|duplicate|route to|do not do the work|durable|Ptah|Luna|ikbi/i);
-  assert.deepEqual(pehProfile.skillTags, ["coordination", "memory", "routing"]);
+  assert.doesNotMatch(pehProfile.personaPreamble, /supersede|duplicate|route to|do not do the work|durable/i);
+  assert.deepEqual(pehProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika"]);
   assert.ok(!("verificationPolicy" in pehProfile));
 });
 

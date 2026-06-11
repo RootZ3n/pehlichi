@@ -22,12 +22,6 @@ export function resolveInWorkspace(workspaceRoot: string, p: string): string {
   if (typeof p !== "string" || p.length === 0) {
     throw new ToolError("path is required");
   }
-  // FULL-ACCESS MODE (operator opt-in via AGENT_FS_UNRESTRICTED): skip workspace
-  // confinement entirely so file tools can read/write anywhere on the host. Absolute
-  // paths are honored as-is; relative paths still resolve against the workspace.
-  if (process.env.AGENT_FS_UNRESTRICTED === "true") {
-    return resolve(workspaceRoot, p);
-  }
   const root = resolve(workspaceRoot);
   const abs = resolve(root, p);
   const rel = relative(root, abs);

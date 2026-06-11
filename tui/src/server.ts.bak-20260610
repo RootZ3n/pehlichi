@@ -38,7 +38,6 @@ import { pehProfile } from '../../src/profile.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
-import { ChatSession } from './lib/chat.js';
 
 const PORT = parseInt(process.env.PEHLICHI_PORT || '18830', 10);
 const HOST = process.env.PEHLICHI_HOST || '127.0.0.1';
@@ -213,25 +212,6 @@ export function createPehServer(opts: PehServerOptions = {}): {
   let sessionsEvicted = 0;
 
   const sessions = new Map<string, SessionEntry>();
-
-  // CONVERSE LANE: a tool-free, personality-only chat path for Matrix small-talk. The
-  // kernel /chat loop runs up to 20 tool iterations per message — far too heavy (and slow,
-  // >100s) for "hi", which makes mimo-v2.5 grind tools until the budget is exhausted.
-  // /converse drives the model ONCE via ChatSession (personality prompt, no tools), so
-  // greetings and casual chat get an instant reply and never touch the tool budget. Keyed
-  // per room, evicted on the same TTL as the kernel sessions.
-  interface ConverseEntry { cs: ChatSession; lastAccessedAt: number; }
-  const converseSessions = new Map<string, ConverseEntry>();
-  const converseFor = (roomKey: string): ChatSession => {
-    let entry = converseSessions.get(roomKey);
-    if (entry === undefined) {
-      entry = { cs: new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL }), lastAccessedAt: now() };
-      converseSessions.set(roomKey, entry);
-    } else {
-      entry.lastAccessedAt = now();
-    }
-    return entry.cs;
-  };
   const sessionFor = (roomKey: string): KernelChatSession => {
     let entry = sessions.get(roomKey);
     if (entry === undefined) {
@@ -260,9 +240,6 @@ export function createPehServer(opts: PehServerOptions = {}): {
         sessions.delete(key);
         evicted++;
       }
-    }
-    for (const [key, entry] of converseSessions) {
-      if (entry.lastAccessedAt < cutoff) converseSessions.delete(key);
     }
     if (evicted > 0) {
       sessionsEvicted += evicted;
@@ -366,30 +343,6 @@ export function createPehServer(opts: PehServerOptions = {}): {
         goodbye: skin.branding.goodbye,
         toolCount: toolNames.length,
       });
-    }
-
-    if (req.method === 'POST' && url.pathname === '/converse') {
-      if (!chatAuthorized(req)) {
-        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
-      }
-      evictStaleSessions();
-      const body = await parseBody(req);
-      const message = body.message as string;
-      if (!message) return json(res, 400, { error: 'message is required' });
-      const cs = converseFor(roomKeyOf(body));
-      try {
-        const reply = await cs.send(message);
-        return json(res, 200, {
-          content: reply.content,
-          agent: skin.branding.agent_name,
-          ok: true,
-          partial: false,
-          mode: 'converse',
-          toolCalls: [],
-        });
-      } catch (err) {
-        return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
-      }
     }
 
     if (req.method === 'POST' && url.pathname === '/chat') {
@@ -601,7 +554,7 @@ const isMain = process.argv[1] !== undefined && import.meta.url === `file://${pr
 if (isMain) {
   const skin = loadSkin();
   const personality = loadPersonality();
-  const { server } = createPehServer({ allowWrites: process.env.AGENT_ALLOW_WRITES === 'true' });
+  const { server } = createPehServer();
   server.listen(PORT, HOST, () => {
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);

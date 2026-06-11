@@ -294,22 +294,6 @@ const processTool: ToolHandler = async (args) => {
  * (shadow) workspace so anything the command writes to $HOME stays contained.
  */
 function buildTerminalEnv(workspaceRoot: string): Record<string, string> {
-  // FULL-ACCESS MODE (operator opt-in): inherit the real service environment so the
-  // command sees the full PATH, the real $HOME, sudo, and any credentials — i.e. the
-  // shell behaves exactly as the service user (zen, with passwordless sudo). This
-  // intentionally removes the from-empty containment; the operator accepts that every
-  // command can reach the whole host AND the agent's own env (API keys, tokens).
-  if (process.env.AGENT_FS_UNRESTRICTED === "true") {
-    const real: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (typeof v === "string") real[k] = v;
-    }
-    const basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-    real.PATH = real.PATH && real.PATH.length > 0 ? `${real.PATH}:${basePath}` : basePath;
-    real.HOME = real.HOME && real.HOME.length > 0 ? real.HOME : "/home/zen";
-    delete real.TMPDIR; // use the system default (/tmp), not the workspace
-    return real;
-  }
   return {
     PATH: "/usr/bin:/bin",
     HOME: workspaceRoot,
@@ -344,9 +328,6 @@ const DESTRUCTIVE = /\b(rm|rmdir|unlink|mv|dd|shred|chmod|chown|chgrp|truncate|m
  * absolute paths (e.g. `< /dev/zero`) are left alone.
  */
 function denyOutsideWorkspace(command: string, workspaceRoot: string): void {
-  // FULL-ACCESS MODE (operator opt-in): the secondary out-of-workspace guard is off.
-  // Destructive-command confirmation is handled upstream at the Matrix bridge instead.
-  if (process.env.AGENT_FS_UNRESTRICTED === "true") return;
   const outsideTokens = (command.match(/(~\/?[^\s'"|;&<>]*|\/[^\s'"|;&<>]+)/g) ?? []).filter(
     (t) => !isInside(t, workspaceRoot),
   );
