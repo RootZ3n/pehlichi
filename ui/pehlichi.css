@@ -1,0 +1,626 @@
+/* ══════════════════════════════════════════════════════════════════════
+   PEHLICHI · THE OBSERVATORY
+   Themed stylesheet for the Pehverse world engine. The structural engine
+   rules (.peh-*) are SHARED, theme-neutral, and identical in architecture to
+   Luak's crucibulum.css — all colour flows from the active product's
+   --peh-accent / --peh-accent2 set inline on .peh-shell. The Observatory skin
+   (.peh-product-pehlichi) layers a warm, scholarly research-observatory look
+   over that engine: amber/gold instead of cyan neon, old-book serif display,
+   star-chart atmosphere.
+   ══════════════════════════════════════════════════════════════════════ */
+:root{
+  color-scheme:dark;
+
+  /* ─── Deep indigo/violet base (shared with the Pehverse) ──────────── */
+  --bg-0:#0c0a1a;
+  --bg-1:#130f28;
+  --bg-2:#1a1538;
+  --bg-3:#221c48;
+  --bg-card:rgba(22,18,52,.78);
+  --bg-card-hover:rgba(30,24,62,.88);
+  --bg-card-bright:rgba(38,30,72,.85);
+  --border-subtle:rgba(200,150,46,.16);
+  --border-medium:rgba(200,150,46,.28);
+  --border-bright:rgba(200,150,46,.42);
+
+  /* ─── Signals ──────────────────────────────────────────────────────── */
+  --orange:#f59e0b;
+  --orange-hot:#fbbf24;
+  --amber:#c8962e;
+  --amber-hot:#f4dd92;
+  --violet:#8b5cf6;
+  --violet-hot:#a78bfa;
+  --magenta:#ec4899;
+  --red:#ef4444;
+  --success:#34d399;
+
+  /* ─── Text ─────────────────────────────────────────────────────────── */
+  --ink:#f3ecdc;
+  --ink-soft:#e4d6b8;
+  --ink-dim:#b6a079;
+  --ink-cold:#efe7d6;
+
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"SF Mono","SFMono-Regular",Consolas,"Liberation Mono","Courier New",monospace;
+  /* Scholarly old-book display face for the Observatory skin. */
+  --obs-display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
+
+  --shadow-panel:0 8px 40px rgba(0,0,0,.5),0 0 0 1px var(--border-subtle);
+
+  --text-xs:11px;--text-sm:13px;--text-base:14px;--text-lg:16px;
+  --radius-sm:10px;--radius-md:16px;--radius-lg:20px;--radius-pill:999px;
+}
+
+/* ─── Background ──────────────────────────────────────────────────────── */
+html,body{
+  margin:0;min-height:100%;max-width:100%;
+  overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:var(--bg-0);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 18%,rgba(200,150,46,.10),transparent 60%),
+    radial-gradient(circle at 82% 82%,rgba(139,92,246,.07),transparent 50%),
+    radial-gradient(circle at 18% 72%,rgba(244,221,146,.05),transparent 45%);
+  color:var(--ink);
+  font-family:var(--body);font-size:var(--text-base);line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;position:relative;
+}
+#app{min-height:100vh;position:relative;z-index:1;max-width:100%;overflow-x:hidden}
+button{font-family:inherit}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PEHVERSE WORLD ENGINE  (theme-neutral; mirrors Luak's engine rules)
+   Mobile-first: the scene is a world-map hub with tappable hotspot pins and
+   full-screen bottom-sheet workspaces. Desktop (≥880px) gains docked panels
+   and a multi-tile dashboard grid.
+   ══════════════════════════════════════════════════════════════════════ */
+#app:has(.peh-shell){padding:0}
+
+.peh-shell{
+  --peh-accent:#c8962e;--peh-accent2:#8b5cf6;
+  position:relative;display:flex;flex-direction:column;
+  min-height:100vh;min-height:100dvh;width:100%;
+  color:var(--ink);background:var(--bg-0);overflow:hidden;
+}
+
+/* ── Top bar ───────────────────────────────────────────────────────── */
+.peh-topbar{
+  position:sticky;top:0;z-index:40;flex:0 0 auto;
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
+  background:linear-gradient(180deg,rgba(12,10,26,.96),rgba(12,10,26,.78));
+  border-bottom:1px solid var(--border-subtle);backdrop-filter:blur(10px);
+}
+.peh-brand{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.peh-brand-mark{
+  font-weight:800;font-size:12px;letter-spacing:.14em;
+  padding:4px 7px;border-radius:8px;color:#0c0a1a;
+  background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));
+}
+.peh-brand-word{font-weight:700;letter-spacing:.04em;color:var(--ink);display:none}
+.peh-travel-btn{
+  flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:9px;
+  padding:7px 12px;border-radius:14px;cursor:pointer;text-align:left;
+  background:rgba(200,150,46,.10);border:1px solid var(--border-subtle);
+  color:var(--ink);transition:border-color .15s,background .15s,transform .1s;
+}
+.peh-travel-btn:hover{background:rgba(200,150,46,.18);border-color:var(--peh-accent)}
+.peh-travel-btn:active{transform:scale(.99)}
+.peh-travel-glyph{color:var(--peh-accent);font-size:15px}
+.peh-here{display:flex;flex-direction:column;line-height:1.15;min-width:0;flex:1 1 auto}
+.peh-here b{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peh-here i{font-style:normal;font-size:11px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peh-travel-cta{display:none;font-size:11px;color:var(--ink-dim);letter-spacing:.06em;text-transform:uppercase;flex:0 0 auto}
+.peh-mode-toggle{display:flex;flex:0 0 auto;border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden}
+.peh-mode-toggle button{
+  appearance:none;border:0;background:transparent;color:var(--ink-dim);
+  font:inherit;font-size:11px;padding:7px 9px;cursor:pointer;letter-spacing:.03em;
+}
+.peh-mode-toggle button.active{background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));color:#0c0a1a;font-weight:700}
+.peh-mode-toggle button:not(.active):hover{color:var(--ink)}
+
+/* ── Stage / Scene ─────────────────────────────────────────────────── */
+.peh-stage{position:relative;flex:1 1 auto;min-height:0;display:flex;overflow:hidden}
+.peh-scene{position:relative;flex:1 1 auto;min-height:0;width:100%;overflow:hidden}
+.peh-scene-atmos{
+  position:absolute;inset:0;z-index:0;
+  background:
+    radial-gradient(120% 90% at 18% 12%,color-mix(in srgb,var(--peh-accent) 26%,transparent),transparent 60%),
+    radial-gradient(120% 90% at 88% 88%,color-mix(in srgb,var(--peh-accent2) 30%,transparent),transparent 60%),
+    radial-gradient(80% 80% at 50% 50%,rgba(12,10,26,.2),rgba(12,10,26,.85) 80%),
+    var(--bg-0);
+}
+.peh-scene-atmos::after{
+  content:"";position:absolute;inset:0;
+  background-image:radial-gradient(rgba(244,221,146,.06) 1px,transparent 1px);
+  background-size:34px 34px;opacity:.5;mix-blend-mode:screen;
+}
+.peh-scene-caption{position:relative;z-index:2;padding:18px 16px 4px;max-width:560px}
+.peh-scene-tag{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--peh-accent)}
+.peh-scene-title{font-size:clamp(24px,7vw,40px);line-height:1.05;margin:4px 0 6px;font-weight:800}
+.peh-scene-desc{font-size:14px;color:var(--ink-soft);margin:0;max-width:46ch}
+
+/* ── HotspotLayer ──────────────────────────────────────────────────── */
+.peh-hotspots{position:absolute;inset:0;z-index:3}
+.peh-hotspot{
+  position:absolute;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:transparent;border:0;cursor:pointer;padding:6px;color:var(--ink);
+}
+.peh-pin{
+  width:26px;height:26px;border-radius:50%;
+  background:radial-gradient(circle at 50% 35%,#fff 0%,var(--peh-accent) 45%,var(--peh-accent2) 100%);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--peh-accent) 30%,transparent),0 6px 18px rgba(0,0,0,.5);
+  position:relative;transition:transform .15s,box-shadow .15s;
+}
+.peh-pin::after{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(255,255,255,.7);animation:pehPulse 2.6s ease-out infinite}
+@keyframes pehPulse{0%{transform:scale(1);opacity:.7}70%{transform:scale(2.1);opacity:0}100%{opacity:0}}
+.peh-hotspot:hover .peh-pin,.peh-hotspot:focus-visible .peh-pin{transform:scale(1.18)}
+.peh-hotspot-label{
+  font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;
+  background:rgba(12,10,26,.82);border:1px solid var(--border-subtle);
+  display:inline-flex;align-items:center;gap:6px;backdrop-filter:blur(4px);
+}
+.peh-dot-live{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success)}
+.peh-hotspot:focus-visible{outline:none}
+.peh-hotspot:focus-visible .peh-hotspot-label{outline:2px solid var(--peh-accent);outline-offset:2px}
+
+/* ── Waypoints (intra-product scene hops) ──────────────────────────── */
+.peh-waypoints{
+  position:absolute;left:0;right:0;bottom:10px;z-index:4;
+  display:flex;gap:8px;padding:0 12px;overflow-x:auto;scrollbar-width:none;
+}
+.peh-waypoints::-webkit-scrollbar{display:none}
+.peh-waypoint{
+  flex:0 0 auto;font:inherit;font-size:12px;padding:7px 13px;border-radius:999px;cursor:pointer;
+  background:rgba(12,10,26,.7);color:var(--ink-soft);border:1px solid var(--border-subtle);
+  backdrop-filter:blur(6px);transition:.15s;
+}
+.peh-waypoint:hover{color:var(--ink);border-color:var(--peh-accent)}
+.peh-waypoint.active{background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));color:#0c0a1a;font-weight:700;border-color:transparent}
+
+/* ── Workspace panels / tiles ──────────────────────────────────────── */
+.peh-overlays{position:absolute;inset:0;z-index:20;pointer-events:none}
+.peh-panel,.peh-tile{
+  display:flex;flex-direction:column;min-height:0;pointer-events:auto;
+  background:linear-gradient(180deg,rgba(20,16,40,.98),rgba(12,10,26,.98));
+  border:1px solid var(--border-subtle);border-radius:16px;
+  box-shadow:0 18px 60px rgba(0,0,0,.6);overflow:hidden;
+}
+.peh-panel.focused,.peh-tile.focused{border-color:color-mix(in srgb,var(--peh-accent) 60%,var(--border-subtle))}
+.peh-panel-head{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:rgba(200,150,46,.10);border-bottom:1px solid var(--border-subtle);
+}
+.peh-panel-glyph{color:var(--peh-accent);display:inline-flex;flex:0 0 auto}
+.peh-panel-title{font-weight:700;font-size:14px;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peh-panel-kind{font-size:9px;letter-spacing:.1em;padding:2px 6px;border-radius:6px;flex:0 0 auto;border:1px solid var(--border-subtle);color:var(--ink-dim)}
+.peh-panel-kind.k-live{color:var(--success);border-color:color-mix(in srgb,var(--success) 40%,transparent)}
+.peh-panel-kind.k-console{color:var(--peh-accent)}
+.peh-panel-ctrls{display:flex;gap:3px;flex:0 0 auto}
+.peh-dockbtn{
+  appearance:none;border:1px solid transparent;background:transparent;color:var(--ink-dim);
+  font:inherit;font-size:13px;line-height:1;width:26px;height:26px;border-radius:8px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.peh-dockbtn:hover{background:rgba(200,150,46,.18);color:var(--ink)}
+.peh-dockbtn.on{color:var(--peh-accent);border-color:var(--border-subtle)}
+.peh-dockbtn.close:hover{background:rgba(236,72,153,.22);color:#fff}
+.peh-panel-body{flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+.peh-lane-wrap,.peh-deck-wrap{padding:4px}
+
+/* Placeholder workspace body */
+.peh-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px 22px;min-height:200px;color:var(--ink-soft)}
+.peh-ph-glyph{color:var(--peh-accent);transform:scale(2.2);opacity:.85;margin-bottom:6px}
+.peh-ph-blurb{margin:0;max-width:42ch;font-size:14px}
+.peh-ph-tag{font-size:10px;letter-spacing:.16em;color:var(--ink-dim);border:1px dashed var(--border-subtle);padding:4px 9px;border-radius:8px}
+.button.secondary{
+  font:inherit;font-size:12px;padding:8px 14px;border-radius:10px;cursor:pointer;
+  background:rgba(200,150,46,.14);border:1px solid var(--border-subtle);color:var(--ink);
+}
+.button.secondary:hover{border-color:var(--peh-accent)}
+
+/* ── Peh placeholder slot (data-driven squirrel guide medallion) ───── */
+.peh-slot{position:absolute;z-index:5;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;transition:left .4s ease,top .4s ease}
+.peh-slot-center{transform:translate(-50%,-50%)}
+.peh-slot-top{transform:translate(-50%,0)}
+.peh-slot-bottom{transform:translate(-50%,-100%)}
+.peh-slot-right{transform:translate(0,-50%)}
+.peh-slot-left{transform:translate(-100%,-50%)}
+.peh-slot-medallion{
+  width:clamp(46px,8vw,72px);height:clamp(46px,8vw,72px);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;padding:9px;color:#3a2a18;
+  background:radial-gradient(circle at 50% 32%,#f6ecd2 0%,#e8d6ab 60%,#cdb37e 100%);
+  border:2px solid #b8965b;
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--peh-accent) 26%,transparent),0 8px 22px rgba(0,0,0,.5);
+}
+.peh-squirrel{display:block;opacity:.92}
+.peh-slot-tag{
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  color:var(--ink);background:rgba(12,10,26,.82);border:1px solid var(--border-subtle);
+  padding:2px 8px;border-radius:999px;backdrop-filter:blur(4px);
+}
+.peh-slot-inline{position:static;transform:none;float:right;margin:0 0 6px 12px}
+.peh-slot-inline .peh-slot-medallion{width:48px;height:48px;padding:7px}
+
+/* ── Peh-as-guide: speaking glow + contextual speech bubble ────────── */
+.peh-slot.glow .peh-slot-medallion{animation:pehSlotGlow 1.8s ease-in-out infinite}
+@keyframes pehSlotGlow{
+  0%,100%{box-shadow:0 0 0 4px color-mix(in srgb,var(--peh-accent) 26%,transparent),0 8px 22px rgba(0,0,0,.5)}
+  50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--amber-hot) 42%,transparent),0 0 26px color-mix(in srgb,var(--peh-accent) 60%,transparent),0 8px 24px rgba(0,0,0,.55)}
+}
+.peh-bubble-layer{position:absolute;inset:0;z-index:7;pointer-events:none}
+.peh-bubble{
+  position:absolute;pointer-events:auto;cursor:pointer;
+  width:max-content;max-width:min(260px,46vw);
+  transform:translate(-50%,0);filter:drop-shadow(0 12px 26px rgba(0,0,0,.5));
+}
+.peh-bubble-content{
+  position:relative;border-radius:14px;padding:10px 13px 11px;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--peh-accent) 28%,rgba(18,14,38,.92)),rgba(12,10,26,.94));
+  border:1px solid color-mix(in srgb,var(--amber-hot) 34%,var(--border-subtle));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 0 1px rgba(244,221,146,.08);
+  backdrop-filter:blur(8px);
+}
+.peh-bubble-name{
+  display:block;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--amber-hot);margin-bottom:3px;
+}
+.peh-bubble-text{margin:0;font-size:13px;line-height:1.4;color:var(--ink);font-weight:500}
+.peh-bubble-tail{
+  position:absolute;width:14px;height:14px;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--peh-accent) 28%,rgba(18,14,38,.92)),rgba(12,10,26,.94));
+  border:1px solid color-mix(in srgb,var(--amber-hot) 34%,var(--border-subtle));
+}
+.peh-bubble-anchor-up{transform:translate(-50%,calc(-100% - 16px))}
+.peh-bubble-anchor-up .peh-bubble-tail{left:50%;bottom:-8px;transform:translateX(-50%) rotate(45deg);border-top:none;border-left:none}
+.peh-bubble-anchor-down{transform:translate(-50%,16px)}
+.peh-bubble-anchor-down .peh-bubble-tail{left:50%;top:-8px;transform:translateX(-50%) rotate(45deg);border-bottom:none;border-right:none}
+.peh-bubble-enter{animation:pehBubbleIn .2s ease-out both}
+.peh-bubble-exit{animation:pehBubbleOut .3s ease-in both}
+@keyframes pehBubbleIn{from{opacity:0;transform:translate(-50%,calc(-100% - 16px)) scale(.82)}to{opacity:1}}
+@keyframes pehBubbleOut{from{opacity:1}to{opacity:0}}
+.peh-bubble-anchor-down.peh-bubble-enter{animation:pehBubbleInDown .2s ease-out both}
+@keyframes pehBubbleInDown{from{opacity:0;transform:translate(-50%,16px) scale(.82)}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .peh-slot{transition:none}
+  .peh-slot.glow .peh-slot-medallion{animation:none}
+  .peh-bubble-enter,.peh-bubble-exit,.peh-bubble-anchor-down.peh-bubble-enter{animation-duration:.01ms}
+}
+
+/* ── Peh guide portrait (real mascot art) ──────────────────────────── */
+.peh-guide{
+  position:absolute;z-index:6;left:12px;bottom:48px;margin:0;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+}
+.peh-guide-frame{
+  display:block;width:clamp(64px,11vw,112px);aspect-ratio:5/6;overflow:hidden;border-radius:14px;
+  background:linear-gradient(180deg,#2a2350,#191338);
+  border:2px solid var(--peh-accent);
+  box-shadow:0 0 0 3px rgba(12,10,26,.8),0 0 0 5px color-mix(in srgb,var(--peh-accent) 36%,transparent),0 10px 26px rgba(0,0,0,.55);
+}
+.peh-guide-img{width:100%;height:100%;object-fit:cover;object-position:50% 12%;display:block}
+.peh-guide-cap{
+  display:flex;flex-direction:column;line-height:1.05;text-align:center;
+  padding:3px 11px;border-radius:999px;
+  background:rgba(12,10,26,.82);border:1px solid var(--border-subtle);
+}
+.peh-guide-cap b{font-family:var(--obs-display);letter-spacing:.06em;font-size:12px;color:var(--amber-hot)}
+.peh-guide-cap i{font-style:normal;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+@media (max-width:599px){
+  .peh-guide{bottom:auto;top:8px;right:8px;left:auto}
+  .peh-guide-frame{width:56px}
+  .peh-guide-cap{display:none}
+}
+
+/* ── Back-to-map affordance ────────────────────────────────────────── */
+.peh-backmap{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;
+  font:inherit;font-size:12px;font-weight:600;line-height:1;
+  min-height:34px;padding:6px 11px;border-radius:10px;cursor:pointer;
+  background:rgba(200,150,46,.12);border:1px solid var(--border-subtle);color:var(--ink-soft);
+}
+.peh-backmap:hover{color:var(--ink);border-color:var(--peh-accent)}
+.peh-backmap span{font-size:16px;line-height:1}
+
+/* ── Mobile (base): focused workspace = full-screen sheet over the map ─ */
+.peh-panel{
+  position:absolute;left:0;right:0;bottom:0;top:6%;
+  border-radius:18px 18px 0 0;animation:pehSheet .22s ease-out;
+}
+@keyframes pehSheet{from{transform:translateY(8%);opacity:.6}to{transform:translateY(0);opacity:1}}
+.peh-panel .peh-dockbtn{width:34px;height:34px;font-size:15px}
+
+/* ── Dashboard mode ────────────────────────────────────────────────── */
+.peh-dash{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:auto}
+.peh-dash-head{padding:14px 14px 6px;border-bottom:1px solid var(--border-subtle)}
+.peh-dash-here .peh-scene-tag{display:block}
+.peh-dash-here h1{font-size:clamp(20px,5vw,28px);margin:2px 0 4px;font-weight:800}
+.peh-dash-here p{margin:0 0 8px;color:var(--ink-soft);font-size:13px;max-width:56ch}
+.peh-dash .peh-waypoints{position:static;padding:0;margin-top:4px}
+.peh-grid{display:grid;grid-template-columns:1fr;gap:12px;padding:12px}
+.peh-tile{min-height:60vh}
+.peh-tile .peh-panel-body{max-height:none}
+
+/* Dashboard chooser (no workspace open) */
+.peh-chooser{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.peh-choice{
+  display:flex;flex-direction:column;align-items:flex-start;gap:8px;
+  padding:16px 14px;border-radius:14px;cursor:pointer;text-align:left;
+  background:linear-gradient(160deg,rgba(200,150,46,.12),rgba(12,10,26,.4));
+  border:1px solid var(--border-subtle);color:var(--ink);transition:.15s;
+}
+.peh-choice:hover{border-color:var(--peh-accent);transform:translateY(-2px)}
+.peh-choice-glyph{color:var(--peh-accent);transform:scale(1.3);transform-origin:left}
+.peh-choice-title{font-weight:700;font-size:14px}
+.peh-choice-kind{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+
+/* ── Taskbar (workspace switcher) ──────────────────────────────────── */
+.peh-taskbar{
+  position:sticky;bottom:0;z-index:45;flex:0 0 auto;
+  display:flex;align-items:center;gap:8px;padding:7px 10px;
+  background:linear-gradient(0deg,rgba(12,10,26,.97),rgba(12,10,26,.82));
+  border-top:1px solid var(--border-subtle);backdrop-filter:blur(10px);
+}
+.peh-task-travel{
+  flex:0 0 auto;width:36px;height:36px;border-radius:11px;cursor:pointer;
+  background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));color:#0c0a1a;
+  border:0;font-size:16px;display:inline-flex;align-items:center;justify-content:center;
+}
+.peh-task-chips{flex:1 1 auto;min-width:0;display:flex;gap:7px;overflow-x:auto;scrollbar-width:none}
+.peh-task-chips::-webkit-scrollbar{display:none}
+.peh-task-empty{font-size:12px;color:var(--ink-dim);white-space:nowrap}
+.peh-task-chip{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  padding:6px 8px 6px 9px;border-radius:11px;font:inherit;font-size:12px;
+  background:rgba(200,150,46,.10);border:1px solid var(--border-subtle);color:var(--ink-soft);
+}
+.peh-task-chip:hover{color:var(--ink);border-color:var(--peh-accent)}
+.peh-task-chip.active{background:rgba(200,150,46,.22);color:var(--ink);border-color:color-mix(in srgb,var(--peh-accent) 55%,var(--border-subtle))}
+.peh-task-chip.min{opacity:.6}
+.peh-task-glyph{color:var(--peh-accent);display:inline-flex}
+.peh-task-glyph .peh-glyph{width:15px;height:15px}
+.peh-task-name{white-space:nowrap;max-width:38vw;overflow:hidden;text-overflow:ellipsis}
+.peh-task-x{margin-left:2px;width:18px;height:18px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;line-height:1;color:var(--ink-dim)}
+.peh-task-x:hover{background:rgba(236,72,153,.25);color:#fff}
+.peh-task-clear{flex:0 0 auto;font:inherit;font-size:11px;padding:7px 11px;border-radius:10px;cursor:pointer;background:transparent;border:1px solid var(--border-subtle);color:var(--ink-dim)}
+.peh-task-clear:hover{color:var(--ink);border-color:var(--magenta)}
+
+/* ── Fast Travel overlay ───────────────────────────────────────────── */
+.peh-ft-overlay{
+  position:fixed;inset:0;z-index:200;display:flex;align-items:flex-end;justify-content:center;
+  background:rgba(6,5,14,.74);backdrop-filter:blur(6px);animation:pehFade .15s ease-out;
+}
+@keyframes pehFade{from{opacity:0}to{opacity:1}}
+.peh-ft{
+  width:100%;max-width:720px;max-height:88vh;overflow:auto;
+  background:linear-gradient(180deg,rgba(20,16,40,.99),rgba(12,10,26,.99));
+  border:1px solid var(--border-subtle);border-radius:20px 20px 0 0;
+  box-shadow:0 -20px 80px rgba(0,0,0,.7);animation:pehSheet .22s ease-out;
+}
+.peh-ft-head{display:flex;align-items:center;gap:10px;padding:16px 18px 8px;position:sticky;top:0;background:inherit;border-bottom:1px solid var(--border-subtle)}
+.peh-ft-head h2{margin:0;font-size:18px;font-weight:800;font-family:var(--obs-display)}
+.peh-ft-hint{flex:1 1 auto;font-size:11px;color:var(--ink-dim);letter-spacing:.04em}
+.peh-ft-close{width:34px;height:34px;border-radius:10px;border:1px solid var(--border-subtle);background:transparent;color:var(--ink);font-size:18px;cursor:pointer}
+.peh-ft-close:hover{background:rgba(236,72,153,.2)}
+.peh-ft-scenes{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.peh-ft-scene{font:inherit;font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;background:rgba(12,10,26,.6);border:1px solid var(--border-subtle);color:var(--ink-soft)}
+.peh-ft-scene:hover{color:var(--ink);border-color:var(--peh-accent)}
+.peh-ft-scene.active{background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));color:#0c0a1a;font-weight:700;border-color:transparent}
+.peh-ft-scenes-main{display:flex;flex-wrap:wrap;gap:8px;padding:16px}
+.peh-ft-empty{font-size:13px;color:var(--ink-dim);padding:4px}
+.peh-dev-badge{
+  font-size:9px;font-weight:800;letter-spacing:.12em;padding:2px 6px;border-radius:6px;
+  color:#0c0a1a;background:linear-gradient(120deg,#fbbf24,#ec4899);margin-left:2px;
+}
+.peh-ft-dev{margin:4px 16px 20px;padding:12px;border:1px dashed var(--border-subtle);border-radius:14px;background:rgba(251,191,36,.05)}
+.peh-ft-dev-label{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#fbbf24;margin-bottom:9px}
+.peh-ft-dev-products{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.peh-ft-dev-product{font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;background:rgba(12,10,26,.6);border:1px solid var(--border-subtle);color:var(--ink-soft)}
+.peh-ft-dev-product:hover{color:var(--ink);border-color:var(--peh-accent)}
+.peh-ft-dev-product.active{background:linear-gradient(120deg,var(--peh-accent),var(--peh-accent2));color:#0c0a1a;font-weight:700;border-color:transparent}
+.peh-ft-dev-soon{font-size:11px;padding:5px 10px;border-radius:999px;border:1px dashed var(--border-subtle);color:var(--ink-dim);opacity:.8}
+
+/* ══════════════════════════════════════════════════════════════════════
+   DESKTOP (≥880px) — docked panels, multi-tile dashboard, expanded chrome
+   ══════════════════════════════════════════════════════════════════════ */
+@media (min-width:880px){
+  .peh-brand-word{display:inline}
+  .peh-travel-cta{display:inline}
+  .peh-travel-btn{flex:0 1 460px}
+  .peh-topbar{padding:10px 16px;gap:14px}
+  .peh-scene-caption{padding:30px 34px 6px}
+
+  .peh-panel{animation:pehDock .18s ease-out}
+  @keyframes pehDock{from{opacity:.5}to{opacity:1}}
+  .peh-panel.dock-right{top:14px;bottom:14px;right:14px;left:auto;width:min(560px,46vw);border-radius:16px}
+  .peh-panel.dock-bottom{left:14px;right:14px;bottom:14px;top:auto;height:min(58%,640px);border-radius:16px}
+  .peh-panel.dock-fullscreen{inset:14px;width:auto;border-radius:16px}
+
+  .peh-grid{grid-template-columns:1fr;padding:16px;gap:16px}
+  .peh-grid.multi{grid-template-columns:repeat(2,1fr)}
+  .peh-tile{min-height:min(70vh,680px)}
+  .peh-chooser{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+
+  .peh-ft-overlay{align-items:center}
+  .peh-ft{border-radius:20px;max-height:82vh}
+  .peh-task-name{max-width:180px}
+}
+@media (min-width:1280px){
+  .peh-panel.dock-right{width:min(680px,42vw)}
+  .peh-grid.multi{grid-template-columns:repeat(3,1fr)}
+}
+@media (prefers-reduced-motion:reduce){
+  .peh-pin::after{animation:none}
+  .peh-panel,.peh-ft,.peh-ft-overlay{animation:none}
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   THE OBSERVATORY SKIN — .peh-product-pehlichi
+   A warm, scholarly research-observatory theme layered over the engine.
+   Cozy library meets scientific observatory: star charts, warm amber light,
+   old books, brass instruments. Recolours only — never touches the
+   structural rules (mobile sheet, ≥880px dock gating, data-driven slots).
+   ══════════════════════════════════════════════════════════════════════ */
+.peh-product-pehlichi{
+  --obs-amber:#c8962e;
+  --obs-amber-hi:#f4dd92;
+  --obs-amber-dk:#8a5a16;
+  --obs-violet:#8b5cf6;
+  --obs-paper:#efe2c2;
+  --obs-night:#0c0a1a;
+  background:radial-gradient(140% 110% at 50% 0%,#1a1538 0%,#130f28 40%,#0c0a1a 80%);
+}
+
+/* Top bar / taskbar: warm scholarly band with an amber beading. */
+.peh-product-pehlichi .peh-topbar{
+  background:linear-gradient(180deg,rgba(26,21,56,.96),rgba(12,10,26,.82));
+  border-bottom:1px solid var(--obs-amber-dk);
+  box-shadow:0 1px 0 rgba(244,221,146,.16) inset,0 6px 18px rgba(0,0,0,.45);
+}
+.peh-product-pehlichi .peh-taskbar{
+  background:linear-gradient(0deg,rgba(12,10,26,.97),rgba(26,21,56,.9));
+  border-top:1px solid var(--obs-amber-dk);
+  box-shadow:0 -1px 0 rgba(244,221,146,.14) inset;
+}
+.peh-product-pehlichi .peh-brand-word{font-family:var(--obs-display);font-weight:700;letter-spacing:.06em;color:var(--obs-paper)}
+.peh-product-pehlichi .peh-here b{font-family:var(--obs-display);letter-spacing:.02em;color:var(--obs-paper)}
+.peh-product-pehlichi .peh-travel-cta{color:var(--obs-amber-hi)}
+
+/* The Observatory scene: star-chart night sky behind the painted world map. */
+.peh-product-pehlichi .peh-scene-atmos{
+  background:
+    url("assets/pehlichi-desktop-map.png") center/cover no-repeat,
+    radial-gradient(120% 90% at 18% 12%,rgba(200,150,46,.20),transparent 60%),
+    radial-gradient(120% 90% at 85% 85%,rgba(139,92,246,.26),transparent 60%),
+    radial-gradient(130% 110% at 50% 4%,#221c48 0%,#1a1538 38%,#0c0a1a 82%);
+}
+@media (max-width:879px){
+  .peh-product-pehlichi .peh-scene-atmos{
+    background:
+      url("assets/pehlichi-mobile-map.png") center top/cover no-repeat,
+      radial-gradient(130% 110% at 50% 4%,#221c48 0%,#1a1538 38%,#0c0a1a 82%);
+  }
+}
+.peh-product-pehlichi .peh-scene-atmos::after{
+  /* faint constellation dust so the painted art stays legible */
+  background-image:radial-gradient(rgba(244,221,146,.10) 1px,transparent 1.4px);
+  background-size:42px 42px;opacity:.4;mix-blend-mode:screen;
+}
+.peh-product-pehlichi .peh-scene-tag{color:var(--obs-amber);font-family:var(--obs-display);letter-spacing:.2em}
+.peh-product-pehlichi .peh-scene-title{
+  font-family:var(--obs-display);font-weight:700;letter-spacing:.01em;
+  color:var(--obs-paper);text-shadow:0 2px 18px rgba(200,150,46,.35),0 1px 0 rgba(0,0,0,.4);
+  display:inline-block;padding-bottom:4px;border-bottom:3px solid var(--obs-amber);
+}
+.peh-product-pehlichi .peh-scene-desc{color:var(--ink-soft)}
+
+/* Hotspots → warm brass observatory markers. */
+.peh-product-pehlichi .peh-pin{
+  background:radial-gradient(circle at 50% 30%,var(--obs-amber-hi),var(--obs-amber) 52%,var(--obs-amber-dk) 100%);
+  box-shadow:0 0 0 3px rgba(12,10,26,.85),0 0 0 5px rgba(200,150,46,.4),0 6px 16px rgba(0,0,0,.55);
+}
+.peh-product-pehlichi .peh-pin::after{border-color:rgba(244,221,146,.75)}
+.peh-product-pehlichi .peh-hotspot-label{
+  font-family:var(--obs-display);font-weight:700;letter-spacing:.02em;font-size:12px;
+  color:var(--obs-paper);
+  background:linear-gradient(180deg,rgba(26,21,56,.92),rgba(12,10,26,.92));
+  border:1px solid var(--obs-amber-dk);
+  box-shadow:0 2px 8px rgba(0,0,0,.45),0 0 0 1px rgba(244,221,146,.14) inset;
+}
+
+/* Peh's medallion + guide portrait framed in warm brass. */
+.peh-product-pehlichi .peh-slot-medallion{
+  background:radial-gradient(circle at 50% 30%,#f6ead0,#e6cf9a 55%,#bf9a52 100%);
+  border:2px solid var(--obs-amber-dk);
+  box-shadow:0 0 0 3px rgba(12,10,26,.85),0 0 0 6px rgba(200,150,46,.36),0 8px 20px rgba(0,0,0,.55);
+}
+.peh-product-pehlichi .peh-guide-frame{border-color:var(--obs-amber)}
+.peh-product-pehlichi .peh-guide-cap b{font-family:var(--obs-display);color:var(--obs-amber-hi)}
+
+/* Scene-hop waypoints → scholarly amber tabs. */
+.peh-product-pehlichi .peh-waypoint{
+  font-family:var(--obs-display);letter-spacing:.02em;
+  background:linear-gradient(180deg,rgba(26,21,56,.85),rgba(12,10,26,.85));
+  color:var(--obs-paper);border:1px solid var(--obs-amber-dk);
+}
+.peh-product-pehlichi .peh-waypoint:hover{border-color:var(--obs-amber);color:#fff}
+.peh-product-pehlichi .peh-waypoint.active{background:linear-gradient(120deg,var(--obs-amber-hi),var(--obs-amber) 45%,var(--obs-violet));color:var(--obs-night);border-color:transparent}
+
+/* Workspace panels → warm instrument cases. */
+.peh-product-pehlichi .peh-panel,.peh-product-pehlichi .peh-tile{
+  background:linear-gradient(180deg,#1b1640,#100d24);
+  border:1px solid var(--obs-amber-dk);
+  box-shadow:0 18px 60px rgba(0,0,0,.6),0 0 0 1px rgba(244,221,146,.10) inset;
+}
+.peh-product-pehlichi .peh-panel.focused,.peh-product-pehlichi .peh-tile.focused{border-color:var(--obs-amber)}
+.peh-product-pehlichi .peh-panel-head{
+  background:linear-gradient(180deg,rgba(34,28,72,.9),rgba(20,16,40,.9));
+  border-bottom:1px solid var(--obs-amber-dk);
+}
+.peh-product-pehlichi .peh-panel-title{font-family:var(--obs-display);letter-spacing:.02em;color:var(--obs-paper)}
+
+/* Placeholder workspace → a parchment study-notice. */
+.peh-product-pehlichi .peh-ph{
+  margin:10px;border-radius:12px;color:#5a4a2c;
+  background:linear-gradient(180deg,var(--obs-paper),#d8c69a);
+  border:1px solid var(--obs-amber-dk);box-shadow:0 6px 18px rgba(0,0,0,.45);
+}
+.peh-product-pehlichi .peh-ph-glyph{color:var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-ph-blurb{color:#4a3a1f}
+.peh-product-pehlichi .peh-ph-tag{color:var(--obs-amber-dk);border-color:var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-ph .button.secondary{background:rgba(20,16,10,.08);border-color:var(--obs-amber-dk);color:#4a3a1f}
+
+/* Dashboard chooser + headings. */
+.peh-product-pehlichi .peh-dash-head{border-bottom:1px solid var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-dash-here h1{font-family:var(--obs-display);letter-spacing:.01em}
+.peh-product-pehlichi .peh-choice{
+  background:linear-gradient(160deg,rgba(34,28,72,.75),rgba(12,10,26,.5));
+  border:1px solid var(--obs-amber-dk);color:var(--obs-paper);
+}
+.peh-product-pehlichi .peh-choice:hover{border-color:var(--obs-amber)}
+.peh-product-pehlichi .peh-choice-title{font-family:var(--obs-display);letter-spacing:.01em}
+.peh-product-pehlichi .peh-choice-kind{color:var(--obs-amber-dk)}
+
+/* Fast-travel sheet → an observatory logbook. */
+.peh-product-pehlichi .peh-ft{
+  background:linear-gradient(180deg,rgba(26,21,56,.99),rgba(12,10,26,.99));
+  border:1px solid var(--obs-amber-dk);
+}
+.peh-product-pehlichi .peh-ft-head{border-bottom:1px solid var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-ft-head h2{color:var(--obs-amber-hi)}
+
+/* ── Observatory Overview console (the kind:'deck' workspace body) ───── */
+.obs-console{padding:18px 16px 26px;display:flex;flex-direction:column;gap:18px;color:var(--ink)}
+.obs-hero{
+  display:flex;gap:14px;align-items:center;padding:16px 18px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(200,150,46,.16),rgba(139,92,246,.14),rgba(12,10,26,.4));
+  border:1px solid var(--border-subtle);
+}
+.obs-hero-mark{font-size:34px;line-height:1;filter:drop-shadow(0 4px 12px rgba(200,150,46,.5))}
+.obs-hero h2{margin:0 0 4px;font-family:var(--obs-display);font-size:22px;letter-spacing:.01em;color:var(--amber-hot)}
+.obs-hero p{margin:0;font-size:13px;color:var(--ink-soft);max-width:62ch}
+.obs-section-title{font-family:var(--obs-display);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--peh-accent);margin:2px 0 -4px}
+.obs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.obs-card{
+  display:flex;flex-direction:column;align-items:flex-start;gap:7px;
+  padding:15px 14px;border-radius:14px;cursor:pointer;text-align:left;font:inherit;
+  background:linear-gradient(160deg,rgba(34,28,72,.6),rgba(12,10,26,.4));
+  border:1px solid var(--border-subtle);color:var(--ink);transition:.15s;
+}
+.obs-card:hover{border-color:var(--peh-accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.4)}
+.obs-card-glyph{color:var(--peh-accent);display:inline-flex}
+.obs-card-glyph .peh-glyph{width:26px;height:26px}
+.obs-card-title{font-family:var(--obs-display);font-weight:700;font-size:15px}
+.obs-card-desc{font-size:12px;color:var(--ink-dim);line-height:1.4}
+.obs-lives{
+  padding:14px 16px;border-radius:14px;
+  background:linear-gradient(160deg,rgba(139,92,246,.12),rgba(12,10,26,.35));
+  border:1px solid var(--border-subtle);
+}
+.obs-lives p{margin:0 0 10px;font-size:13px;color:var(--ink-soft);font-style:italic}
+.obs-lives-row{display:flex;flex-wrap:wrap;gap:8px}
+.obs-life{
+  font-size:12px;padding:5px 11px;border-radius:999px;letter-spacing:.02em;
+  background:rgba(12,10,26,.55);border:1px solid var(--obs-amber-dk,var(--border-medium));color:var(--ink-soft);
+}
+.obs-life::before{content:"✦ ";color:var(--peh-accent)}
+.obs-foot{font-size:11px;color:var(--ink-dim);text-align:center;letter-spacing:.06em;padding-top:4px}
