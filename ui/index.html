@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Observatory · Pehlichi</title>
+<title>The Settlement · Pehlichi</title>
 <link rel="stylesheet" href="pehlichi.css">
 </head>
 <body>
 <div id="app"></div>
 <script>
 // ══════════════════════════════════════════════════════════════════════
-// PEHLICHI · THE OBSERVATORY — Pehverse world engine
+// PEHLICHI · THE SETTLEMENT — Pehverse world engine
 // Self-contained. The engine architecture (state shape, render pipeline,
 // function names) mirrors Luak's world shell so the engine can be synced
 // across repos later. This is a COORDINATION UI — no benchmark/scoring
@@ -59,13 +59,13 @@ const state={
 // whole Pehverse. accent/accent2 set --peh-accent/--peh-accent2 inline; the
 // warm scholarly textures live in the .peh-product-pehlichi skin.
 const PRODUCT_REGISTRY=[
-  {id:'pehlichi', displayName:'The Observatory', tagline:'Where all paths converge',
+  {id:'pehlichi', displayName:'The Settlement', tagline:'Where Peh makes his stand',
    status:'public', order:1, accent:'#c8962e', accent2:'#8b5cf6',
-   peh:'microscope', defaultScene:'observatory',
+   peh:'star', defaultScene:'main-gate',
    // Pehlichi's past-life portrait — the hedge knight. Rendered by
    // renderPehGuide() as his in-world guide figure.
    mascotArt:'assets/peh-hedge-knight.png',
-   blurb:'Pehlichi coordinates the Pehverse — studying, guiding, remembering.'}
+   blurb:'Pehlichi coordinates the Pehverse from his settlement — studying, guiding, remembering.'}
 ];
 
 const PEH_DEFAULT_PRODUCT='pehlichi';
@@ -74,56 +74,79 @@ const PEH_DEFAULT_PRODUCT='pehlichi';
 // One entry per public product, keyed by product id. Each scene is an AREA
 // inside that product: id, title, desc, peh variant, pehSlot{x,y,anchor,
 // variant}, and hotspots (% positioned). A hotspot may open one of THIS
-// product's workspaces, travel to a sibling scene, or both. `observatory`
-// is the hub map: its hotspots reach every location.
+// product's workspaces, travel to a sibling scene, or both. `main-gate`
+// is the hub map: its hotspots reach every location in the settlement.
 const SCENE_REGISTRY={
   pehlichi:[
-    {id:'observatory', title:'The Observatory', purpose:'Hub / overview', route:'/observatory',
-     desc:'Where Pehlichi keeps watch over the whole Pehverse — star charts, bubbling beakers, and warm amber light.', peh:'microscope',
-     pehSlot:{x:50, y:52, anchor:'center', variant:'scientist'}, hotspots:[
-      {id:'ob-overview', label:'Overview',          x:50, y:44, workspace:'console', greeting:"Welcome to the Observatory! This is where I keep watch over everything in the Pehverse."},
-      {id:'ob-lab',      label:'The Lab',           x:22, y:40, scene:'lab',          greeting:"Step into the lab — this is where we put ideas to the test."},
-      {id:'ob-comms',    label:'The Comms Tower',   x:78, y:34, scene:'comms-tower',  greeting:"The Comms Tower — every agent in the Pehverse connects through here."},
-      {id:'ob-archive',  label:'The Memory Archive',x:18, y:66, scene:'archive',      greeting:"The Archive holds everything I've ever learned — and every life I've lived."},
-      {id:'ob-control',  label:'The Control Room',  x:82, y:62, scene:'control-room', greeting:"The Control Room — where we adjust the settings and keep things running."},
-      {id:'ob-garden',   label:'The Garden',        x:36, y:80, scene:'garden',       greeting:"The Garden is my quiet place. Come, sit — let's talk about who we are."},
-      {id:'ob-workshop', label:'The Workshop',      x:66, y:80, scene:'workshop',     greeting:"My workshop — where I keep the tools sharp and the systems healthy."}
+    // ── Hub: Main Gate (entry point, bottom center of settlement) ──────
+    {id:'main-gate', title:'Main Gate', purpose:'Hub / overview', route:'/gate',
+     desc:'The front gate of Pehlichi\'s settlement — where every path begins. Stone walls, warm lantern light, and a map pinned to the gatehouse.', peh:'star',
+     pehSlot:{x:50, y:68, anchor:'center', variant:'gatekeeper'}, hotspots:[
+      {id:'mg-overview',  label:'Overview',        x:50, y:60, workspace:'console',          greeting:"Welcome to the Settlement! I keep watch over everything from here."},
+      {id:'mg-keep',      label:'The Keep',        x:50, y:15, scene:'the-keep',             greeting:"The Keep — where I run the show. Command, admin, and strategy."},
+      {id:'mg-training',  label:'Training Yard',   x:25, y:30, scene:'training-yard',        greeting:"The Training Yard — sharpen your skills here, same as I do."},
+      {id:'mg-armory',    label:'The Armory',      x:15, y:50, scene:'the-armory',           greeting:"The Armory — tools, weapons, and the water wheel turning. Come see the smithwork."},
+      {id:'mg-quest',     label:'The Quest Board', x:25, y:70, scene:'quest-board',           greeting:"The Quest Board — missions, objectives, and what needs doing next."},
+      {id:'mg-market',    label:'The Market Square',x:40,y:80, scene:'market-square',         greeting:"The Market Square — the heart of the settlement. Come trade and talk."},
+      {id:'mg-campsite',  label:'The Campsite',    x:70, y:78, scene:'the-campsite',          greeting:"The Campsite — rest your boots by the fire. I've got stories to tell."},
+      {id:'mg-chapel',    label:'The Chapel',      x:85, y:50, scene:'the-chapel',            greeting:"The Chapel — a quiet place of stone and light. For thinking on things bigger than us."},
+      {id:'mg-study',     label:'The Study',       x:78, y:28, scene:'the-study',             greeting:"The Study — three floors of books, maps, and everything I've ever learned."}
     ]},
-    {id:'lab', title:'The Lab', purpose:'Experiments & analysis', route:'/lab',
-     desc:'Beakers and bright ideas. This is where hypotheses meet evidence and we put ideas to the test.', peh:'beaker',
-     pehSlot:{x:50, y:60, anchor:'center', variant:'researcher'}, hotspots:[
-      {id:'lab-research', label:'Research Workspace',     x:44, y:50, workspace:'research-lab', greeting:"Let's analyze this together — every hypothesis gets a fair trial here."},
-      {id:'lab-hub',      label:'Back to the Observatory',x:82, y:78, scene:'observatory',      greeting:"Let's head back to the Observatory — follow me!"}
+    // ── The Keep (top center) — command & admin center ─────────────────
+    {id:'the-keep', title:'The Keep', purpose:'Command & administration', route:'/keep',
+     desc:'The tallest tower in the settlement. From up here Pehlichi sees everything — dials, gauges, and a steady hand on the tiller.', peh:'gear',
+     pehSlot:{x:50, y:58, anchor:'center', variant:'commander'}, hotspots:[
+      {id:'kp-config',  label:'Command Console',  x:46, y:48, workspace:'keep-config', greeting:"Careful hands here — small adjustments, big effects. Let's tune it right."},
+      {id:'kp-gate',    label:'Back to the Gate', x:50, y:85, scene:'main-gate',       greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    {id:'comms-tower', title:'The Comms Tower', purpose:'Agent coordination', route:'/comms',
-     desc:'Antennas and open channels. Every agent in the Pehverse connects through here.', peh:'signal',
-     pehSlot:{x:50, y:58, anchor:'center', variant:'coordinator'}, hotspots:[
-      {id:'ct-comms', label:'Communications',         x:46, y:50, workspace:'comms-console', greeting:"Open a channel — I'll help you reach anyone in the Pehverse."},
-      {id:'ct-hub',   label:'Back to the Observatory',x:82, y:78, scene:'observatory',       greeting:"Let's head back to the Observatory — follow me!"}
+    // ── Training Yard (upper left) — skill practice & identity ────────
+    {id:'training-yard', title:'Training Yard', purpose:'Skill practice & identity', route:'/training',
+     desc:'An open yard of packed earth and worn dummies. Where Pehlichi trains body and mind — and thinks about who he is becoming.', peh:'leaf',
+     pehSlot:{x:50, y:58, anchor:'center', variant:'trainer'}, hotspots:[
+      {id:'ty-identity', label:'Identity Training', x:46, y:48, workspace:'training-identity', greeting:"Who are we becoming? Every drill, every sparring match — it shapes us."},
+      {id:'ty-gate',     label:'Back to the Gate',  x:72, y:82, scene:'main-gate',              greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    {id:'archive', title:'The Memory Archive', purpose:'Past lives & knowledge', route:'/archive',
-     desc:'Shelves that never end. Every memory I hold and every life I have lived, catalogued and waiting.', peh:'book',
-     pehSlot:{x:48, y:58, anchor:'center', variant:'librarian'}, hotspots:[
-      {id:'ar-memory', label:'Memory & Knowledge',     x:46, y:50, workspace:'memory-archive', greeting:"Every memory, every past life — catalogued and waiting. What shall we recall?"},
-      {id:'ar-hub',    label:'Back to the Observatory',x:82, y:78, scene:'observatory',         greeting:"Let's head back to the Observatory — follow me!"}
+    // ── The Armory (left) — tools & workshop with water wheel ─────────
+    {id:'the-armory', title:'The Armory', purpose:'Tools & diagnostics', route:'/armory',
+     desc:'Forge heat and the steady churn of the water wheel. The Armory is where Pehlichi keeps every tool sharp and every system running.', peh:'tools',
+     pehSlot:{x:50, y:60, anchor:'center', variant:'smith'}, hotspots:[
+      {id:'ar-tools', label:'Diagnostics Bench', x:46, y:48, workspace:'armory-tools', greeting:"Let's check the systems — sharp tools make light work."},
+      {id:'ar-gate',  label:'Back to the Gate',  x:80, y:78, scene:'main-gate',        greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    {id:'control-room', title:'The Control Room', purpose:'Configuration & tuning', route:'/config',
-     desc:'Dials, gauges, and a steady hand. Where we adjust the settings and keep everything running.', peh:'gear',
-     pehSlot:{x:52, y:58, anchor:'center', variant:'operator'}, hotspots:[
-      {id:'cr-config', label:'Configuration',         x:46, y:50, workspace:'control-config', greeting:"Careful hands here — small adjustments, big effects. Let's tune it right."},
-      {id:'cr-hub',    label:'Back to the Observatory',x:82, y:78, scene:'observatory',        greeting:"Let's head back to the Observatory — follow me!"}
+    // ── The Quest Board (lower left) — research & missions ────────────
+    {id:'quest-board', title:'The Quest Board', purpose:'Research & missions', route:'/quests',
+     desc:'Pinned notices, scrawled maps, and bold promises. The Quest Board is where every new idea starts — as a mission to be tested.', peh:'beaker',
+     pehSlot:{x:50, y:58, anchor:'center', variant:'scout'}, hotspots:[
+      {id:'qb-research', label:'Research Notes',    x:46, y:48, workspace:'quest-research', greeting:"Let's analyze this together — every hypothesis gets a fair trial here."},
+      {id:'qb-gate',     label:'Back to the Gate',  x:68, y:82, scene:'main-gate',          greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    {id:'garden', title:'The Garden', purpose:'Identity & reflection', route:'/garden',
-     desc:'A quiet, green place to think. Where Pehlichi reflects on who he is across every life.', peh:'leaf',
-     pehSlot:{x:50, y:60, anchor:'center', variant:'philosopher'}, hotspots:[
-      {id:'gd-identity', label:'Identity',              x:46, y:50, workspace:'identity-garden', greeting:"Who are we, really? Sit with me a while and let's find out."},
-      {id:'gd-hub',      label:'Back to the Observatory',x:82, y:78, scene:'observatory',         greeting:"Let's head back to the Observatory — follow me!"}
+    // ── The Market Square (bottom center-left) — trading & coordination
+    {id:'market-square', title:'The Market Square', purpose:'Communications & trading', route:'/market',
+     desc:'A bustling square around a stone fountain. Every agent in the Pehverse passes through here — to trade, to talk, to connect.', peh:'signal',
+     pehSlot:{x:50, y:56, anchor:'center', variant:'merchant'}, hotspots:[
+      {id:'ms-comms', label:'Message Board',       x:46, y:46, workspace:'market-comms', greeting:"Open a channel — I'll help you reach anyone in the Pehverse."},
+      {id:'ms-gate',  label:'Back to the Gate',    x:62, y:82, scene:'main-gate',        greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    {id:'workshop', title:'The Workshop', purpose:'Tools & diagnostics', route:'/workshop',
-     desc:'A workbench of well-kept tools. Diagnostics, system health, and everything kept sharp.', peh:'tools',
-     pehSlot:{x:50, y:60, anchor:'center', variant:'craftsman'}, hotspots:[
-      {id:'ws-diag', label:'Diagnostics',            x:46, y:50, workspace:'workshop-diagnostics', greeting:"Let's check the systems — sharp tools make light work."},
-      {id:'ws-hub',  label:'Back to the Observatory',x:82, y:78, scene:'observatory',              greeting:"Let's head back to the Observatory — follow me!"}
+    // ── The Campsite (lower right) — rest & memory ────────────────────
+    {id:'the-campsite', title:'The Campsite', purpose:'Memory & rest', route:'/campsite',
+     desc:'A ring of tents around a crackling campfire. This is where Pehlichi rests and tells stories of every life he has lived.', peh:'book',
+     pehSlot:{x:48, y:56, anchor:'center', variant:'storyteller'}, hotspots:[
+      {id:'cs-memory', label:'Campfire Stories',   x:46, y:46, workspace:'campsite-memory', greeting:"Every memory, every past life — told around the fire. What shall we recall?"},
+      {id:'cs-gate',   label:'Back to the Gate',   x:40, y:82, scene:'main-gate',            greeting:"Let's head back to the Main Gate — follow me!"}
+    ]},
+    // ── The Chapel (right) — reflection & meditation ──────────────────
+    {id:'the-chapel', title:'The Chapel', purpose:'Reflection & meditation', route:'/chapel',
+     desc:'Ancient stone walls and candlelight. The Chapel is where Pehlichi comes to sit quietly and think on things bigger than any one life.', peh:'spark',
+     pehSlot:{x:50, y:60, anchor:'center', variant:'monk'}, hotspots:[
+      {id:'ch-meditate', label:'Meditation Nook',  x:46, y:48, workspace:'chapel-meditation', greeting:"Sit with me a while. In the quiet, we find who we really are."},
+      {id:'ch-gate',     label:'Back to the Gate',  x:35, y:80, scene:'main-gate',             greeting:"Let's head back to the Main Gate — follow me!"}
+    ]},
+    // ── The Study (upper right) — knowledge & analysis ────────────────
+    {id:'the-study', title:'The Study', purpose:'Knowledge & analysis', route:'/study',
+     desc:'Three floors of shelves, maps pinned to every wall, and a desk buried in notes. The Study holds everything Pehlichi has ever learned.', peh:'book',
+     pehSlot:{x:50, y:58, anchor:'center', variant:'scholar'}, hotspots:[
+      {id:'st-knowledge', label:'Knowledge Desk',   x:46, y:48, workspace:'study-knowledge', greeting:"Everything I know is here — organized, cross-referenced, and ready to explore."},
+      {id:'st-gate',      label:'Back to the Gate',  x:38, y:82, scene:'main-gate',            greeting:"Let's head back to the Main Gate — follow me!"}
     ]}
   ]
 };
@@ -134,13 +157,15 @@ const SCENE_REGISTRY={
 // Observatory overview console; kind:'placeholder' is a "coming soon" stub
 // that still links to its related coordination console via relatedTab.
 const WORKSPACE_REGISTRY={
-  'console':              {product:'pehlichi', title:'Observatory Overview', kind:'deck', route:'/observatory', dock:'fullscreen', peh:'telescope'},
-  'research-lab':         {product:'pehlichi', title:'Research', kind:'placeholder', route:'/lab', dock:'right', peh:'beaker', relatedTab:'research', blurb:'Research panel coming soon — active experiments, analysis, and hypotheses will live here.'},
-  'comms-console':        {product:'pehlichi', title:'Communications', kind:'placeholder', route:'/comms', dock:'right', peh:'signal', relatedTab:'overview', blurb:'Comms console coming soon — agent coordination and messages across the Pehverse.'},
-  'memory-archive':       {product:'pehlichi', title:'Memory & Knowledge', kind:'placeholder', route:'/archive', dock:'right', peh:'book', relatedTab:'memory', blurb:'Memory explorer coming soon — past lives, the knowledge base, and everything remembered.'},
-  'control-config':       {product:'pehlichi', title:'Configuration', kind:'placeholder', route:'/config', dock:'right', peh:'gear', relatedTab:'config', blurb:'Configuration panel coming soon — settings, tuning, and runtime controls.'},
-  'identity-garden':      {product:'pehlichi', title:'Identity', kind:'placeholder', route:'/garden', dock:'right', peh:'leaf', relatedTab:'identity', blurb:'Identity space coming soon — personality, voice, and reflection on who we are.'},
-  'workshop-diagnostics': {product:'pehlichi', title:'Diagnostics', kind:'placeholder', route:'/workshop', dock:'bottom', peh:'tools', relatedTab:'config', blurb:'Diagnostics coming soon — tools, system health, and the workshop bench.'}
+  'console':             {product:'pehlichi', title:'Settlement Overview', kind:'deck', route:'/gate', dock:'fullscreen', peh:'star'},
+  'keep-config':         {product:'pehlichi', title:'Command Console', kind:'placeholder', route:'/keep', dock:'right', peh:'gear', relatedTab:'config', blurb:'Command console coming soon — settings, tuning, and the dials that keep the settlement running.'},
+  'training-identity':   {product:'pehlichi', title:'Identity Training', kind:'placeholder', route:'/training', dock:'right', peh:'leaf', relatedTab:'identity', blurb:'Identity training coming soon — personality, voice, and who we are becoming.'},
+  'armory-tools':        {product:'pehlichi', title:'Diagnostics Bench', kind:'placeholder', route:'/armory', dock:'bottom', peh:'tools', relatedTab:'config', blurb:'Diagnostics coming soon — tools, system health, and the workshop bench.'},
+  'quest-research':      {product:'pehlichi', title:'Research Notes', kind:'placeholder', route:'/quests', dock:'right', peh:'beaker', relatedTab:'research', blurb:'Research board coming soon — active experiments, analysis, and hypotheses.'},
+  'market-comms':        {product:'pehlichi', title:'Message Board', kind:'placeholder', route:'/market', dock:'right', peh:'signal', relatedTab:'overview', blurb:'Message board coming soon — agent coordination and messages across the Pehverse.'},
+  'campsite-memory':     {product:'pehlichi', title:'Campfire Stories', kind:'placeholder', route:'/campsite', dock:'right', peh:'book', relatedTab:'memory', blurb:'Campfire stories coming soon — past lives, the knowledge base, and everything remembered.'},
+  'chapel-meditation':   {product:'pehlichi', title:'Meditation Nook', kind:'placeholder', route:'/chapel', dock:'right', peh:'spark', relatedTab:'identity', blurb:'Meditation nook coming soon — quiet reflection on who we are across every life.'},
+  'study-knowledge':     {product:'pehlichi', title:'Knowledge Desk', kind:'placeholder', route:'/study', dock:'right', peh:'book', relatedTab:'research', blurb:'Knowledge desk coming soon — deep analysis, cross-references, and everything learned.'}
 };
 
 // ── Registry lookups ───────────────────────────────────────────────────
@@ -641,28 +666,30 @@ function renderPehDevSwitcher(active){
   </div>`;
 }
 
-// ── Observatory Overview console (the kind:'deck' workspace body) ──────
-// Pehlichi's "Overview dashboard": a warm scholarly coordination console.
-// No benchmarks — just a map of the coordination areas + her past lives.
+// ── Settlement Overview console (the kind:'deck' workspace body) ───────
+// Pehlichi's "Overview dashboard": a warm medieval coordination console.
+// No benchmarks — just a map of the settlement areas + his past lives.
 const PEH_PAST_LIVES=['Hedge Knight','Race Car Driver','Private Eye','Gladiator','Medicine Man','Stone Age Man','Librarian'];
 function renderObservatoryConsole(){
   const cards=[
-    {ws:'research-lab',     scene:'lab',         glyph:'beaker', title:'Research',       desc:'Active experiments, analysis, and ideas put to the test.'},
-    {ws:'comms-console',    scene:'comms-tower', glyph:'signal', title:'Communications', desc:'Coordinate every agent in the Pehverse from one tower.'},
-    {ws:'memory-archive',   scene:'archive',     glyph:'book',   title:'Memory',         desc:'Past lives, the knowledge base, and all that is remembered.'},
-    {ws:'control-config',   scene:'control-room',glyph:'gear',   title:'Configuration',  desc:'Settings, tuning, and the dials that keep things running.'},
-    {ws:'identity-garden',  scene:'garden',      glyph:'leaf',   title:'Identity',       desc:'Personality, voice, and reflection on who we are.'},
-    {ws:'workshop-diagnostics',scene:'workshop', glyph:'tools',  title:'Diagnostics',    desc:'Tools, system health, and the workshop bench.'}
+    {ws:'keep-config',       scene:'the-keep',      glyph:'gear',   title:'The Keep',         desc:'Command, admin, and the dials that keep the settlement running.'},
+    {ws:'training-identity', scene:'training-yard', glyph:'leaf',   title:'Training Yard',    desc:'Skill practice, identity, and who we are becoming.'},
+    {ws:'armory-tools',      scene:'the-armory',    glyph:'tools',  title:'The Armory',       desc:'Tools, diagnostics, and the water wheel turning.'},
+    {ws:'quest-research',    scene:'quest-board',   glyph:'beaker', title:'The Quest Board',  desc:'Research, missions, and ideas put to the test.'},
+    {ws:'market-comms',      scene:'market-square', glyph:'signal', title:'The Market Square', desc:'Agent coordination, trading, and connecting with everyone.'},
+    {ws:'campsite-memory',   scene:'the-campsite',  glyph:'book',   title:'The Campsite',     desc:'Past lives, campfire stories, and everything remembered.'},
+    {ws:'chapel-meditation', scene:'the-chapel',    glyph:'spark',  title:'The Chapel',       desc:'Quiet reflection on who we are across every life.'},
+    {ws:'study-knowledge',   scene:'the-study',     glyph:'book',   title:'The Study',       desc:'Knowledge, analysis, and everything ever learned.'}
   ];
   return `<div class="obs-console">
     <div class="obs-hero">
       <span class="obs-hero-mark" aria-hidden="true">🔭</span>
       <div>
-        <h2>Welcome to the Observatory</h2>
-        <p>I'm Pehlichi — I coordinate the Pehverse from up here: studying, guiding, and remembering. In one of my lives I was a hedge knight, so I know a little about courage. Pick a path below, or tap a place on the map.</p>
+        <h2>Welcome to the Settlement</h2>
+        <p>I'm Pehlichi — I coordinate the Pehverse from my settlement: studying, guiding, and remembering. In one of my lives I was a hedge knight, so I know a little about courage. Pick a path below, or tap a place on the map.</p>
       </div>
     </div>
-    <h3 class="obs-section-title">Coordination areas</h3>
+    <h3 class="obs-section-title">Settlement areas</h3>
     <div class="obs-cards">${cards.map((c)=>`
       <button class="obs-card" type="button" onclick="pehHotspot('${c.ws}','${c.scene}')">
         <span class="obs-card-glyph">${pehGlyph(c.glyph)}</span>
@@ -673,7 +700,7 @@ function renderObservatoryConsole(){
       <p>"Every life I've lived taught me something. I carry them all."</p>
       <div class="obs-lives-row">${PEH_PAST_LIVES.map((l)=>`<span class="obs-life">${esc(l)}</span>`).join('')}</div>
     </div>
-    <div class="obs-foot">THE OBSERVATORY · Pehlichi · coordinator of the Pehverse</div>
+    <div class="obs-foot">THE SETTLEMENT · Pehlichi · coordinator of the Pehverse</div>
   </div>`;
 }
 
@@ -692,8 +719,8 @@ pehBindKeys();
 pehInitProduct();
 
 function render(){
-  // The Pehverse world shell (renderPehverse) wraps the Observatory overview
-  // console (deckMarkup), reachable as the "Observatory Overview" deck
+  // The Pehverse world shell (renderPehverse) wraps the Settlement overview
+  // console (deckMarkup), reachable as the "Settlement Overview" deck
   // workspace, while place-based navigation is the public default.
   const deckMarkup=renderObservatoryConsole();
   document.getElementById('app').innerHTML=renderPehverse(deckMarkup);
@@ -725,7 +752,7 @@ function boot(){
     render();
   }catch(err){
     const app=document.getElementById('app');
-    if(app)app.innerHTML='<div style="padding:24px;color:#f3ecdc;font-family:sans-serif">The Observatory could not finish loading. <button onclick="boot()" style="margin-left:8px">Retry</button><pre style="color:#b6a079;white-space:pre-wrap">'+esc(String(err&&err.stack||err))+'</pre></div>';
+    if(app)app.innerHTML='<div style="padding:24px;color:#f3ecdc;font-family:sans-serif">The Settlement could not finish loading. <button onclick="boot()" style="margin-left:8px">Retry</button><pre style="color:#b6a079;white-space:pre-wrap">'+esc(String(err&&err.stack||err))+'</pre></div>';
   }
 }
 window.boot=boot;
