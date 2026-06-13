@@ -18,10 +18,10 @@
  * count so an operator can tell the two apart and see which one owns which schedules.
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -57,6 +57,48 @@ function resolveApiKey(): string | undefined {
     if (match) return match[0].trim();
   } catch {}
   return undefined;
+}
+
+// ── Static web UI (served directly from this port) ───────────────────────────
+// The browser UI lives in the repo's ui/ directory (HTML/CSS/JS/assets). Resolved
+// relative to THIS file (tui/src) so it works regardless of the service's CWD:
+// tui/src → .. (tui) → .. (repo root) → ui.
+const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui');
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2',
+  '.map': 'application/json; charset=utf-8',
+};
+
+/**
+ * Serve a static file from WEB_ROOT for a GET request. '/' maps to index.html.
+ * Returns true if a response was written, false if there is no such file (caller
+ * falls through to the API routes). Path traversal is blocked: the resolved path
+ * must stay under WEB_ROOT. CORS is set (same '*' policy as json()) so the UI can
+ * also be loaded from a separate static origin.
+ */
+function serveStatic(res: ServerResponse, pathname: string): boolean {
+  let rel: string;
+  try { rel = decodeURIComponent(pathname); } catch { return false; }
+  if (rel === '/' || rel === '') rel = '/index.html';
+  const filePath = join(WEB_ROOT, rel);
+  if (!filePath.startsWith(WEB_ROOT + sep)) return false;
+  try { if (!statSync(filePath).isFile()) return false; } catch { return false; }
+  const type = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+  res.writeHead(200, {
+    'Content-Type': type,
+    'Cache-Control': 'no-cache',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(readFileSync(filePath));
+  return true;
 }
 
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -320,6 +362,12 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const server = createHttpServer(async (req, res) => {
    try {
     const url = new URL(req.url ?? '/', `http://${HOST}:${opts.port ?? PORT}`);
+
+    // Static web UI: try to serve the browser UI for GET requests BEFORE the API
+    // routes. serveStatic returns true (and has written the response) when the path
+    // maps to a real file under WEB_ROOT; otherwise it returns false and we fall
+    // through to the JSON API routes below (so /health, /api/*, etc. are unaffected).
+    if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
 
     if (req.method === 'GET' && url.pathname === '/health') {
       return json(res, 200, {
