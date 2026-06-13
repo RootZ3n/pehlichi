@@ -455,11 +455,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
  * real summary (rootCause set, changes[] + verification[] non-empty arrays) is
  * an error, not a quiet exit.
  *
- * READ-ONLY ESCAPE HATCH: when `noChangeRequired` is true, the changes[] check
- * is relaxed — a task that requires no file changes (answering a question,
- * running a read-only command, inspecting code) legitimately produces no
- * changes. rootCause and verification[] are STILL required: the run must say
- * what it concluded and must have actually checked something.
+ * READ-ONLY ESCAPE HATCH: when `noChangeRequired` is true, both the changes[]
+ * and verification[] checks are relaxed — a purely conversational response
+ * (answering a question, no tools invoked) legitimately has neither.
+ * rootCause is STILL required: the agent must say what it concluded.
  */
 function validateSummary(
   summary: { rootCause: string; changes: string[]; verification: string[]; noChangeRequired?: boolean },
@@ -472,7 +471,7 @@ function validateSummary(
   if (summary.noChangeRequired !== true && (!Array.isArray(summary.changes) || summary.changes.length === 0)) {
     problems.push("changes[] is empty");
   }
-  if (!Array.isArray(summary.verification) || summary.verification.length === 0) {
+  if (summary.noChangeRequired !== true && (!Array.isArray(summary.verification) || summary.verification.length === 0)) {
     problems.push("verification[] is empty");
   }
   if (problems.length > 0) {
