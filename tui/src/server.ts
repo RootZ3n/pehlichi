@@ -213,6 +213,24 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const registry = createToolRegistry(extraTools);
   const toolNames = [...registry.keys()];
 
+  // SELF-AWARENESS (gauntlet fix): a concise capability summary fed into the system
+  // prompt of BOTH chat lanes so Peh actually knows his own tools, memory, and surface.
+  // Without it the converse lane (no tools) answered "my mind" / "I don't know" / "nothing
+  // between conversations". Just names + a plain-English summary — not the 29 full tool
+  // descriptions. The personality prompt still owns his squirrel voice; this is only facts.
+  const capabilitiesSummary =
+    `YOUR CAPABILITIES (real tools you have — talk about them in your own voice):\n` +
+    `You have ${toolNames.length} tools available: ${toolNames.join(', ')}.\n` +
+    `You can: read files, write files, edit files (patch), search code, run terminal commands, ` +
+    `browse the web, and manage processes.\n` +
+    `You have persistent memory across conversations via the memory tool — you do NOT forget everything between chats.\n` +
+    `You have a /tools endpoint that lists your tools, and a /info endpoint with your identity.`;
+  // The converse lane runs WITHOUT tools, so Peh must be told he still has them elsewhere.
+  const converseCapabilities =
+    `${capabilitiesSummary}\n` +
+    `Even though you don't have tools wired into THIS conversation, you DO have them in the full ` +
+    `/chat endpoint. You can tell users about your capabilities.`;
+
   // Production driver: a resilient MimoDriver (circuit breaker + retry). Tests inject
   // a ScriptedDriver so the whole kernel path runs with no network.
   const breaker = new CircuitBreaker(detectProviderId(BASE_URL), { failureThreshold: 5, cooldownMs: 30_000, successThreshold: 3 });
@@ -249,6 +267,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       workspaceRoot,
       labStoreRoot,
       extraTools,
+      capabilities: capabilitiesSummary,
       taskId: `pehlichi-${roomKey}`,
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
@@ -276,7 +295,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const converseFor = (roomKey: string): ChatSession => {
     let entry = converseSessions.get(roomKey);
     if (entry === undefined) {
-      entry = { cs: new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL }), lastAccessedAt: now() };
+      entry = { cs: new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL, capabilities: converseCapabilities }), lastAccessedAt: now() };
       converseSessions.set(roomKey, entry);
     } else {
       entry.lastAccessedAt = now();

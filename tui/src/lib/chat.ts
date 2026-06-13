@@ -33,10 +33,20 @@ export class ChatSession {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    /**
+     * SELF-AWARENESS: a capability summary (tool names + what Peh can do + where his
+     * memory lives) appended to the system prompt AFTER the personality sections. The
+     * converse lane runs with NO tools, so without this Peh has no way to know what he
+     * can actually do in the full /chat lane — he'd claim "my mind" or "I don't know".
+     */
+    capabilities?: string;
   }) {
     this.personality = loadPersonality();
     this.skin = loadSkin();
     this.systemPrompt = buildPersonalityPrompt(this.personality);
+    if (opts?.capabilities) {
+      this.systemPrompt += `\n\n---\n\n${opts.capabilities}`;
+    }
     this.apiKey = opts?.apiKey ?? process.env.MIMO_API_KEY;
     this.baseUrl = opts?.baseUrl ?? 'https://api.xiaomimimo.com/v1';
     this.model = opts?.model ?? 'mimo-v2.5';

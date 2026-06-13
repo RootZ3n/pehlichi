@@ -149,6 +149,14 @@ export interface KernelChatSessionOptions {
   /** Identity stamped into checkpoints (default 'kernel-session'). */
   readonly taskId?: string;
   readonly clock?: () => number;
+  /**
+   * SELF-AWARENESS: a capability summary appended to the profile's persona preamble so
+   * the model can answer "what can you do / where does your memory come from" plainly.
+   * The kernel prompt already lists tool names+descriptions, but this adds the human
+   * framing (memory persistence, the /tools and /info endpoints) and keeps the two
+   * chat lanes consistent. Unset => the profile is used unchanged.
+   */
+  readonly capabilities?: string;
 }
 
 /**
@@ -228,8 +236,16 @@ export class KernelChatSession {
       onEvent?.(e);
     };
 
+    // SELF-AWARENESS: fold the capability summary into the persona preamble for this run.
+    const profile = this.opts.capabilities
+      ? {
+          ...this.opts.profile,
+          personaPreamble: `${this.opts.profile.personaPreamble}\n\n${this.opts.capabilities}`,
+        }
+      : this.opts.profile;
+
     const result = await runAgent({
-      profile: this.opts.profile,
+      profile,
       task,
       workspaceRoot: this.opts.workspaceRoot,
       labStoreRoot: this.opts.labStoreRoot,
