@@ -30,7 +30,7 @@ export type DriverAction =
   | { kind: "narrate"; phase: Phase; text: string }
   | { kind: "root-cause"; text: string }
   | { kind: "tool"; tool: string; args: Record<string, unknown> }
-  | { kind: "done"; summary: { rootCause: string; changes: string[]; verification: string[] } }
+  | { kind: "done"; summary: { rootCause: string; changes: string[]; verification: string[]; noChangeRequired?: boolean } }
   // The model wrote a tool call as prose instead of using the function-call API.
   // This NEVER executes — the loop feeds back a correction. There is no edge
   // from this action kind to tool execution (only `kind:"tool"` reaches it).

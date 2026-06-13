@@ -204,6 +204,7 @@ function completionToAction(parsed: ParsedCompletion): DriverAction {
           rootCause: typeof s["rootCause"] === "string" ? s["rootCause"] : "",
           changes: Array.isArray(s["changes"]) ? s["changes"].filter((x: unknown) => typeof x === "string") : [],
           verification: Array.isArray(s["verification"]) ? s["verification"].filter((x: unknown) => typeof x === "string") : [],
+          ...(s["noChangeRequired"] === true ? { noChangeRequired: true } : {}),
         },
       };
     }

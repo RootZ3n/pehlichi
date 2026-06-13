@@ -454,16 +454,22 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
  * Structural enforcement of the closing-summary behavior: a `done` without a
  * real summary (rootCause set, changes[] + verification[] non-empty arrays) is
  * an error, not a quiet exit.
+ *
+ * READ-ONLY ESCAPE HATCH: when `noChangeRequired` is true, the changes[] check
+ * is relaxed — a task that requires no file changes (answering a question,
+ * running a read-only command, inspecting code) legitimately produces no
+ * changes. rootCause and verification[] are STILL required: the run must say
+ * what it concluded and must have actually checked something.
  */
 function validateSummary(
-  summary: { rootCause: string; changes: string[]; verification: string[] },
+  summary: { rootCause: string; changes: string[]; verification: string[]; noChangeRequired?: boolean },
   emitter: EventEmitter,
 ): void {
   const problems: string[] = [];
   if (typeof summary.rootCause !== "string" || summary.rootCause.trim() === "") {
     problems.push("rootCause is empty");
   }
-  if (!Array.isArray(summary.changes) || summary.changes.length === 0) {
+  if (summary.noChangeRequired !== true && (!Array.isArray(summary.changes) || summary.changes.length === 0)) {
     problems.push("changes[] is empty");
   }
   if (!Array.isArray(summary.verification) || summary.verification.length === 0) {
