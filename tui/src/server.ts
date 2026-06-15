@@ -390,18 +390,25 @@ export function createPehServer(opts: PehServerOptions = {}): {
     if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
 
     if (req.method === 'GET' && url.pathname === '/health') {
+      // Lab Agent Contract §1.1: include `service` and `ok` for contract probe compatibility.
       return json(res, 200, {
+        ok: true,
+        service: skin.branding.agent_name,
+        version: COMMIT,
         status: 'ok',
+        uptimeMs: Math.round(process.uptime() * 1000),
+        identity: { id: instanceId, role: 'agent', authorityTier: 'trusted' },
+        // Legacy fields (backward compatible):
         agent: skin.branding.agent_name,
-        instanceId,            // H1: port:PID — distinguishes the two co-located instances.
+        instanceId,
         model: MODEL,
-        commit: COMMIT, // C1: verify which build is actually running.
+        commit: COMMIT,
         uptime: process.uptime(),
         historyLength: session.getHistory().length,
         toolCount: toolNames.length,
-        sessions: sessions.size,        // BLOCKER-1: resident per-room sessions.
-        sessionsEvicted,                // BLOCKER-1: total evicted since start.
-        cronJobs: cronJobCount(),       // H3: scheduled jobs this instance owns.
+        sessions: sessions.size,
+        sessionsEvicted,
+        cronJobs: cronJobCount(),
       });
     }
 
