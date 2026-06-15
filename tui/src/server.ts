@@ -50,6 +50,7 @@ const MODEL = process.env.AGENT_MODEL || 'mimo-v2.5';
 const BASE_URL = process.env.AGENT_BASE_URL || 'https://api.xiaomimimo.com/v1';
 
 function resolveApiKey(): string | undefined {
+  if (process.env.AGENT_API_KEY) return process.env.AGENT_API_KEY;
   if (process.env.MIMO_API_KEY) return process.env.MIMO_API_KEY;
   try {
     const bok = readFileSync(join(homedir(), 'bok'), 'utf-8');

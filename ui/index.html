@@ -12,163 +12,133 @@
 // ══════════════════════════════════════════════════════════════════════
 // PEHLICHI · THE SETTLEMENT — Pehverse world engine
 // Self-contained. The engine architecture (state shape, render pipeline,
-// function names) mirrors Luak's world shell so the engine can be synced
-// across repos later. This is a COORDINATION UI — no benchmark/scoring
-// logic. Workspace panels show placeholder content for now.
+// function names) mirrors the Pehverse world shell so the engine can be
+// synced across repos. This is a COORDINATION UI — Pehlichi coordinates
+// the whole Pehverse: studying, guiding, remembering.
 // ══════════════════════════════════════════════════════════════════════
 
-// ── TAB_CONFIG — Pehlichi-specific. No benchmark lanes. These tabs label
-//    the coordination areas and back the placeholder "open related console"
-//    affordance. Kept as a map so the engine's relatedTab lookups work. ──
+// ── TAB_CONFIG — Pehlichi-specific coordination areas ─────────────────
 const TAB_CONFIG={
-  overview:{key:'overview',label:'Overview'},
-  research:{key:'research',label:'Research'},
-  memory:{key:'memory',label:'Memory'},
-  identity:{key:'identity',label:'Identity'},
-  config:{key:'config',label:'Config'}
+  overview:{key:'overview',label:'Overview',laneTitle:'Overview'},
+  research:{key:'research',label:'Research',laneTitle:'Research'},
+  memory:{key:'memory',label:'Memory',laneTitle:'Memory'},
+  identity:{key:'identity',label:'Identity',laneTitle:'Identity'},
+  config:{key:'config',label:'Config',laneTitle:'Config'}
 };
 
-// ── Small helpers (mirrors the shared engine utilities) ────────────────
+// ── Small helpers ────────────────────────────────────────────────────
 const esc=(v)=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 function safeStr(value){const s=String(value??'');return(s==='undefined'||s==='null'||s==='NaN')?'':s}
 function humanizeToken(text){const raw=String(text||'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();if(!raw)return'General';return raw.replace(/\b\w/g,(m)=>m.toUpperCase())}
 
-// ── State — same shape as Luak's, scoped to the single live product. ────
+// ── State ────────────────────────────────────────────────────────────
 const state={
   activeTab:'overview',
-  // Exactly ONE product is live per runtime (product isolation): `product`
-  // is the active product id (finalized by pehInitProduct()); `scene` is an
-  // area inside it; `workspaces` is the open-panel stack (last = focus).
   pehverse:{
     product:'pehlichi',
     scene:localStorage.getItem('pehverse-scene')||null,
-    mode:localStorage.getItem('pehverse-mode')||'immersive',
-    workspaces:[],   // [{uid, defId, dock:'right'|'bottom'|'fullscreen', min}]
-    focus:null,      // uid of focused workspace (top of stack)
+    mode:localStorage.getItem('pehverse-mode')||'dashboard',
+    workspaces:[],
+    focus:null,
     fastTravel:false,
     wsSeq:0,
-    // Peh-as-guide: when a hotspot is clicked Peh "speaks" — a contextual
-    // speech bubble appears at the hotspot and the medallion glides there.
-    pehBubble:null,  // {text, x, y, anchor, variant, hotspotId, phase}
-    pehPosition:null // {x, y} — current Peh medallion position (for the glide)
+    pehBubble:null,
+    pehPosition:null
   }
 };
 
-// ── ProductRegistry ─────────────────────────────────────────────────────
-// One public product: Pehlichi — The Observatory. The coordinator of the
-// whole Pehverse. accent/accent2 set --peh-accent/--peh-accent2 inline; the
-// warm scholarly textures live in the .peh-product-pehlichi skin.
+// ── ProductRegistry ──────────────────────────────────────────────────
 const PRODUCT_REGISTRY=[
   {id:'pehlichi', displayName:'The Settlement', tagline:'Where Peh makes his stand',
    status:'public', order:1, accent:'#c8962e', accent2:'#8b5cf6',
    peh:'star', defaultScene:'main-gate',
-   // Pehlichi's past-life portrait — the hedge knight. Rendered by
-   // renderPehGuide() as his in-world guide figure.
    mascotArt:'assets/peh-hedge-knight.png',
    blurb:'Pehlichi coordinates the Pehverse from his settlement — studying, guiding, remembering.'}
 ];
 
 const PEH_DEFAULT_PRODUCT='pehlichi';
 
-// ── SceneRegistry ──────────────────────────────────────────────────────
-// One entry per public product, keyed by product id. Each scene is an AREA
-// inside that product: id, title, desc, peh variant, pehSlot{x,y,anchor,
-// variant}, and hotspots (% positioned). A hotspot may open one of THIS
-// product's workspaces, travel to a sibling scene, or both. `main-gate`
-// is the hub map: its hotspots reach every location in the settlement.
+// ── SceneRegistry ────────────────────────────────────────────────────
 const SCENE_REGISTRY={
   pehlichi:[
-    // ── Hub: Main Gate (entry point, bottom center of settlement) ──────
     {id:'main-gate', title:'Main Gate', purpose:'Hub / overview', route:'/gate',
      desc:'The front gate of Pehlichi\'s settlement — where every path begins. Stone walls, warm lantern light, and a map pinned to the gatehouse.', peh:'star',
      pehSlot:{x:50, y:68, anchor:'center', variant:'gatekeeper'}, hotspots:[
-      {id:'mg-overview',  label:'Overview',        x:50, y:60, workspace:'console',          greeting:"Welcome to the Settlement! I keep watch over everything from here."},
-      {id:'mg-keep',      label:'The Keep',        x:50, y:15, scene:'the-keep',             greeting:"The Keep — where I run the show. Command, admin, and strategy."},
-      {id:'mg-training',  label:'Training Yard',   x:25, y:30, scene:'training-yard',        greeting:"The Training Yard — sharpen your skills here, same as I do."},
-      {id:'mg-armory',    label:'The Armory',      x:15, y:50, scene:'the-armory',           greeting:"The Armory — tools, weapons, and the water wheel turning. Come see the smithwork."},
-      {id:'mg-quest',     label:'The Quest Board', x:25, y:70, scene:'quest-board',           greeting:"The Quest Board — missions, objectives, and what needs doing next."},
-      {id:'mg-market',    label:'The Market Square',x:40,y:80, scene:'market-square',         greeting:"The Market Square — the heart of the settlement. Come trade and talk."},
-      {id:'mg-campsite',  label:'The Campsite',    x:70, y:78, scene:'the-campsite',          greeting:"The Campsite — rest your boots by the fire. I've got stories to tell."},
-      {id:'mg-chapel',    label:'The Chapel',      x:85, y:50, scene:'the-chapel',            greeting:"The Chapel — a quiet place of stone and light. For thinking on things bigger than us."},
-      {id:'mg-study',     label:'The Study',       x:78, y:28, scene:'the-study',             greeting:"The Study — three floors of books, maps, and everything I've ever learned."}
+      {id:'mg-overview',  label:'Overview',         x:50, y:60, workspace:'console',          greeting:"Welcome to the Settlement! I keep watch over everything from here."},
+      {id:'mg-keep',      label:'The Keep',         x:50, y:15, scene:'the-keep',             greeting:"The Keep — where I run the show. Command, admin, and strategy."},
+      {id:'mg-training',  label:'Training Yard',    x:25, y:30, scene:'training-yard',        greeting:"The Training Yard — sharpen your skills here, same as I do."},
+      {id:'mg-armory',    label:'The Armory',       x:15, y:50, scene:'the-armory',           greeting:"The Armory — tools, weapons, and the water wheel turning. Come see the smithwork."},
+      {id:'mg-quest',     label:'The Quest Board',  x:25, y:70, scene:'quest-board',          greeting:"The Quest Board — missions, objectives, and what needs doing next."},
+      {id:'mg-market',    label:'The Market Square',x:40, y:80, scene:'market-square',        greeting:"The Market Square — the heart of the settlement. Come trade and talk."},
+      {id:'mg-campsite',  label:'The Campsite',     x:70, y:78, scene:'the-campsite',         greeting:"The Campsite — rest your boots by the fire. I've got stories to tell."},
+      {id:'mg-chapel',    label:'The Chapel',       x:85, y:50, scene:'the-chapel',           greeting:"The Chapel — a quiet place of stone and light. For thinking on things bigger than us."},
+      {id:'mg-study',     label:'The Study',        x:78, y:28, scene:'the-study',            greeting:"The Study — three floors of books, maps, and everything I've ever learned."}
     ]},
-    // ── The Keep (top center) — command & admin center ─────────────────
     {id:'the-keep', title:'The Keep', purpose:'Command & administration', route:'/keep',
      desc:'The tallest tower in the settlement. From up here Pehlichi sees everything — dials, gauges, and a steady hand on the tiller.', peh:'gear',
      pehSlot:{x:50, y:58, anchor:'center', variant:'commander'}, hotspots:[
-      {id:'kp-config',  label:'Command Console',  x:46, y:48, workspace:'keep-config', greeting:"Careful hands here — small adjustments, big effects. Let's tune it right."},
-      {id:'kp-gate',    label:'Back to the Gate', x:50, y:85, scene:'main-gate',       greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'kp-config', label:'Command Console',  x:46, y:48, workspace:'keep-config', greeting:"Careful hands here — small adjustments, big effects. Let's tune it right."},
+      {id:'kp-gate',   label:'Back to the Gate', x:50, y:85, scene:'main-gate',       greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── Training Yard (upper left) — skill practice & identity ────────
-    {id:'training-yard', title:'Training Yard', purpose:'Skill practice & identity', route:'/training',
-     desc:'An open yard of packed earth and worn dummies. Where Pehlichi trains body and mind — and thinks about who he is becoming.', peh:'leaf',
+    {id:'training-yard', title:'Training Yard', purpose:'Agent network & skills', route:'/training',
+     desc:'An open yard of packed earth and worn dummies. Where Pehlichi trains body and mind — and watches over every agent in the network.', peh:'leaf',
      pehSlot:{x:50, y:58, anchor:'center', variant:'trainer'}, hotspots:[
-      {id:'ty-identity', label:'Identity Training', x:46, y:48, workspace:'training-identity', greeting:"Who are we becoming? Every drill, every sparring match — it shapes us."},
-      {id:'ty-gate',     label:'Back to the Gate',  x:72, y:82, scene:'main-gate',              greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'ty-agents', label:'Agent Network',    x:46, y:48, workspace:'training-identity', greeting:"Who's in the network? Every agent, every peer — I know them all."},
+      {id:'ty-gate',   label:'Back to the Gate', x:72, y:82, scene:'main-gate',             greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Armory (left) — tools & workshop with water wheel ─────────
     {id:'the-armory', title:'The Armory', purpose:'Tools & diagnostics', route:'/armory',
      desc:'Forge heat and the steady churn of the water wheel. The Armory is where Pehlichi keeps every tool sharp and every system running.', peh:'tools',
      pehSlot:{x:50, y:60, anchor:'center', variant:'smith'}, hotspots:[
       {id:'ar-tools', label:'Diagnostics Bench', x:46, y:48, workspace:'armory-tools', greeting:"Let's check the systems — sharp tools make light work."},
       {id:'ar-gate',  label:'Back to the Gate',  x:80, y:78, scene:'main-gate',        greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Quest Board (lower left) — research & missions ────────────
     {id:'quest-board', title:'The Quest Board', purpose:'Research & missions', route:'/quests',
      desc:'Pinned notices, scrawled maps, and bold promises. The Quest Board is where every new idea starts — as a mission to be tested.', peh:'beaker',
      pehSlot:{x:50, y:58, anchor:'center', variant:'scout'}, hotspots:[
-      {id:'qb-research', label:'Research Notes',    x:46, y:48, workspace:'quest-research', greeting:"Let's analyze this together — every hypothesis gets a fair trial here."},
-      {id:'qb-gate',     label:'Back to the Gate',  x:68, y:82, scene:'main-gate',          greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'qb-research', label:'Research Notes',   x:46, y:48, workspace:'quest-research', greeting:"Let's analyze this together — every hypothesis gets a fair trial here."},
+      {id:'qb-gate',     label:'Back to the Gate', x:68, y:82, scene:'main-gate',          greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Market Square (bottom center-left) — trading & coordination
-    {id:'market-square', title:'The Market Square', purpose:'Communications & trading', route:'/market',
+    {id:'market-square', title:'The Market Square', purpose:'Communications & coordination', route:'/market',
      desc:'A bustling square around a stone fountain. Every agent in the Pehverse passes through here — to trade, to talk, to connect.', peh:'signal',
      pehSlot:{x:50, y:56, anchor:'center', variant:'merchant'}, hotspots:[
-      {id:'ms-comms', label:'Message Board',       x:46, y:46, workspace:'market-comms', greeting:"Open a channel — I'll help you reach anyone in the Pehverse."},
-      {id:'ms-gate',  label:'Back to the Gate',    x:62, y:82, scene:'main-gate',        greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'ms-comms', label:'Message Board',     x:46, y:46, workspace:'market-comms', greeting:"Open a channel — I'll help you reach anyone in the Pehverse."},
+      {id:'ms-gate',  label:'Back to the Gate',  x:62, y:82, scene:'main-gate',        greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Campsite (lower right) — rest & memory ────────────────────
     {id:'the-campsite', title:'The Campsite', purpose:'Memory & rest', route:'/campsite',
      desc:'A ring of tents around a crackling campfire. This is where Pehlichi rests and tells stories of every life he has lived.', peh:'book',
      pehSlot:{x:48, y:56, anchor:'center', variant:'storyteller'}, hotspots:[
-      {id:'cs-memory', label:'Campfire Stories',   x:46, y:46, workspace:'campsite-memory', greeting:"Every memory, every past life — told around the fire. What shall we recall?"},
-      {id:'cs-gate',   label:'Back to the Gate',   x:40, y:82, scene:'main-gate',            greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'cs-memory', label:'Campfire Stories',  x:46, y:46, workspace:'campsite-memory', greeting:"Every memory, every past life — told around the fire. What shall we recall?"},
+      {id:'cs-gate',   label:'Back to the Gate',  x:40, y:82, scene:'main-gate',           greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Chapel (right) — reflection & meditation ──────────────────
     {id:'the-chapel', title:'The Chapel', purpose:'Reflection & meditation', route:'/chapel',
      desc:'Ancient stone walls and candlelight. The Chapel is where Pehlichi comes to sit quietly and think on things bigger than any one life.', peh:'spark',
      pehSlot:{x:50, y:60, anchor:'center', variant:'monk'}, hotspots:[
       {id:'ch-meditate', label:'Meditation Nook',  x:46, y:48, workspace:'chapel-meditation', greeting:"Sit with me a while. In the quiet, we find who we really are."},
-      {id:'ch-gate',     label:'Back to the Gate',  x:35, y:80, scene:'main-gate',             greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'ch-gate',     label:'Back to the Gate', x:35, y:80, scene:'main-gate',             greeting:"Let's head back to the Main Gate — follow me!"}
     ]},
-    // ── The Study (upper right) — knowledge & analysis ────────────────
     {id:'the-study', title:'The Study', purpose:'Knowledge & analysis', route:'/study',
      desc:'Three floors of shelves, maps pinned to every wall, and a desk buried in notes. The Study holds everything Pehlichi has ever learned.', peh:'book',
      pehSlot:{x:50, y:58, anchor:'center', variant:'scholar'}, hotspots:[
-      {id:'st-knowledge', label:'Knowledge Desk',   x:46, y:48, workspace:'study-knowledge', greeting:"Everything I know is here — organized, cross-referenced, and ready to explore."},
-      {id:'st-gate',      label:'Back to the Gate',  x:38, y:82, scene:'main-gate',            greeting:"Let's head back to the Main Gate — follow me!"}
+      {id:'st-knowledge', label:'Knowledge Desk',  x:46, y:48, workspace:'study-knowledge', greeting:"Everything I know is here — organized, cross-referenced, and ready to explore."},
+      {id:'st-gate',      label:'Back to the Gate',x:38, y:82, scene:'main-gate',            greeting:"Let's head back to the Main Gate — follow me!"}
     ]}
   ]
 };
 
-// ── WorkspaceManager: definitions ──────────────────────────────────────
-// A WorkspaceDefinition declares how a hotspot's panel behaves. `product`
-// is the OWNING product id — the isolation boundary. kind:'deck' is the
-// Observatory overview console; kind:'placeholder' is a "coming soon" stub
-// that still links to its related coordination console via relatedTab.
+// ── WorkspaceRegistry ────────────────────────────────────────────────
 const WORKSPACE_REGISTRY={
-  'console':             {product:'pehlichi', title:'Settlement Overview', kind:'deck', route:'/gate', dock:'fullscreen', peh:'star'},
-  'keep-config':         {product:'pehlichi', title:'Command Console', kind:'placeholder', route:'/keep', dock:'right', peh:'gear', relatedTab:'config', blurb:'Command console coming soon — settings, tuning, and the dials that keep the settlement running.'},
-  'training-identity':   {product:'pehlichi', title:'Identity Training', kind:'placeholder', route:'/training', dock:'right', peh:'leaf', relatedTab:'identity', blurb:'Identity training coming soon — personality, voice, and who we are becoming.'},
-  'armory-tools':        {product:'pehlichi', title:'Diagnostics Bench', kind:'placeholder', route:'/armory', dock:'bottom', peh:'tools', relatedTab:'config', blurb:'Diagnostics coming soon — tools, system health, and the workshop bench.'},
-  'quest-research':      {product:'pehlichi', title:'Research Notes', kind:'placeholder', route:'/quests', dock:'right', peh:'beaker', relatedTab:'research', blurb:'Research board coming soon — active experiments, analysis, and hypotheses.'},
-  'market-comms':        {product:'pehlichi', title:'Message Board', kind:'placeholder', route:'/market', dock:'right', peh:'signal', relatedTab:'overview', blurb:'Message board coming soon — agent coordination and messages across the Pehverse.'},
-  'campsite-memory':     {product:'pehlichi', title:'Campfire Stories', kind:'placeholder', route:'/campsite', dock:'right', peh:'book', relatedTab:'memory', blurb:'Campfire stories coming soon — past lives, the knowledge base, and everything remembered.'},
-  'chapel-meditation':   {product:'pehlichi', title:'Meditation Nook', kind:'placeholder', route:'/chapel', dock:'right', peh:'spark', relatedTab:'identity', blurb:'Meditation nook coming soon — quiet reflection on who we are across every life.'},
-  'study-knowledge':     {product:'pehlichi', title:'Knowledge Desk', kind:'placeholder', route:'/study', dock:'right', peh:'book', relatedTab:'research', blurb:'Knowledge desk coming soon — deep analysis, cross-references, and everything learned.'}
+  'console':             {product:'pehlichi', title:'Settlement Overview',  kind:'deck', route:'/gate',     dock:'fullscreen', peh:'star'},
+  'keep-config':         {product:'pehlichi', title:'Coordination Hub',     kind:'live', route:'/keep',     dock:'right',      peh:'gear'},
+  'training-identity':   {product:'pehlichi', title:'Agent Network',        kind:'live', route:'/training', dock:'right',      peh:'leaf'},
+  'armory-tools':        {product:'pehlichi', title:'Diagnostics Bench',    kind:'live', route:'/armory',   dock:'bottom',     peh:'tools'},
+  'quest-research':      {product:'pehlichi', title:'Research Notes',       kind:'live', route:'/quests',   dock:'right',      peh:'beaker'},
+  'market-comms':        {product:'pehlichi', title:'Message Board',        kind:'live', route:'/market',   dock:'right',      peh:'signal'},
+  'campsite-memory':     {product:'pehlichi', title:'Memory',               kind:'live', route:'/campsite', dock:'right',      peh:'book'},
+  'chapel-meditation':   {product:'pehlichi', title:'Identity',             kind:'live', route:'/chapel',   dock:'right',      peh:'spark'},
+  'study-knowledge':     {product:'pehlichi', title:'Knowledge Desk',       kind:'live', route:'/study',    dock:'right',      peh:'book'}
 };
 
-// ── Registry lookups ───────────────────────────────────────────────────
+// ── Registry lookups ─────────────────────────────────────────────────
 function pehProduct(id){return PRODUCT_REGISTRY.find((p)=>p.id===id)||null}
 function pehPublicProducts(){return PRODUCT_REGISTRY.filter((p)=>p.status==='public').sort((a,b)=>a.order-b.order)}
 function pehFutureProducts(){return PRODUCT_REGISTRY.filter((p)=>p.status==='future').sort((a,b)=>a.order-b.order)}
@@ -176,7 +146,7 @@ function pehScenes(productId){return SCENE_REGISTRY[productId]||[]}
 function pehScene(productId,sceneId){return pehScenes(productId).find((s)=>s.id===sceneId)||null}
 function pehWorkspaceDef(defId){return WORKSPACE_REGISTRY[defId]||null}
 
-// ── Product isolation: dev mode + active-product resolution ────────────
+// ── Product isolation ────────────────────────────────────────────────
 function pehDevMode(){
   try{
     if(typeof window!=='undefined'&&window.PEHVERSE_DEV===true)return true;
@@ -217,11 +187,11 @@ function pehWorkspaceBelongsToActive(def){
   return def.product==null||def.product===pehActiveProductId();
 }
 
-// ── Navigation (product-local scene travel + mode) ─────────────────────
+// ── Navigation ───────────────────────────────────────────────────────
 function pehSetScene(sceneId){
-  if(!pehScene(pehActiveProductId(),sceneId))return; // isolation: own areas only
+  if(!pehScene(pehActiveProductId(),sceneId))return;
   state.pehverse.scene=sceneId;
-  state.pehverse.pehPosition=null; // new scene → Peh rests at its own slot
+  state.pehverse.pehPosition=null;
   localStorage.setItem('pehverse-scene',sceneId);
   render();
 }
@@ -247,10 +217,23 @@ function pehDevSwitchProduct(productId){
   try{localStorage.setItem('pehverse-product',p.id);if(state.pehverse.scene)localStorage.setItem('pehverse-scene',state.pehverse.scene)}catch(e){}
   render();
 }
+var _dashAutoOpenDone=false;
+function pehAutoOpenDashboard(){
+  pehProductWorkspaces(pehActiveProductId()).filter(function(id){
+    const d=pehWorkspaceDef(id);return d&&d.product!=null;
+  }).forEach(function(id){
+    const def=pehWorkspaceDef(id);if(!def)return;
+    if(state.pehverse.workspaces.find(function(w){return w.defId===id;}))return;
+    state.pehverse.workspaces.push({uid:'ws'+(++state.pehverse.wsSeq),defId:id,dock:def.dock||'right',min:false});
+  });
+  if(state.pehverse.workspaces.length)
+    state.pehverse.focus=state.pehverse.workspaces[state.pehverse.workspaces.length-1].uid;
+}
 function pehSetMode(mode){
   if(mode!=='immersive'&&mode!=='dashboard')return;
   state.pehverse.mode=mode;
   localStorage.setItem('pehverse-mode',mode);
+  if(mode==='dashboard'){_dashAutoOpenDone=false;}
   render();
 }
 function pehToggleMode(){pehSetMode(state.pehverse.mode==='immersive'?'dashboard':'immersive')}
@@ -259,7 +242,7 @@ function pehToggleFastTravel(force){
   render();
 }
 
-// ── WorkspaceManager: open/close/dock/focus/minimize ───────────────────
+// ── WorkspaceManager: open/close/dock/focus/minimize ─────────────────
 function pehOpenWorkspace(defId,opts){
   const def=pehWorkspaceDef(defId); if(!def)return;
   if(!pehWorkspaceBelongsToActive(def)){
@@ -268,7 +251,7 @@ function pehOpenWorkspace(defId,opts){
     }
     return;
   }
-  let ws=state.pehverse.workspaces.find((w)=>w.defId===defId); // de-dupe
+  let ws=state.pehverse.workspaces.find((w)=>w.defId===defId);
   if(!ws){
     ws={uid:'ws'+(++state.pehverse.wsSeq),defId,dock:(opts&&opts.dock)||def.dock||'right',min:false};
     state.pehverse.workspaces.push(ws);
@@ -278,14 +261,11 @@ function pehOpenWorkspace(defId,opts){
   render();
 }
 
-// ── Peh-as-guide: contextual speech bubble ─────────────────────────────
-// When a hotspot is clicked, Peh "appears" there with a greeting. The
-// bubble auto-dismisses after a few seconds (fade), and the medallion
-// glides to the hotspot (renderPehSlot reads pehPosition).
-let pehBubbleFadeTimer=null;  // fires the exit (fade-out) phase
-let pehBubbleClearTimer=null; // removes the bubble after the fade
-const PEH_BUBBLE_HOLD_MS=6000; // visible before fade begins
-const PEH_BUBBLE_FADE_MS=300;  // fade-out duration (matches CSS .peh-bubble-exit)
+// ── Peh-as-guide: contextual speech bubble ────────────────────────────
+let pehBubbleFadeTimer=null;
+let pehBubbleClearTimer=null;
+const PEH_BUBBLE_HOLD_MS=6000;
+const PEH_BUBBLE_FADE_MS=300;
 function pehClearBubbleTimers(){
   if(pehBubbleFadeTimer){clearTimeout(pehBubbleFadeTimer);pehBubbleFadeTimer=null;}
   if(pehBubbleClearTimer){clearTimeout(pehBubbleClearTimer);pehBubbleClearTimer=null;}
@@ -304,7 +284,6 @@ function pehSayGreeting(hotspot,scene){
     hotspotId:hotspot.id,
     phase:'enter'
   };
-  // Peh glides to the hotspot — use the true x (not the clamped bubble x).
   state.pehverse.pehPosition={x:hotspot.x!=null?hotspot.x:50,y};
   render();
   pehBubbleFadeTimer=setTimeout(()=>{
@@ -338,8 +317,6 @@ function pehHotspot(defId,sceneId){
   }
   pehOpenWorkspace(defId);
 }
-// Hotspot activation entry point: Peh greets FIRST, then — after a short
-// beat so the bubble/medallion are seen — the navigation runs.
 function pehHotspotActivate(sceneId,hotspotId){
   const scene=pehScene(pehActiveProductId(),sceneId);
   const hotspot=scene&&scene.hotspots?scene.hotspots.find((h)=>h.id===hotspotId):null;
@@ -356,7 +333,6 @@ function pehFocusWorkspace(uid,skipRender){
   state.pehverse.focus=uid;
   const def=pehWorkspaceDef(ws.defId);
   if(def&&def.kind==='lane'&&def.tab)state.activeTab=def.tab;
-  // Move focused workspace to the end of the stack (top of z-order).
   state.pehverse.workspaces=state.pehverse.workspaces.filter((w)=>w.uid!==uid).concat(ws);
   if(!skipRender)render();
 }
@@ -389,7 +365,7 @@ function pehBackToMap(uid){
 }
 function pehOpenRelatedLane(tab){if(tab)state.activeTab=tab;pehOpenWorkspace('console')}
 
-// ── Peh glyphs (atmospheric placeholders, NOT final art) ───────────────
+// ── Peh glyphs ───────────────────────────────────────────────────────
 function pehGlyph(key){
   const P={
     microscope:'<path d="M9 17h7M6 21h12M11 5l3 3-4 4-3-3zM12.5 9.5l3.5 3.5a4 4 0 0 1-5 6"/>',
@@ -408,22 +384,16 @@ function pehGlyph(key){
   return `<svg class="peh-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[key]||'<circle cx="12" cy="12" r="7"/>'}</svg>`;
 }
 
-// ── Peh placeholder slot (data-driven squirrel guide medallion) ────────
-// Each location carries a `pehSlot:{x,y,anchor,variant}`. Peh visits as a
-// scholar-squirrel guide; the medallion is a SILHOUETTE placeholder,
-// swapped for real per-location/era Peh art later.
-function pehSquirrelSilhouette(){
-  return `<svg class="peh-squirrel" viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true"><path fill="currentColor" d="M40 9c2.2 0 4 2 4 4.6 0 2-1 3.6-2.4 4.4 3 2.4 4.8 6 4.8 10.2 0 3-1 5.7-2.7 7.9 5.7 2.5 9.7 8.1 9.7 14.6 0 1.7-1.3 3-3 3H22c-7.2 0-13-5.8-13-13 0-6.8 5.2-12.4 11.9-13 .3-4 2.3-7.5 5.3-9.8-.7-1-1.1-2.2-1.1-3.5C25 11 28 8 31.8 8c1.9 0 3.6.8 4.8 2 1-1.2 2.4-1 3.4-1z"/><g fill="none" stroke="#3a2a18" stroke-width="1.6" stroke-linecap="round" opacity=".92"><circle cx="29.5" cy="23.5" r="3.7"/><path d="M33 22.4c3-1 5.2-.9 7 .5"/></g><circle cx="29.5" cy="23.5" r="1.4" fill="#0c0a1a"/></svg>`;
-}
+// ── Peh slot (Pehlichi guide medallion with real portrait) ────────────
 function pehSlotMarkup(slot,opts){
   if(!slot)return'';
   const o=opts||{};
   const variant=slot.variant||'guide';
-  const inline=o.inline; // dashboard/mobile card → static medallion, no % position
+  const inline=o.inline;
   const pos=inline?'' : `left:${slot.x}%;top:${slot.y}%;`;
   const anchor=slot.anchor||'center';
-  return `<div class="peh-slot peh-slot-${anchor} ${inline?'peh-slot-inline':''} ${o.glow?'glow':''}" style="${pos}" data-variant="${esc(variant)}" data-anchor="${esc(anchor)}" title="Peh — your guide here (${esc(variant)})" aria-label="Peh placeholder — ${esc(variant)}">
-    <span class="peh-slot-medallion" aria-hidden="true">${pehSquirrelSilhouette()}</span>
+  return `<div class="peh-slot peh-slot-${anchor} ${inline?'peh-slot-inline':''} ${o.glow?'glow':''}" style="${pos}" data-variant="${esc(variant)}" data-anchor="${esc(anchor)}" title="Pehlichi — your guide (${esc(variant)})" aria-label="Peh — ${esc(variant)}">
+    <span class="peh-slot-medallion" aria-hidden="true"><img src="assets/peh-hedge-knight.png" alt="" loading="lazy" width="100%" height="100%"></span>
     ${inline?'':'<span class="peh-slot-tag">Peh</span>'}
   </div>`;
 }
@@ -435,9 +405,6 @@ function renderPehSlot(scene){
     : scene.pehSlot;
   return pehSlotMarkup(slot,{inline:false,glow:!!pv.pehBubble});
 }
-// Peh's contextual speech bubble — anchored at the clicked hotspot. The
-// scene overlay layer is click-through (pointer-events:none in CSS); only
-// the bubble itself is interactive.
 function renderPehBubble(){
   const b=state.pehverse.pehBubble;
   if(!b)return'';
@@ -452,9 +419,6 @@ function renderPehBubble(){
     </div>
   </div>`;
 }
-// Peh guide figure — the product's real mascot art (Pehlichi's hedge-knight
-// portrait), framed as a "your guide" portrait. Renders ONLY when the active
-// product ships mascotArt. Decorative (aria-hidden).
 function renderPehGuide(product){
   if(!product||!product.mascotArt)return'';
   return `<figure class="peh-guide" aria-hidden="true">
@@ -463,7 +427,7 @@ function renderPehGuide(product){
   </figure>`;
 }
 
-// ── PehverseShell: top-level renderer (called by render()) ─────────────
+// ── PehverseShell: top-level renderer ────────────────────────────────
 function renderPehverse(deckMarkup){
   const pv=state.pehverse;
   const product=pehActiveProduct();
@@ -481,7 +445,7 @@ function renderPehTopBar(product,scene){
   const pv=state.pehverse;
   const dev=pehDevMode();
   return `<header class="peh-topbar">
-    <div class="peh-brand"><span class="peh-brand-mark" title="Pehverse ecosystem">PEH</span><span class="peh-brand-word">${esc(product.displayName)}</span>${dev?'<span class="peh-dev-badge" title="Dev mode — product switcher enabled (hidden in release)">DEV</span>':''}</div>
+    <div class="peh-brand"><span class="peh-brand-mark" title="Pehverse ecosystem">PEH</span><span class="peh-brand-word">${esc(product.displayName)}</span>${dev?'<span class="peh-dev-badge" title="Dev mode — product switcher enabled">DEV</span>':''}</div>
     <button class="peh-travel-btn" type="button" onclick="pehToggleFastTravel()" aria-haspopup="dialog" aria-expanded="${pv.fastTravel?'true':'false'}" title="Fast travel — areas in ${esc(product.displayName)} (Alt+T)">
       <span class="peh-travel-glyph" aria-hidden="true">✦</span>
       <span class="peh-here"><b>${esc(product.displayName)}</b><i>${esc(scene?scene.title:product.tagline)}</i></span>
@@ -500,8 +464,6 @@ function renderPehStage(product,scene,deckMarkup){
     : renderPehImmersive(product,scene,deckMarkup);
 }
 
-// Immersive: scene-first. Background atmosphere + caption + hotspots, with
-// open workspaces docking over the scene (or as mobile bottom sheets).
 function renderPehImmersive(product,scene,deckMarkup){
   return `<div class="peh-scene" data-scene="${scene?scene.id:''}">
     <div class="peh-scene-atmos" aria-hidden="true"></div>
@@ -519,8 +481,6 @@ function renderPehImmersive(product,scene,deckMarkup){
   </div>`;
 }
 
-// Dashboard: workspace-first. Thin scene strip on top, open workspaces tile
-// in a grid. When nothing is open, show a chooser of THIS product's spaces.
 function renderPehDashboard(product,scene,deckMarkup){
   const open=state.pehverse.workspaces;
   const grid=open.length
@@ -535,7 +495,7 @@ function renderPehDashboard(product,scene,deckMarkup){
   </div>`;
 }
 
-// ── HotspotLayer ───────────────────────────────────────────────────────
+// ── HotspotLayer ─────────────────────────────────────────────────────
 function renderHotspotLayer(scene){
   if(!scene||!scene.hotspots||!scene.hotspots.length)return'';
   return `<div class="peh-hotspots" aria-label="${esc(scene.title)} hotspots">${scene.hotspots.map((h)=>{
@@ -548,19 +508,18 @@ function renderHotspotLayer(scene){
   }).join('')}</div>`;
 }
 
-// Scene-to-scene waypoints — fast hops between the active product's own areas.
 function renderPehWaypoints(product,scene){
   const scenes=pehScenes(product.id);
   if(scenes.length<2)return'';
   return `<nav class="peh-waypoints" aria-label="${esc(product.displayName)} areas">${scenes.map((s)=>`<button type="button" class="peh-waypoint ${scene&&s.id===scene.id?'active':''}" aria-current="${scene&&s.id===scene.id?'true':'false'}" onclick="pehSetScene('${s.id}')">${esc(s.title)}</button>`).join('')}</nav>`;
 }
 
-// ── WorkspaceManager: panel + tile + body renderers ────────────────────
+// ── WorkspaceManager: panel + tile + body renderers ───────────────────
 function renderWorkspaceOverlays(deckMarkup){
   const open=state.pehverse.workspaces;
   if(!open.length)return'';
   let ws=open.find((w)=>w.uid===state.pehverse.focus)||open[open.length-1];
-  if(ws.min)return''; // minimized → scene unobstructed; chip stays in taskbar
+  if(ws.min)return'';
   return `<div class="peh-overlays">${renderWorkspacePanel(ws,deckMarkup)}</div>`;
 }
 function renderWorkspacePanel(w,deckMarkup){
@@ -579,33 +538,30 @@ function renderWorkspaceTile(w,deckMarkup){
   </section>`;
 }
 function renderWorkspaceHeader(w,def,isTile){
-  const kindTag=def.kind==='lane'?'LIVE':def.kind==='deck'?'CONSOLE':'PLACEHOLDER';
-  const dockBtn=(d,glyph,label)=>`<button class="peh-dockbtn ${w.dock===d?'on':''}" type="button" title="Dock ${label}" aria-label="Dock ${label}" onclick="event.stopPropagation();pehDockWorkspace('${w.uid}','${d}')">${glyph}</button>`;
+  const kindTag=(def.kind==='lane'||def.kind==='live')?'LIVE':def.kind==='deck'?'CONSOLE':'PLACEHOLDER';
+  const dockBtn=(d,glyph,label)=>`<button class="peh-dockbtn ${w.dock===d?'on':''}" type="button" title="Dock ${label}" aria-label="Dock ${label}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();pehDockWorkspace('${w.uid}','${d}')">${glyph}</button>`;
   return `<header class="peh-panel-head">
-    ${isTile?'':`<button class="peh-backmap" type="button" title="Back to the map" aria-label="Back to the world map" onclick="event.stopPropagation();pehBackToMap('${w.uid}')"><span aria-hidden="true">‹</span> Map</button>`}
+    ${isTile?'':`<button class="peh-backmap" type="button" title="Back to the map" aria-label="Back to the world map" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();pehBackToMap('${w.uid}')"><span aria-hidden="true">‹</span> Map</button>`}
     <span class="peh-panel-glyph">${pehGlyph(def.peh)}</span>
     <span class="peh-panel-title">${esc(def.title||w.defId)}</span>
     <span class="peh-panel-kind k-${kindTag.toLowerCase()}">${kindTag}</span>
     <span class="peh-panel-ctrls">
       ${isTile?'':dockBtn('right','⫼','right')+dockBtn('bottom','▭','bottom')+dockBtn('fullscreen','⛶','full')}
-      <button class="peh-dockbtn" type="button" title="Minimize" aria-label="Minimize" onclick="event.stopPropagation();pehMinimizeWorkspace('${w.uid}')">—</button>
-      <button class="peh-dockbtn close" type="button" title="Close" aria-label="Close" onclick="event.stopPropagation();pehCloseWorkspace('${w.uid}')">×</button>
+      <button class="peh-dockbtn" type="button" title="Minimize" aria-label="Minimize" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();pehMinimizeWorkspace('${w.uid}')">—</button>
+      <button class="peh-dockbtn close" type="button" title="Close" aria-label="Close" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();pehCloseWorkspace('${w.uid}')">×</button>
     </span>
   </header>`;
 }
 function pehWorkspaceBody(w,deckMarkup){
   const def=pehWorkspaceDef(w.defId); if(!def)return'';
   if(def.kind==='deck')return `<div class="peh-deck-wrap">${deckMarkup}</div>`;
-  // No benchmark lanes in Pehlichi — every non-deck workspace is an
-  // atmospheric placeholder that links to its coordination console.
   return pehPlaceholderBody(def);
 }
 function pehPlaceholderBody(def){
   return `<div class="peh-ph">
     <div class="peh-ph-glyph">${pehGlyph(def.peh)}</div>
-    <p class="peh-ph-blurb">${esc(def.blurb||'Workspace placeholder.')}</p>
-    ${def.relatedTab?`<button class="button secondary" type="button" onclick="pehOpenRelatedLane('${def.relatedTab}')">Open ${esc(TAB_CONFIG[def.relatedTab]?TAB_CONFIG[def.relatedTab].label:def.relatedTab)} overview</button>`:''}
-    <div class="peh-ph-tag">PLACEHOLDER · coming soon</div>
+    <p class="peh-ph-blurb">${esc(def.blurb||'Workspace loading…')}</p>
+    <div class="peh-ph-tag">LOADING · please wait</div>
   </div>`;
 }
 
@@ -622,25 +578,25 @@ function pehWorkspaceChooser(product){
     return `<button class="peh-choice" type="button" onclick="pehOpenWorkspace('${id}')">
       <span class="peh-choice-glyph">${pehGlyph(d.peh)}</span>
       <span class="peh-choice-title">${esc(d.title)}</span>
-      <span class="peh-choice-kind">${d.kind==='lane'?'live lane':d.kind==='deck'?'console':'placeholder'}</span>
+      <span class="peh-choice-kind">${d.kind==='lane'?'live lane':d.kind==='deck'?'console':d.kind==='live'?'live data':'workspace'}</span>
     </button>`;
   }).join('')}</div>`;
 }
 
-// ── Taskbar (workspace switcher; always reachable) ─────────────────────
+// ── Taskbar ───────────────────────────────────────────────────────────
 function renderPehTaskbar(){
   const open=state.pehverse.workspaces;
   return `<div class="peh-taskbar" role="toolbar" aria-label="Open workspaces">
     <button class="peh-task-travel" type="button" onclick="pehToggleFastTravel()" title="Fast travel (Alt+T)" aria-label="Fast travel"><span aria-hidden="true">✦</span></button>
     <div class="peh-task-chips">${open.length?open.map((w)=>{
       const def=pehWorkspaceDef(w.defId)||{};
-      return `<button class="peh-task-chip ${state.pehverse.focus===w.uid?'active':''} ${w.min?'min':''}" type="button" onclick="pehFocusWorkspace('${w.uid}')" title="${esc(def.title||w.defId)}"><span class="peh-task-glyph">${pehGlyph(def.peh)}</span><span class="peh-task-name">${esc(def.title||w.defId)}</span><span class="peh-task-x" role="button" tabindex="0" title="Close" aria-label="Close ${esc(def.title||w.defId)}" onclick="event.stopPropagation();pehCloseWorkspace('${w.uid}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();pehCloseWorkspace('${w.uid}')}">×</span></button>`;
+      return `<button class="peh-task-chip ${state.pehverse.focus===w.uid?'active':''} ${w.min?'min':''}" type="button" onclick="pehFocusWorkspace('${w.uid}')" title="${esc(def.title||w.defId)}"><span class="peh-task-glyph">${pehGlyph(def.peh)}</span><span class="peh-task-name">${esc(def.title||w.defId)}</span><span class="peh-task-x" role="button" tabindex="0" title="Close" aria-label="Close ${esc(def.title||w.defId)}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();pehCloseWorkspace('${w.uid}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();pehCloseWorkspace('${w.uid}')}">×</span></button>`;
     }).join(''):`<span class="peh-task-empty">No open workspaces — tap a hotspot, or ✦ Fast travel.</span>`}</div>
     ${open.length?`<button class="peh-task-clear" type="button" onclick="pehCloseAllWorkspaces()">Close all</button>`:''}
   </div>`;
 }
 
-// ── FastTravelMenu (product-local: the active product's scenes) ────────
+// ── FastTravelMenu ────────────────────────────────────────────────────
 function renderFastTravelMenu(){
   if(!state.pehverse.fastTravel)return'';
   const product=pehActiveProduct();
@@ -649,7 +605,7 @@ function renderFastTravelMenu(){
   return `<div class="peh-ft-overlay" role="dialog" aria-modal="true" aria-label="Fast travel" onclick="if(event.target===this)pehToggleFastTravel(false)">
     <div class="peh-ft">
       <header class="peh-ft-head"><h2>Fast travel</h2><span class="peh-ft-hint">Within ${esc(product.displayName)} · jump to any area</span><button class="peh-ft-close" type="button" onclick="pehToggleFastTravel(false)" aria-label="Close fast travel">×</button></header>
-      <div class="peh-ft-scenes peh-ft-scenes-main">${scenes.length?scenes.map((s)=>`<button class="peh-ft-scene ${here&&here.id===s.id?'active':''}" aria-current="${here&&here.id===s.id?'true':'false'}" type="button" onclick="pehGoScene('${s.id}')">${esc(s.title)}</button>`).join(''):`<span class="peh-ft-empty">No additional areas in ${esc(product.displayName)} yet.</span>`}</div>
+      <div class="peh-ft-scenes peh-ft-scenes-main">${scenes.length?scenes.map((s)=>`<button class="peh-ft-scene ${here&&here.id===s.id?'active':''}" aria-current="${here&&here.id===s.id?'true':'false'}" type="button" onclick="pehGoScene('${s.id}')">${esc(s.title)}</button>`).join(''):`<span class="peh-ft-empty">No additional areas yet.</span>`}</div>
       ${pehDevMode()?renderPehDevSwitcher(product):''}
     </div>
   </div>`;
@@ -658,35 +614,33 @@ function renderPehDevSwitcher(active){
   const pub=pehPublicProducts();
   const future=pehFutureProducts();
   return `<div class="peh-ft-dev">
-    <span class="peh-ft-dev-label">⚙ Dev only · product switcher (hidden in release)</span>
+    <span class="peh-ft-dev-label">⚙ Dev only · product switcher</span>
     <div class="peh-ft-dev-products">
       ${pub.map((p)=>`<button class="peh-ft-dev-product ${p.id===active.id?'active':''}" type="button" onclick="pehDevSwitchProduct('${p.id}')">${esc(p.displayName)}</button>`).join('')}
-      ${future.map((p)=>`<span class="peh-ft-dev-soon" title="Config example only — not a runtime destination">${esc(p.displayName)} · config only</span>`).join('')}
+      ${future.map((p)=>`<span class="peh-ft-dev-soon">${esc(p.displayName)} · config only</span>`).join('')}
     </div>
   </div>`;
 }
 
 // ── Settlement Overview console (the kind:'deck' workspace body) ───────
-// Pehlichi's "Overview dashboard": a warm medieval coordination console.
-// No benchmarks — just a map of the settlement areas + his past lives.
 const PEH_PAST_LIVES=['Hedge Knight','Race Car Driver','Private Eye','Gladiator','Medicine Man','Stone Age Man','Librarian'];
 function renderObservatoryConsole(){
   const cards=[
-    {ws:'keep-config',       scene:'the-keep',      glyph:'gear',   title:'The Keep',         desc:'Command, admin, and the dials that keep the settlement running.'},
-    {ws:'training-identity', scene:'training-yard', glyph:'leaf',   title:'Training Yard',    desc:'Skill practice, identity, and who we are becoming.'},
-    {ws:'armory-tools',      scene:'the-armory',    glyph:'tools',  title:'The Armory',       desc:'Tools, diagnostics, and the water wheel turning.'},
-    {ws:'quest-research',    scene:'quest-board',   glyph:'beaker', title:'The Quest Board',  desc:'Research, missions, and ideas put to the test.'},
-    {ws:'market-comms',      scene:'market-square', glyph:'signal', title:'The Market Square', desc:'Agent coordination, trading, and connecting with everyone.'},
-    {ws:'campsite-memory',   scene:'the-campsite',  glyph:'book',   title:'The Campsite',     desc:'Past lives, campfire stories, and everything remembered.'},
-    {ws:'chapel-meditation', scene:'the-chapel',    glyph:'spark',  title:'The Chapel',       desc:'Quiet reflection on who we are across every life.'},
-    {ws:'study-knowledge',   scene:'the-study',     glyph:'book',   title:'The Study',       desc:'Knowledge, analysis, and everything ever learned.'}
+    {ws:'keep-config',       scene:'the-keep',      glyph:'gear',   title:'Coordination Hub',   desc:'Sessions, active conversations, and the dials that keep the settlement running.'},
+    {ws:'training-identity', scene:'training-yard', glyph:'leaf',   title:'Agent Network',      desc:'Peer agents, their status, and everyone connected to the Pehverse.'},
+    {ws:'armory-tools',      scene:'the-armory',    glyph:'tools',  title:'Diagnostics Bench',  desc:'Tools, system health, uptime, and the water wheel turning.'},
+    {ws:'quest-research',    scene:'quest-board',   glyph:'beaker', title:'Research Notes',     desc:'Active sessions, capabilities, and experiments in progress.'},
+    {ws:'market-comms',      scene:'market-square', glyph:'signal', title:'Message Board',      desc:'Agent coordination, bridge connections, and the pulse of the settlement.'},
+    {ws:'campsite-memory',   scene:'the-campsite',  glyph:'book',   title:'Memory',             desc:'Past lives, campfire stories, and everything ever remembered.'},
+    {ws:'chapel-meditation', scene:'the-chapel',    glyph:'spark',  title:'Identity',           desc:'Who Peh is — voice, personality, and the self across every life.'},
+    {ws:'study-knowledge',   scene:'the-study',     glyph:'book',   title:'Knowledge Desk',     desc:'Archived knowledge, bridge connections, and what has been learned.'}
   ];
   return `<div class="obs-console">
     <div class="obs-hero">
-      <span class="obs-hero-mark" aria-hidden="true">🔭</span>
+      <span class="obs-hero-mark" aria-hidden="true">${pehGlyph('star')}</span>
       <div>
         <h2>Welcome to the Settlement</h2>
-        <p>I'm Pehlichi — I coordinate the Pehverse from my settlement: studying, guiding, and remembering. In one of my lives I was a hedge knight, so I know a little about courage. Pick a path below, or tap a place on the map.</p>
+        <p>I'm Pehlichi — hedge knight, coordinator of this settlement. I study, guide, and remember across every life I've lived. Pick a path below, or tap a location on the map.</p>
       </div>
     </div>
     <h3 class="obs-section-title">Settlement areas</h3>
@@ -704,7 +658,7 @@ function renderObservatoryConsole(){
   </div>`;
 }
 
-// ── Keyboard: Esc closes overlay; Alt+T travel; Alt+M mode toggle ──────
+// ── Keyboard shortcuts ────────────────────────────────────────────────
 let __pehKeysBound=false;
 function pehBindKeys(){
   if(__pehKeysBound)return; __pehKeysBound=true;
@@ -715,19 +669,18 @@ function pehBindKeys(){
   });
 }
 pehBindKeys();
-// Finalize which single product is live before the first render.
 pehInitProduct();
 
 function render(){
-  // The Pehverse world shell (renderPehverse) wraps the Settlement overview
-  // console (deckMarkup), reachable as the "Settlement Overview" deck
-  // workspace, while place-based navigation is the public default.
+  if(state.pehverse.mode==='dashboard'&&!state.pehverse.workspaces.length&&!_dashAutoOpenDone){
+    _dashAutoOpenDone=true;
+    pehAutoOpenDashboard();
+  }
   const deckMarkup=renderObservatoryConsole();
   document.getElementById('app').innerHTML=renderPehverse(deckMarkup);
 }
 
-// Expose handlers used by inline onclick attributes (function declarations
-// are already global in a classic script; these are belt-and-suspenders).
+// Expose handlers for inline onclick attributes.
 window.pehHotspotActivate=pehHotspotActivate;
 window.pehDismissBubble=pehDismissBubble;
 window.pehToggleFastTravel=pehToggleFastTravel;
@@ -745,8 +698,7 @@ window.pehBackToMap=pehBackToMap;
 window.pehOpenRelatedLane=pehOpenRelatedLane;
 window.pehHotspot=pehHotspot;
 
-// ── Boot ────────────────────────────────────────────────────────────────
-// No sign-in, no server. The UI loads directly into the Observatory.
+// ── Boot ──────────────────────────────────────────────────────────────
 function boot(){
   try{
     render();
@@ -760,7 +712,7 @@ boot();
 </script>
 <!-- ── Live backend layer (loaded AFTER the inline engine so its globals exist).
      api.js → client · scenes.js → live workspace data · peh-guide.js → journal ·
-     app.js → glue (status dot, command bar, overrides). All pure vanilla JS. ── -->
+     app.js → glue (status dot, command bar, floating chat, overrides). ── -->
 <script src="api.js"></script>
 <script src="scenes.js"></script>
 <script src="peh-guide.js"></script>

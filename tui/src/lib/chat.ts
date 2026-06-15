@@ -97,7 +97,12 @@ export class ChatSession {
       'Content-Type': 'application/json',
     };
     if (this.apiKey) {
-      headers['api-key'] = this.apiKey;
+      // MiMo uses 'api-key' header; standard OpenAI-compatible APIs use Bearer auth
+      if (this.baseUrl.includes('xiaomimimo')) {
+        headers['api-key'] = this.apiKey;
+      } else {
+        headers['Authorization'] = 'Bearer ' + this.apiKey;
+      }
     }
 
     const body = {

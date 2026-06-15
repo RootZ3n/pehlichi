@@ -120,8 +120,12 @@ export class MimoDriver implements UsageReportingDriver {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          // MiMo uses an api-key HEADER (not Bearer). Keyless: send no auth header.
-          ...(this.apiKey !== undefined ? { "api-key": this.apiKey } : {}),
+          // MiMo uses api-key header; DeepSeek/others use Bearer auth.
+          ...(this.apiKey !== undefined
+            ? (this.baseUrl.includes("xiaomimimo")
+              ? { "api-key": this.apiKey }
+              : { "authorization": "Bearer " + this.apiKey })
+            : {}),
         },
         body: JSON.stringify(body),
         signal,

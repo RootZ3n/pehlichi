@@ -1,7 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════
 // PEHLICHI · API CLIENT — talks to Peh's backend (default port 18830).
-// Pure vanilla. No deps. Every call resolves to {ok, data, error, status} and
-// NEVER throws, so a scene can always render even when the backend is down.
+// Pure vanilla. No deps. Every call resolves to {ok, data, error, status}
+// and NEVER throws, so a scene can always render even when the backend
+// is down. Endpoints: /health, /agent, /capabilities, /api/sessions,
+// /api/memories, /api/agents, /api/bridge, /chat, /converse.
 // ══════════════════════════════════════════════════════════════════════
 (function () {
   'use strict';
@@ -11,7 +13,7 @@
   // the local default. The agent binds 127.0.0.1:18830.
   function resolveBase() {
     try {
-      const q = new URLSearchParams(location.search).get('api');
+      var q = new URLSearchParams(location.search).get('api');
       if (q) return q.replace(/\/$/, '');
     } catch (e) { /* file:// has no usable search */ }
     if (typeof window !== 'undefined' && window.PEHLICHI_API) {
@@ -26,19 +28,23 @@
   }
 
   var BASE = resolveBase();
+
   // Tiny TTL cache so repeated renders of the same scene don't hammer the
   // backend. Keyed by path; cleared by refresh().
   var cache = new Map();
   var CACHE_MS = 4000;
 
+  function now() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : new Date().getTime();
+  }
+
   async function get(path, opts) {
     opts = opts || {};
     var fresh = opts.fresh === true;
     var key = path;
-    var nowFn = (typeof performance !== 'undefined' && performance.now) ? function () { return performance.now(); } : function () { return new Date().getTime(); };
     if (!fresh) {
       var hit = cache.get(key);
-      if (hit && (nowFn() - hit.t) < CACHE_MS) return hit.v;
+      if (hit && (now() - hit.t) < CACHE_MS) return hit.v;
     }
     var result;
     try {
@@ -53,7 +59,7 @@
       var msg = (err && err.name === 'AbortError') ? 'timed out' : (err && err.message) || String(err);
       result = { ok: false, status: 0, data: null, error: msg };
     }
-    cache.set(key, { t: nowFn(), v: result });
+    cache.set(key, { t: now(), v: result });
     return result;
   }
 
@@ -80,20 +86,22 @@
 
   window.PehAPI = {
     base: BASE,
-    // Read model — the scene data sources.
-    health: function (o) { return get('/health', o); },
-    info: function (o) { return get('/info', o); },
-    agentSelf: function (o) { return get('/agent', o); },
-    tools: function (o) { return get('/tools', o); },
+    // Read endpoints — the scene data sources.
+    health:       function (o) { return get('/health', o); },
+    info:         function (o) { return get('/info', o); },
+    agentSelf:    function (o) { return get('/agent', o); },
+    tools:        function (o) { return get('/tools', o); },
     capabilities: function (o) { return get('/capabilities', o); },
-    sessions: function (o) { return get('/api/sessions', o); },
-    memories: function (o) { return get('/api/memories', o); },
-    agents: function (o) { return get('/api/agents', o); },
-    bridge: function (o) { return get('/api/bridge', o); },
-    // Conversational lane (no tools, instant) — used by the command bar's `ask`.
+    sessions:     function (o) { return get('/api/sessions', o); },
+    memories:     function (o) { return get('/api/memories', o); },
+    agents:       function (o) { return get('/api/agents', o); },
+    bridge:       function (o) { return get('/api/bridge', o); },
+    // Conversational lanes — /chat for the floating panel, /converse for the command bar.
+    chat:    function (message, o) { return post('/chat',    { message: message }, o); },
     converse: function (message, o) { return post('/converse', { message: message }, o); },
     // Drop cached reads so the next call refetches.
     refresh: function () { cache.clear(); },
     _get: get,
+    _post: post,
   };
 })();

@@ -1,12 +1,11 @@
 /* ══════════════════════════════════════════════════════════════════════
-   PEHLICHI · THE OBSERVATORY
+   PEHLICHI · THE SETTLEMENT
    Themed stylesheet for the Pehverse world engine. The structural engine
-   rules (.peh-*) are SHARED, theme-neutral, and identical in architecture to
-   Luak's crucibulum.css — all colour flows from the active product's
-   --peh-accent / --peh-accent2 set inline on .peh-shell. The Observatory skin
-   (.peh-product-pehlichi) layers a warm, scholarly research-observatory look
-   over that engine: amber/gold instead of cyan neon, old-book serif display,
-   star-chart atmosphere.
+   rules (.peh-*) are SHARED, theme-neutral, and identical in architecture
+   to the other Pehverse products. All colour flows from the active
+   product's --peh-accent / --peh-accent2 set inline on .peh-shell.
+   The Settlement skin (.peh-product-pehlichi) layers a warm medieval
+   settlement look: amber gold, violet dusk, stone walls, old parchment.
    ══════════════════════════════════════════════════════════════════════ */
 :root{
   color-scheme:dark;
@@ -42,7 +41,7 @@
 
   --body:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
   --mono:"SF Mono","SFMono-Regular",Consolas,"Liberation Mono","Courier New",monospace;
-  /* Scholarly old-book display face for the Observatory skin. */
+  /* Scholarly old-book display face for the Settlement skin. */
   --obs-display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
 
   --shadow-panel:0 8px 40px rgba(0,0,0,.5),0 0 0 1px var(--border-subtle);
@@ -68,10 +67,7 @@ html,body{
 button{font-family:inherit}
 
 /* ══════════════════════════════════════════════════════════════════════
-   PEHVERSE WORLD ENGINE  (theme-neutral; mirrors Luak's engine rules)
-   Mobile-first: the scene is a world-map hub with tappable hotspot pins and
-   full-screen bottom-sheet workspaces. Desktop (≥880px) gains docked panels
-   and a multi-tile dashboard grid.
+   PEHVERSE WORLD ENGINE  (theme-neutral; shared engine rules)
    ══════════════════════════════════════════════════════════════════════ */
 #app:has(.peh-shell){padding:0}
 
@@ -163,7 +159,7 @@ button{font-family:inherit}
 .peh-hotspot:focus-visible{outline:none}
 .peh-hotspot:focus-visible .peh-hotspot-label{outline:2px solid var(--peh-accent);outline-offset:2px}
 
-/* ── Waypoints (intra-product scene hops) ──────────────────────────── */
+/* ── Waypoints ─────────────────────────────────────────────────────── */
 .peh-waypoints{
   position:absolute;left:0;right:0;bottom:10px;z-index:4;
   display:flex;gap:8px;padding:0 12px;overflow-x:auto;scrollbar-width:none;
@@ -218,7 +214,7 @@ button{font-family:inherit}
 }
 .button.secondary:hover{border-color:var(--peh-accent)}
 
-/* ── Peh placeholder slot (data-driven squirrel guide medallion) ───── */
+/* ── Peh slot (Pehlichi guide medallion with real portrait) ────────── */
 .peh-slot{position:absolute;z-index:5;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;transition:left .4s ease,top .4s ease}
 .peh-slot-center{transform:translate(-50%,-50%)}
 .peh-slot-top{transform:translate(-50%,0)}
@@ -227,19 +223,22 @@ button{font-family:inherit}
 .peh-slot-left{transform:translate(-100%,-50%)}
 .peh-slot-medallion{
   width:clamp(46px,8vw,72px);height:clamp(46px,8vw,72px);border-radius:50%;
-  display:flex;align-items:center;justify-content:center;padding:9px;color:#3a2a18;
+  display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 50% 32%,#f6ecd2 0%,#e8d6ab 60%,#cdb37e 100%);
   border:2px solid #b8965b;
   box-shadow:0 0 0 4px color-mix(in srgb,var(--peh-accent) 26%,transparent),0 8px 22px rgba(0,0,0,.5);
+  overflow:hidden;padding:0;
 }
-.peh-squirrel{display:block;opacity:.92}
+.peh-slot-medallion img{
+  width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;
+}
 .peh-slot-tag{
   font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
   color:var(--ink);background:rgba(12,10,26,.82);border:1px solid var(--border-subtle);
   padding:2px 8px;border-radius:999px;backdrop-filter:blur(4px);
 }
 .peh-slot-inline{position:static;transform:none;float:right;margin:0 0 6px 12px}
-.peh-slot-inline .peh-slot-medallion{width:48px;height:48px;padding:7px}
+.peh-slot-inline .peh-slot-medallion{width:48px;height:48px}
 
 /* ── Peh-as-guide: speaking glow + contextual speech bubble ────────── */
 .peh-slot.glow .peh-slot-medallion{animation:pehSlotGlow 1.8s ease-in-out infinite}
@@ -286,7 +285,7 @@ button{font-family:inherit}
   .peh-bubble-enter,.peh-bubble-exit,.peh-bubble-anchor-down.peh-bubble-enter{animation-duration:.01ms}
 }
 
-/* ── Peh guide portrait (real mascot art) ──────────────────────────── */
+/* ── Peh guide portrait ────────────────────────────────────────────── */
 .peh-guide{
   position:absolute;z-index:6;left:12px;bottom:48px;margin:0;pointer-events:none;
   display:flex;flex-direction:column;align-items:center;gap:5px;
@@ -340,7 +339,7 @@ button{font-family:inherit}
 .peh-tile{min-height:60vh}
 .peh-tile .peh-panel-body{max-height:none}
 
-/* Dashboard chooser (no workspace open) */
+/* Dashboard chooser */
 .peh-chooser{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .peh-choice{
   display:flex;flex-direction:column;align-items:flex-start;gap:8px;
@@ -353,7 +352,7 @@ button{font-family:inherit}
 .peh-choice-title{font-weight:700;font-size:14px}
 .peh-choice-kind{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
 
-/* ── Taskbar (workspace switcher) ──────────────────────────────────── */
+/* ── Taskbar ───────────────────────────────────────────────────────── */
 .peh-taskbar{
   position:sticky;bottom:0;z-index:45;flex:0 0 auto;
   display:flex;align-items:center;gap:8px;padding:7px 10px;
@@ -420,7 +419,7 @@ button{font-family:inherit}
 .peh-ft-dev-soon{font-size:11px;padding:5px 10px;border-radius:999px;border:1px dashed var(--border-subtle);color:var(--ink-dim);opacity:.8}
 
 /* ══════════════════════════════════════════════════════════════════════
-   DESKTOP (≥880px) — docked panels, multi-tile dashboard, expanded chrome
+   DESKTOP (≥880px)
    ══════════════════════════════════════════════════════════════════════ */
 @media (min-width:880px){
   .peh-brand-word{display:inline}
@@ -454,11 +453,10 @@ button{font-family:inherit}
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   THE OBSERVATORY SKIN — .peh-product-pehlichi
-   A warm, scholarly research-observatory theme layered over the engine.
-   Cozy library meets scientific observatory: star charts, warm amber light,
-   old books, brass instruments. Recolours only — never touches the
-   structural rules (mobile sheet, ≥880px dock gating, data-driven slots).
+   THE SETTLEMENT SKIN — .peh-product-pehlichi
+   Warm medieval settlement — amber gold, violet dusk, stone walls, old
+   parchment. The world map is the background of the entire shell so it
+   shows through the glassmorphic panels in both dashboard and immersive.
    ══════════════════════════════════════════════════════════════════════ */
 .peh-product-pehlichi{
   --obs-amber:#c8962e;
@@ -467,53 +465,61 @@ button{font-family:inherit}
   --obs-violet:#8b5cf6;
   --obs-paper:#efe2c2;
   --obs-night:#0c0a1a;
-  background:radial-gradient(140% 110% at 50% 0%,#1a1538 0%,#130f28 40%,#0c0a1a 80%);
+  background:
+    linear-gradient(135deg,rgba(12,10,26,.58),rgba(26,21,56,.65)),
+    url("assets/pehlichi-desktop-map.png") center/cover no-repeat;
+}
+@media (max-width:879px){
+  .peh-product-pehlichi{
+    background:
+      linear-gradient(135deg,rgba(12,10,26,.58),rgba(26,21,56,.65)),
+      url("assets/pehlichi-mobile-map.png") center/cover no-repeat;
+  }
 }
 
-/* Top bar / taskbar: warm scholarly band with an amber beading. */
+/* Top bar: warm scholarly band with amber accent. */
 .peh-product-pehlichi .peh-topbar{
-  background:linear-gradient(180deg,rgba(26,21,56,.96),rgba(12,10,26,.82));
-  border-bottom:1px solid var(--obs-amber-dk);
-  box-shadow:0 1px 0 rgba(244,221,146,.16) inset,0 6px 18px rgba(0,0,0,.45);
+  background:linear-gradient(90deg,rgba(26,21,56,.78),rgba(12,10,26,.72));
+  border-bottom:1px solid rgba(138,90,22,.3);
+  box-shadow:0 1px 0 rgba(244,221,146,.14) inset,0 4px 14px rgba(0,0,0,.4);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
 }
 .peh-product-pehlichi .peh-taskbar{
-  background:linear-gradient(0deg,rgba(12,10,26,.97),rgba(26,21,56,.9));
-  border-top:1px solid var(--obs-amber-dk);
-  box-shadow:0 -1px 0 rgba(244,221,146,.14) inset;
+  background:linear-gradient(0deg,rgba(12,10,26,.97),rgba(26,21,56,.90));
+  border-top:1px solid rgba(138,90,22,.25);
+  box-shadow:0 -1px 0 rgba(244,221,146,.10) inset;
 }
+.peh-product-pehlichi .peh-brand-mark{background:linear-gradient(135deg,var(--obs-amber),var(--obs-violet));color:var(--obs-night)}
 .peh-product-pehlichi .peh-brand-word{font-family:var(--obs-display);font-weight:700;letter-spacing:.06em;color:var(--obs-paper)}
 .peh-product-pehlichi .peh-here b{font-family:var(--obs-display);letter-spacing:.02em;color:var(--obs-paper)}
 .peh-product-pehlichi .peh-travel-cta{color:var(--obs-amber-hi)}
 
-/* The Observatory scene: star-chart night sky behind the painted world map. */
+/* Scene atmosphere: settlement map. */
 .peh-product-pehlichi .peh-scene-atmos{
   background:
-    url("assets/pehlichi-desktop-map.png") center/cover no-repeat,
-    radial-gradient(120% 90% at 18% 12%,rgba(200,150,46,.20),transparent 60%),
-    radial-gradient(120% 90% at 85% 85%,rgba(139,92,246,.26),transparent 60%),
-    radial-gradient(130% 110% at 50% 4%,#221c48 0%,#1a1538 38%,#0c0a1a 82%);
+    linear-gradient(rgba(12,10,26,.28),rgba(26,21,56,.40)),
+    url("assets/pehlichi-desktop-map.png") center/cover no-repeat;
 }
 @media (max-width:879px){
   .peh-product-pehlichi .peh-scene-atmos{
     background:
-      url("assets/pehlichi-mobile-map.png") center top/cover no-repeat,
-      radial-gradient(130% 110% at 50% 4%,#221c48 0%,#1a1538 38%,#0c0a1a 82%);
+      linear-gradient(rgba(12,10,26,.28),rgba(26,21,56,.40)),
+      url("assets/pehlichi-mobile-map.png") center top/cover no-repeat;
   }
 }
 .peh-product-pehlichi .peh-scene-atmos::after{
-  /* faint constellation dust so the painted art stays legible */
-  background-image:radial-gradient(rgba(244,221,146,.10) 1px,transparent 1.4px);
-  background-size:42px 42px;opacity:.4;mix-blend-mode:screen;
+  background-image:radial-gradient(rgba(244,221,146,.08) 1px,transparent 1.4px);
+  background-size:42px 42px;opacity:.3;mix-blend-mode:screen;
 }
-.peh-product-pehlichi .peh-scene-tag{color:var(--obs-amber);font-family:var(--obs-display);letter-spacing:.2em}
+.peh-product-pehlichi .peh-scene-tag{color:var(--obs-amber);font-family:var(--obs-display);letter-spacing:.2em;text-shadow:0 1px 4px rgba(0,0,0,.7)}
 .peh-product-pehlichi .peh-scene-title{
   font-family:var(--obs-display);font-weight:700;letter-spacing:.01em;
-  color:var(--obs-paper);text-shadow:0 2px 18px rgba(200,150,46,.35),0 1px 0 rgba(0,0,0,.4);
+  color:var(--obs-paper);text-shadow:0 2px 18px rgba(200,150,46,.40),0 1px 6px rgba(0,0,0,.8);
   display:inline-block;padding-bottom:4px;border-bottom:3px solid var(--obs-amber);
 }
-.peh-product-pehlichi .peh-scene-desc{color:var(--ink-soft)}
+.peh-product-pehlichi .peh-scene-desc{color:var(--ink-soft);text-shadow:0 1px 4px rgba(0,0,0,.6);opacity:.95}
 
-/* Hotspots → warm brass observatory markers. */
+/* Hotspots → warm brass settlement markers. */
 .peh-product-pehlichi .peh-pin{
   background:radial-gradient(circle at 50% 30%,var(--obs-amber-hi),var(--obs-amber) 52%,var(--obs-amber-dk) 100%);
   box-shadow:0 0 0 3px rgba(12,10,26,.85),0 0 0 5px rgba(200,150,46,.4),0 6px 16px rgba(0,0,0,.55);
@@ -522,89 +528,107 @@ button{font-family:inherit}
 .peh-product-pehlichi .peh-hotspot-label{
   font-family:var(--obs-display);font-weight:700;letter-spacing:.02em;font-size:12px;
   color:var(--obs-paper);
-  background:linear-gradient(180deg,rgba(26,21,56,.92),rgba(12,10,26,.92));
-  border:1px solid var(--obs-amber-dk);
-  box-shadow:0 2px 8px rgba(0,0,0,.45),0 0 0 1px rgba(244,221,146,.14) inset;
+  background:linear-gradient(180deg,rgba(26,21,56,.90),rgba(12,10,26,.92));
+  border:1px solid rgba(138,90,22,.4);
+  box-shadow:0 2px 8px rgba(0,0,0,.5),0 0 0 1px rgba(244,221,146,.12) inset;
+  backdrop-filter:blur(6px);
 }
 
-/* Peh's medallion + guide portrait framed in warm brass. */
+/* Peh's medallion: warm brass with actual portrait. */
 .peh-product-pehlichi .peh-slot-medallion{
   background:radial-gradient(circle at 50% 30%,#f6ead0,#e6cf9a 55%,#bf9a52 100%);
   border:2px solid var(--obs-amber-dk);
   box-shadow:0 0 0 3px rgba(12,10,26,.85),0 0 0 6px rgba(200,150,46,.36),0 8px 20px rgba(0,0,0,.55);
+  overflow:hidden;padding:0;
+}
+.peh-product-pehlichi .peh-slot-medallion img{
+  width:100%;height:100%;object-fit:cover;border-radius:50%;
+  box-shadow:0 0 20px rgba(200,150,46,.25);
+  display:block;
 }
 .peh-product-pehlichi .peh-guide-frame{border-color:var(--obs-amber)}
 .peh-product-pehlichi .peh-guide-cap b{font-family:var(--obs-display);color:var(--obs-amber-hi)}
 
-/* Scene-hop waypoints → scholarly amber tabs. */
+/* Waypoints → scholarly amber tabs. */
 .peh-product-pehlichi .peh-waypoint{
   font-family:var(--obs-display);letter-spacing:.02em;
-  background:linear-gradient(180deg,rgba(26,21,56,.85),rgba(12,10,26,.85));
-  color:var(--obs-paper);border:1px solid var(--obs-amber-dk);
+  background:linear-gradient(180deg,rgba(26,21,56,.85),rgba(12,10,26,.82));
+  color:var(--obs-paper);border:1px solid rgba(138,90,22,.35);
+  backdrop-filter:blur(6px);
 }
 .peh-product-pehlichi .peh-waypoint:hover{border-color:var(--obs-amber);color:#fff}
 .peh-product-pehlichi .peh-waypoint.active{background:linear-gradient(120deg,var(--obs-amber-hi),var(--obs-amber) 45%,var(--obs-violet));color:var(--obs-night);border-color:transparent}
 
-/* Workspace panels → warm instrument cases. */
+/* Glassmorphic workspace panels — map shows through. */
 .peh-product-pehlichi .peh-panel,.peh-product-pehlichi .peh-tile{
-  background:linear-gradient(180deg,#1b1640,#100d24);
-  border:1px solid var(--obs-amber-dk);
-  box-shadow:0 18px 60px rgba(0,0,0,.6),0 0 0 1px rgba(244,221,146,.10) inset;
+  background:linear-gradient(180deg,rgba(26,21,56,.74),rgba(12,10,26,.72));
+  border:1px solid rgba(138,90,22,.28);
+  box-shadow:0 18px 60px rgba(0,0,0,.6),0 0 0 1px rgba(244,221,146,.08) inset;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
 }
 .peh-product-pehlichi .peh-panel.focused,.peh-product-pehlichi .peh-tile.focused{border-color:var(--obs-amber)}
 .peh-product-pehlichi .peh-panel-head{
-  background:linear-gradient(180deg,rgba(34,28,72,.9),rgba(20,16,40,.9));
-  border-bottom:1px solid var(--obs-amber-dk);
+  background:rgba(200,150,46,.10);
+  border-bottom:1px solid rgba(138,90,22,.22);
 }
 .peh-product-pehlichi .peh-panel-title{font-family:var(--obs-display);letter-spacing:.02em;color:var(--obs-paper)}
 
-/* Placeholder workspace → a parchment study-notice. */
+/* Placeholder workspace → parchment study-notice. */
 .peh-product-pehlichi .peh-ph{
-  margin:10px;border-radius:12px;color:#5a4a2c;
-  background:linear-gradient(180deg,var(--obs-paper),#d8c69a);
-  border:1px solid var(--obs-amber-dk);box-shadow:0 6px 18px rgba(0,0,0,.45);
+  margin:10px;border-radius:12px;color:var(--ink-soft);
+  background:linear-gradient(180deg,rgba(26,21,56,.80),rgba(12,10,26,.76));
+  border:1px solid rgba(138,90,22,.28);box-shadow:0 6px 18px rgba(0,0,0,.45);
 }
-.peh-product-pehlichi .peh-ph-glyph{color:var(--obs-amber-dk)}
-.peh-product-pehlichi .peh-ph-blurb{color:#4a3a1f}
+.peh-product-pehlichi .peh-ph-glyph{color:var(--obs-amber)}
+.peh-product-pehlichi .peh-ph-blurb{color:var(--obs-paper);opacity:.8}
 .peh-product-pehlichi .peh-ph-tag{color:var(--obs-amber-dk);border-color:var(--obs-amber-dk)}
-.peh-product-pehlichi .peh-ph .button.secondary{background:rgba(20,16,10,.08);border-color:var(--obs-amber-dk);color:#4a3a1f}
+.peh-product-pehlichi .peh-ph .button.secondary{background:rgba(200,150,46,.10);border-color:var(--obs-amber-dk);color:var(--obs-paper)}
 
-/* Dashboard chooser + headings. */
-.peh-product-pehlichi .peh-dash-head{border-bottom:1px solid var(--obs-amber-dk)}
-.peh-product-pehlichi .peh-dash-here h1{font-family:var(--obs-display);letter-spacing:.01em}
+/* Dashboard — glassmorphic with map visible in gutters. */
+.peh-product-pehlichi .peh-dash{
+  background:linear-gradient(135deg,rgba(26,21,56,.42),rgba(12,10,26,.40));
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+}
+.peh-product-pehlichi .peh-dash-head{border-bottom:1px solid rgba(138,90,22,.22)}
+.peh-product-pehlichi .peh-dash-here h1{font-family:var(--obs-display);letter-spacing:.01em;color:var(--obs-paper)}
 .peh-product-pehlichi .peh-choice{
-  background:linear-gradient(160deg,rgba(34,28,72,.75),rgba(12,10,26,.5));
-  border:1px solid var(--obs-amber-dk);color:var(--obs-paper);
+  background:linear-gradient(160deg,rgba(26,21,56,.78),rgba(12,10,26,.55));
+  border:1px solid rgba(138,90,22,.25);color:var(--obs-paper);
+  backdrop-filter:blur(8px);
 }
 .peh-product-pehlichi .peh-choice:hover{border-color:var(--obs-amber)}
 .peh-product-pehlichi .peh-choice-title{font-family:var(--obs-display);letter-spacing:.01em}
-.peh-product-pehlichi .peh-choice-kind{color:var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-choice-kind{color:rgba(200,150,46,.5)}
 
-/* Fast-travel sheet → an observatory logbook. */
+/* Fast-travel sheet → settlement logbook. */
 .peh-product-pehlichi .peh-ft{
   background:linear-gradient(180deg,rgba(26,21,56,.99),rgba(12,10,26,.99));
-  border:1px solid var(--obs-amber-dk);
+  border:1px solid rgba(138,90,22,.28);
 }
-.peh-product-pehlichi .peh-ft-head{border-bottom:1px solid var(--obs-amber-dk)}
+.peh-product-pehlichi .peh-ft-head{border-bottom:1px solid rgba(138,90,22,.22)}
 .peh-product-pehlichi .peh-ft-head h2{color:var(--obs-amber-hi)}
 
-/* ── Observatory Overview console (the kind:'deck' workspace body) ───── */
+/* ── Settlement Overview console (the kind:'deck' workspace body) ────── */
 .obs-console{padding:18px 16px 26px;display:flex;flex-direction:column;gap:18px;color:var(--ink)}
 .obs-hero{
-  display:flex;gap:14px;align-items:center;padding:16px 18px;border-radius:16px;
-  background:linear-gradient(135deg,rgba(200,150,46,.16),rgba(139,92,246,.14),rgba(12,10,26,.4));
-  border:1px solid var(--border-subtle);
+  display:flex;gap:16px;align-items:center;padding:16px 18px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(200,150,46,.16),rgba(139,92,246,.14),rgba(12,10,26,.30));
+  border:1px solid rgba(138,90,22,.25);
 }
-.obs-hero-mark{font-size:34px;line-height:1;filter:drop-shadow(0 4px 12px rgba(200,150,46,.5))}
-.obs-hero h2{margin:0 0 4px;font-family:var(--obs-display);font-size:22px;letter-spacing:.01em;color:var(--amber-hot)}
+.obs-hero-mark{
+  color:var(--peh-accent);display:inline-flex;flex:0 0 auto;
+  transform:scale(2.2);transform-origin:left;
+  filter:drop-shadow(0 4px 12px rgba(200,150,46,.55));
+}
+.obs-hero h2{margin:0 0 4px;font-family:var(--obs-display);font-size:22px;font-weight:800;letter-spacing:.01em;color:var(--amber-hot)}
 .obs-hero p{margin:0;font-size:13px;color:var(--ink-soft);max-width:62ch}
 .obs-section-title{font-family:var(--obs-display);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--peh-accent);margin:2px 0 -4px}
 .obs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 .obs-card{
   display:flex;flex-direction:column;align-items:flex-start;gap:7px;
   padding:15px 14px;border-radius:14px;cursor:pointer;text-align:left;font:inherit;
-  background:linear-gradient(160deg,rgba(34,28,72,.6),rgba(12,10,26,.4));
-  border:1px solid var(--border-subtle);color:var(--ink);transition:.15s;
+  background:linear-gradient(160deg,rgba(26,21,56,.65),rgba(12,10,26,.45));
+  border:1px solid rgba(138,90,22,.22);color:var(--ink);transition:.15s;
 }
 .obs-card:hover{border-color:var(--peh-accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.4)}
 .obs-card-glyph{color:var(--peh-accent);display:inline-flex}
@@ -614,25 +638,23 @@ button{font-family:inherit}
 .obs-lives{
   padding:14px 16px;border-radius:14px;
   background:linear-gradient(160deg,rgba(139,92,246,.12),rgba(12,10,26,.35));
-  border:1px solid var(--border-subtle);
+  border:1px solid rgba(138,90,22,.2);
 }
 .obs-lives p{margin:0 0 10px;font-size:13px;color:var(--ink-soft);font-style:italic}
 .obs-lives-row{display:flex;flex-wrap:wrap;gap:8px}
 .obs-life{
   font-size:12px;padding:5px 11px;border-radius:999px;letter-spacing:.02em;
-  background:rgba(12,10,26,.55);border:1px solid var(--obs-amber-dk,var(--border-medium));color:var(--ink-soft);
+  background:rgba(12,10,26,.55);border:1px solid rgba(138,90,22,.28);color:var(--ink-soft);
 }
 .obs-life::before{content:"✦ ";color:var(--peh-accent)}
 .obs-foot{font-size:11px;color:var(--ink-dim);text-align:center;letter-spacing:.06em;padding-top:4px}
+.obs-live{margin-top:18px}
 
 /* ══════════════════════════════════════════════════════════════════════
-   LIVE BACKEND LAYER — status dot, journal, command bar, and the live
-   workspace bodies (api.js / scenes.js / peh-guide.js / app.js). Uses the
-   existing Settlement tokens (--peh-accent, --ink, --bg-card, …) so it sits
-   inside the warm scholarly skin without re-theming anything.
+   LIVE BACKEND LAYER — status dot, journal, command bar, workspace data
    ══════════════════════════════════════════════════════════════════════ */
 
-/* ── Live workspace data (inside a .peh-panel / .peh-tile body) ── */
+/* ── Live workspace data ─────────────────────────────────────────────── */
 .peh-live{display:flex;flex-direction:column;gap:14px}
 .peh-live-body{display:flex;flex-direction:column;gap:14px}
 .peh-live-loading{color:var(--ink-dim);font-size:var(--text-sm);display:flex;align-items:center;gap:8px}
@@ -645,8 +667,6 @@ button{font-family:inherit}
 .peh-live-off b{color:var(--ink)}
 .peh-live-off span{color:var(--ink-dim);font-size:var(--text-sm)}
 .peh-live-off-hint{font-style:italic}
-
-/* options Peh offers per scene */
 .peh-live-opts{display:flex;flex-wrap:wrap;gap:8px}
 .peh-live-opt{
   font:inherit;font-size:var(--text-sm);cursor:pointer;color:var(--ink);
@@ -654,14 +674,10 @@ button{font-family:inherit}
   background:rgba(200,150,46,.10);border:1px solid var(--border-medium);transition:.15s;
 }
 .peh-live-opt:hover{background:rgba(200,150,46,.20);border-color:var(--peh-accent)}
-
-/* stat tiles */
 .peh-stats{display:flex;flex-wrap:wrap;gap:10px}
 .peh-stat{flex:1 1 auto;min-width:84px;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg-card);border:1px solid var(--border-subtle)}
 .peh-stat-v{font-size:var(--text-lg);font-weight:700;color:var(--peh-accent);font-family:var(--obs-display)}
 .peh-stat-l{font-size:var(--text-xs);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
-
-/* rows */
 .peh-rows{display:flex;flex-direction:column;gap:8px}
 .peh-row{display:flex;flex-direction:column;gap:3px;padding:9px 12px;border-radius:var(--radius-sm);background:var(--bg-card);border:1px solid var(--border-subtle)}
 .peh-row-t{font-weight:600;color:var(--ink);font-size:var(--text-sm)}
@@ -671,8 +687,6 @@ button{font-family:inherit}
 .peh-live-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
 .peh-live-dot.on{background:var(--success);box-shadow:0 0 6px var(--success)}
 .peh-live-dot.off{background:var(--ink-dim)}
-
-/* chips */
 .peh-chips{display:flex;flex-wrap:wrap;gap:6px}
 .peh-chip{font-size:var(--text-xs);font-family:var(--mono);padding:4px 9px;border-radius:var(--radius-sm);background:rgba(139,92,246,.12);border:1px solid var(--border-subtle);color:var(--ink-soft)}
 
@@ -688,9 +702,7 @@ button{font-family:inherit}
 .peh-mem-detail p{margin:0;font-size:var(--text-sm);color:var(--ink-soft);line-height:1.5}
 .peh-mem-quirk{font-style:italic;color:var(--ink-dim)}
 
-.obs-live{margin-top:18px}
-
-/* ── Backend status dot (fixed, top-right) ── */
+/* ── Backend status dot ── */
 .peh-status{
   position:fixed;top:14px;right:16px;z-index:60;display:flex;align-items:center;gap:8px;
   font:inherit;font-size:var(--text-xs);cursor:pointer;color:var(--ink-soft);
@@ -739,7 +751,7 @@ button{font-family:inherit}
 .peh-jrnl-time{font-size:10px;font-family:var(--mono);color:var(--ink-dim);letter-spacing:.04em}
 .peh-jrnl-text{font-size:var(--text-sm);color:var(--ink-soft);line-height:1.45;word-break:break-word}
 
-/* ── Command bar (fixed bottom, above the engine taskbar) ── */
+/* ── Command bar ── */
 .peh-cmd{
   position:fixed;left:50%;transform:translateX(-50%);bottom:64px;z-index:55;
   display:flex;align-items:center;gap:8px;width:min(620px,92vw);
@@ -758,4 +770,115 @@ button{font-family:inherit}
   .peh-jrnl-btn{right:auto;left:16px;top:auto;bottom:112px}
   .peh-status{top:auto;bottom:112px;right:16px}
   .peh-cmd{bottom:58px}
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   PEHLICHI FLOATING CHAT AGENT — bottom-right interactive panel
+   ═════════════════════════════════════════════════════════════════════ */
+.peh-float-btn{
+  position:fixed;bottom:80px;right:20px;
+  width:56px;height:56px;border-radius:50%;
+  background:linear-gradient(135deg,var(--obs-amber,#c8962e),var(--obs-violet,#8b5cf6));
+  border:2px solid rgba(200,150,46,.4);
+  color:#f3ecdc;font-size:20px;cursor:pointer;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  z-index:1000;
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:transform .2s,box-shadow .2s,background .2s;
+  overflow:hidden;
+}
+.peh-float-btn:hover{transform:scale(1.1);box-shadow:0 6px 30px rgba(200,150,46,.35)}
+.peh-float-btn.active{background:linear-gradient(135deg,var(--obs-violet,#8b5cf6),var(--obs-amber,#c8962e));box-shadow:0 4px 24px rgba(139,92,246,.3)}
+.peh-float-btn-img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+.peh-float-drawer{
+  position:fixed;bottom:148px;right:20px;
+  width:380px;max-width:calc(100vw - 32px);
+  max-height:500px;border-radius:16px;
+  background:linear-gradient(180deg,rgba(26,21,56,.97),rgba(12,10,26,.96));
+  border:1px solid rgba(138,90,22,.35);
+  box-shadow:0 12px 48px rgba(0,0,0,.55),0 0 0 1px rgba(244,221,146,.06) inset;
+  z-index:1000;
+  display:none;flex-direction:column;overflow:hidden;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+}
+.peh-float-drawer.open{display:flex;animation:pehFloatIn .2s ease-out}
+@keyframes pehFloatIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+
+.peh-float-header{
+  flex:0 0 auto;padding:12px 16px;
+  border-bottom:1px solid rgba(138,90,22,.28);
+  display:flex;align-items:center;gap:10px;
+}
+.peh-float-avatar{
+  flex:0 0 auto;width:32px;height:32px;border-radius:50%;
+  background:linear-gradient(135deg,var(--obs-amber,#c8962e),var(--obs-violet,#8b5cf6));
+  overflow:hidden;border:1px solid rgba(200,150,46,.35);
+}
+.peh-float-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.peh-float-close{
+  margin-left:auto;width:28px;height:28px;border-radius:8px;
+  border:1px solid rgba(138,90,22,.28);background:transparent;
+  color:var(--ink-dim,#b6a079);font-size:17px;line-height:1;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.peh-float-close:hover{background:rgba(139,92,246,.2);color:#f3ecdc}
+
+.peh-float-messages{
+  flex:1 1 auto;overflow-y:auto;
+  padding:12px;display:flex;flex-direction:column;gap:8px;
+  scrollbar-width:thin;scrollbar-color:rgba(200,150,46,.2) transparent;
+}
+.peh-float-messages::-webkit-scrollbar{width:4px}
+.peh-float-messages::-webkit-scrollbar-thumb{background:rgba(200,150,46,.2);border-radius:4px}
+
+.peh-float-msg{
+  max-width:88%;padding:10px 14px;border-radius:12px;
+  font-size:13px;line-height:1.5;word-break:break-word;
+}
+.peh-float-msg.assistant{
+  background:rgba(139,92,246,.10);
+  border:1px solid rgba(139,92,246,.18);
+  color:#f3ecdc;align-self:flex-start;border-bottom-left-radius:4px;
+}
+.peh-float-msg.user{
+  background:rgba(200,150,46,.15);
+  border:1px solid rgba(200,150,46,.22);
+  color:#f3ecdc;align-self:flex-end;border-bottom-right-radius:4px;
+}
+.peh-float-msg.error{
+  background:rgba(239,68,68,.10);
+  border:1px solid rgba(239,68,68,.22);
+  color:#f3ecdc;align-self:flex-start;border-bottom-left-radius:4px;
+}
+
+.peh-float-input-wrap{
+  flex:0 0 auto;padding:10px 12px;
+  border-top:1px solid rgba(138,90,22,.22);
+  display:flex;gap:8px;
+}
+.peh-float-input{
+  flex:1;padding:10px 14px;border-radius:10px;
+  border:1px solid rgba(138,90,22,.3);
+  background:rgba(26,21,56,.65);color:#f3ecdc;
+  font:inherit;font-size:13px;outline:none;
+}
+.peh-float-input:focus{border-color:var(--obs-amber,#c8962e);box-shadow:0 0 0 2px rgba(200,150,46,.12)}
+.peh-float-input::placeholder{color:var(--ink-dim,#b6a079)}
+.peh-float-send{
+  padding:10px 16px;border-radius:10px;
+  background:linear-gradient(135deg,var(--obs-amber,#c8962e),var(--obs-violet,#8b5cf6));
+  border:none;color:#0c0a1a;font:inherit;
+  font-weight:700;font-size:12px;cursor:pointer;
+  white-space:nowrap;transition:filter .15s;
+}
+.peh-float-send:hover{filter:brightness(1.1)}
+
+/* Dashboard tile height tuning for multi-column grids */
+.peh-grid.multi .peh-tile{min-height:min(52vh,520px)}
+@media (min-width:1280px){.peh-grid.multi .peh-tile{min-height:min(46vh,500px)}}
+
+@media (max-width:640px){
+  .peh-float-btn{bottom:160px;right:12px;width:48px;height:48px;font-size:17px}
+  .peh-float-drawer{right:12px;bottom:220px;width:calc(100vw - 24px);max-height:400px}
 }

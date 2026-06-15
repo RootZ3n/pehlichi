@@ -1,8 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════
 // PEHLICHI · APP GLUE — wires the live backend (api.js + scenes.js) into the
 // inline world engine, and adds the chrome the engine doesn't own: a backend
-// status dot, Peh's Journal, and a command bar. Loaded AFTER the inline engine
-// so all of its globals exist. Peh is MALE (he/him).
+// status dot, Peh's Journal, a command bar, and a floating chat agent.
+// Loaded AFTER the inline engine so all of its globals exist.
+// Peh is MALE (he/him).
 // ══════════════════════════════════════════════════════════════════════
 (function () {
   'use strict';
@@ -14,7 +15,7 @@
   var _origBody = window.pehWorkspaceBody;
   window.pehWorkspaceBody = function (w, deckMarkup) {
     var def = (typeof pehWorkspaceDef === 'function') ? pehWorkspaceDef(w.defId) : null;
-    if (def && def.kind === 'deck') return _origBody(w, deckMarkup); // overview = console override below
+    if (def && def.kind === 'deck') return _origBody(w, deckMarkup);
     if (window.PehScenes && PehScenes.has(w.defId)) {
       setTimeout(function () { PehScenes.fill(w.defId); }, 0);
       return PehScenes.liveContainer(w.defId);
@@ -42,7 +43,7 @@
     try {
       var s = pehScene(pehActiveProductId(), sceneId);
       var h = s && s.hotspots ? s.hotspots.find(function (x) { return x.id === hotspotId; }) : null;
-      if (h && h.greeting && window.PehGuide) PehGuide.log('Peh: “' + h.greeting + '”', 'peh');
+      if (h && h.greeting && window.PehGuide) PehGuide.log('Peh: "' + h.greeting + '"', 'peh');
     } catch (e) { /* ignore */ }
     return _origActivate(sceneId, hotspotId);
   };
@@ -55,7 +56,7 @@
     };
   });
 
-  // ── 4. Backend status dot (top-right, outside #app so it survives renders) ─
+  // ── 4. Backend status dot ─────────────────────────────────────────────────
   var statusEl = null, lastOnline = null;
   function buildStatus() {
     statusEl = document.createElement('button');
@@ -75,19 +76,19 @@
       dot.className = 'peh-status-dot online';
       txt.textContent = 'online · ' + (r.data.toolCount != null ? r.data.toolCount + ' tools' : 'ok');
       statusEl.title = 'Pehlichi online — ' + (r.data.instanceId || '') + ' · commit ' + (r.data.commit || '?');
-      if (lastOnline === false && window.PehGuide) PehGuide.log('The settlement is back online. *happy chittering*', 'ok');
+      if (lastOnline === false && window.PehGuide) PehGuide.log('The settlement is back online.', 'ok');
       lastOnline = true;
     } else {
       dot.className = 'peh-status-dot offline';
       txt.textContent = 'offline';
       statusEl.title = 'Backend unreachable: ' + (r.error || 'no response');
-      if (lastOnline !== false && window.PehGuide && lastOnline !== null) PehGuide.log('Lost the line to the settlement. *tail poofs*', 'warn');
+      if (lastOnline !== false && window.PehGuide && lastOnline !== null) PehGuide.log('Lost the line to the settlement. Check :18830.', 'warn');
       if (manual && window.PehGuide) PehGuide.log('Still no answer from :18830. Is the server running?', 'warn');
       lastOnline = false;
     }
   }
 
-  // ── 5. Command bar (bottom, above the engine taskbar) ─────────────────────
+  // ── 5. Command bar ────────────────────────────────────────────────────────
   var COMMANDS = 'help, health, sessions, memories, agents, bridge, tools, goto <area>, ask <message>';
   function buildCommandBar() {
     var bar = document.createElement('form');
@@ -162,7 +163,6 @@
         await ask(rest);
         break;
       default:
-        // Bare text → treat as a question for Peh.
         await ask(raw);
     }
   }
@@ -170,26 +170,127 @@
   async function ask(message) {
     PehGuide.toggle(true);
     PehGuide.log('You: ' + message, 'you');
-    PehGuide.log('Peh is thinking… *scratches chin with tiny paw*', 'note');
+    PehGuide.log('Peh is thinking…', 'note');
     var r = await PehAPI.converse(message);
-    if (r.ok && r.data && r.data.content) {
-      PehGuide.log('Peh: ' + r.data.content, 'peh');
+    if (r.ok && r.data && (r.data.content || r.data.response)) {
+      PehGuide.log('Peh: ' + (r.data.content || r.data.response), 'peh');
     } else if (r.status === 401) {
       PehGuide.log('Peh: The chat door is locked (needs a token). I can still show you data, though.', 'warn');
     } else {
-      PehGuide.log('Peh: I would answer, but the line is dead. *gestures at paws* And I have THESE.', 'warn');
+      PehGuide.log('Peh: No response from the settlement. Is the server running on :18830?', 'warn');
     }
   }
 
   window.PehApp = { runCommand: runCommand, ask: ask, pollHealth: pollHealth };
+
+  // ── 6. Floating Pehlichi chat agent ───────────────────────────────────────
+  var _chatOpen = false;
+  var _chatDrawer = null;
+  var _chatBtn = null;
+
+  function buildPehliciChat() {
+    _chatBtn = document.createElement('button');
+    _chatBtn.className = 'peh-float-btn';
+    _chatBtn.type = 'button';
+    _chatBtn.title = 'Chat with Pehlichi';
+    _chatBtn.setAttribute('aria-label', 'Open Pehlichi chat');
+    _chatBtn.innerHTML = '<img class="peh-float-btn-img" src="assets/peh-hedge-knight.png" alt="Pehlichi" onerror="this.style.display=\'none\';this.parentNode.textContent=\'⚔\';">';
+    _chatBtn.onclick = togglePehChat;
+    document.body.appendChild(_chatBtn);
+
+    _chatDrawer = document.createElement('div');
+    _chatDrawer.className = 'peh-float-drawer';
+    _chatDrawer.setAttribute('role', 'dialog');
+    _chatDrawer.setAttribute('aria-label', 'Pehlichi Chat');
+    _chatDrawer.innerHTML =
+      '<div class="peh-float-header">' +
+        '<div class="peh-float-avatar">' +
+          '<img src="assets/peh-hedge-knight.png" alt="Peh" onerror="this.style.display=\'none\';">' +
+        '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:700;font-size:13px;color:#efe2c2;font-family:var(--obs-display,serif)">Pehlichi</div>' +
+          '<div style="font-size:11px;color:#b6a079">The Settlement</div>' +
+        '</div>' +
+        '<button class="peh-float-close" type="button" aria-label="Close chat" onclick="togglePehChat()">×</button>' +
+      '</div>' +
+      '<div class="peh-float-messages" id="peh-float-msgs"></div>' +
+      '<div class="peh-float-input-wrap">' +
+        '<input class="peh-float-input" type="text" id="peh-float-input" ' +
+          'placeholder="Speak to Pehlichi…" autocomplete="off" spellcheck="false">' +
+        '<button class="peh-float-send" type="button" onclick="sendPehChat()">Send</button>' +
+      '</div>';
+    document.body.appendChild(_chatDrawer);
+
+    _chatDrawer.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'peh-float-input') {
+        e.preventDefault();
+        sendPehChat();
+      }
+    });
+
+    appendPehMsg('assistant', 'Well met, traveler. I am Pehlichi — guardian of this settlement. What do you seek?');
+  }
+
+  function togglePehChat() {
+    _chatOpen = !_chatOpen;
+    if (_chatDrawer) _chatDrawer.classList.toggle('open', _chatOpen);
+    if (_chatBtn) _chatBtn.classList.toggle('active', _chatOpen);
+    if (_chatOpen) {
+      var inp = document.getElementById('peh-float-input');
+      if (inp) setTimeout(function () { try { inp.focus(); } catch (e) {} }, 60);
+    }
+  }
+
+  function appendPehMsg(role, text) {
+    var msgs = document.getElementById('peh-float-msgs');
+    if (!msgs) return;
+    var el = document.createElement('div');
+    el.className = 'peh-float-msg ' + role;
+    el.textContent = text;
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  async function sendPehChat() {
+    var inp = document.getElementById('peh-float-input');
+    if (!inp) return;
+    var text = (inp.value || '').trim();
+    if (!text) return;
+    inp.value = '';
+    appendPehMsg('user', text);
+
+    var msgs = document.getElementById('peh-float-msgs');
+    var thinking = document.createElement('div');
+    thinking.className = 'peh-float-msg assistant';
+    thinking.style.cssText = 'opacity:.5;font-style:italic';
+    thinking.textContent = 'Considering…';
+    if (msgs) { msgs.appendChild(thinking); msgs.scrollTop = msgs.scrollHeight; }
+
+    var r = await PehAPI.converse(text);
+    if (thinking.parentNode) thinking.parentNode.removeChild(thinking);
+
+    if (r.ok && r.data && (r.data.content || r.data.response)) {
+      appendPehMsg('assistant', r.data.content || r.data.response);
+    } else if (r.status === 503) {
+      appendPehMsg('error', 'The settlement\'s speaking-stone needs a token to work. Set PEHLICHI_CHAT_TOKEN on the server to enable live conversation.');
+    } else if (r.status === 401) {
+      appendPehMsg('error', 'Unauthorized. The speaking-stone door is barred. Set PEHLICHI_CHAT_TOKEN on both the server and this page.');
+    } else {
+      appendPehMsg('error', 'No answer from the settlement. Is the server running on :18830?');
+    }
+  }
+
+  window.togglePehChat = togglePehChat;
+  window.sendPehChat = sendPehChat;
+  window.appendPehMsg = appendPehMsg;
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   function start() {
     if (window.PehGuide) PehGuide.init();
     buildStatus();
     buildCommandBar();
+    buildPehliciChat();
     if (window.PehGuide) PehGuide.log('Welcome to the Settlement. I\'m Peh — your guide. Tap a place, or type "help".', 'peh');
-    // Re-render so the engine picks up the overridden workspace/console bodies.
     if (typeof window.render === 'function') { try { window.render(); } catch (e) {} }
     pollHealth();
     setInterval(function () { pollHealth(); }, 12000);
