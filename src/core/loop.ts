@@ -303,8 +303,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   let consecutiveFailures = 0;
   let lastFailedTool = "";
   let sameToolFailures = 0;
-  const SAME_TOOL_STOP_THRESHOLD = 3;   // same tool failing 3x → inject stop
-  const TOTAL_FAIL_STOP_THRESHOLD = 5;  // any 5 consecutive failures → force exit
+  const SAME_TOOL_STOP_THRESHOLD = 2;   // same tool failing 2x → inject stop
+  const TOTAL_FAIL_STOP_THRESHOLD = 3;  // any 3 consecutive failures → force exit
 
   for (let i = startIteration; ; i++) {
     if (i >= maxIterations) {
@@ -434,9 +434,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
             messages.push({
               role: "user",
               content:
-                `BUDGET GOVERNOR: The tool "${action.tool}" has failed ${sameToolFailures} times in a row. ` +
-                `STOP trying it. Produce your final answer NOW using the done action. ` +
-                `If you cannot complete the task, say so honestly with a done action explaining what you attempted.`,
+                `BUDGET GOVERNOR: The tool "${action.tool}" has failed ${sameToolFailures} times. ` +
+                `DO NOT call any more tools. Produce your final answer NOW using the done action with noChangeRequired:true. ` +
+                `Put your actual answer in rootCause. If you cannot complete the task, explain why in rootCause.`,
             });
             // Reset so we don't spam this every iteration
             sameToolFailures = 0;
