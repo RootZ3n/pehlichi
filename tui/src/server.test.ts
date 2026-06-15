@@ -200,7 +200,7 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
         assert.ok(caps.features.includes('kernel_loop'));
         assert.deepEqual(
           caps.endpoints,
-          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge'],
+          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
         );
 
         const reset = await fetch(`${base}/reset`, { method: 'POST' });

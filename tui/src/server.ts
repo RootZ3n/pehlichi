@@ -41,6 +41,7 @@ import { loadPersonality } from './lib/personality.js';
 import { ChatSession } from './lib/chat.js';
 import { bridgeRegistry } from '../../src/core/bridges/registry.js';
 import { listMemory } from 'lab-memory';
+import { ReceiptStore, type Receipt } from '../../src/core/receipt-store.js';
 
 const PORT = parseInt(process.env.PEHLICHI_PORT || '18830', 10);
 const HOST = process.env.PEHLICHI_HOST || '127.0.0.1';
@@ -133,6 +134,7 @@ function resolveCommit(): string {
 }
 
 const COMMIT = resolveCommit();
+const receiptStore = new ReceiptStore({ ttlMs: 60 * 60 * 1000 }); // 1 hour TTL
 
 function json(res: ServerResponse, status: number, data: unknown): void {
   // CORS: the read-only UI engine (ui/index.html) is opened from file:// or a
@@ -434,6 +436,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         sessions: sessions.size,
         sessionsEvicted,
         cronJobs: cronJobCount(),
+        receipts: receiptStore.summary(),
       });
     }
 
@@ -635,11 +638,27 @@ export function createPehServer(opts: PehServerOptions = {}): {
           const rec = tasks.get(taskId);
           if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
         }
+        // Record receipt (before payload — payload references receipt.id)
+        const receipt = receiptStore.record({
+          agent: skin.branding.agent_name,
+          taskId: taskId ?? undefined,
+          roomKey: roomKeyOf(body),
+          workspaceId: overrideWorkspace ?? undefined,
+          model: MODEL,
+          status: response.injectionDetected ? 'injection_blocked'
+            : response.partial ? 'partial'
+            : response.ok ? 'success' : 'failed',
+          toolCallCount: response.toolCalls.length,
+          injectionDetected: response.injectionDetected,
+          partial: response.partial,
+          contentSummary: response.content?.slice(0, 200),
+        });
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
           ok: response.ok,
           partial: response.partial,
+          receiptId: receipt.id,
           accomplished: response.accomplished,
           thinkingVerb: response.thinkingVerb,
           injectionDetected: response.injectionDetected,
@@ -748,9 +767,34 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
         model: MODEL,
         features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
+      });
+    }
+
+    // ── RECEIPTS ENDPOINT ─────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/receipts') {
+      const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
+      const taskId = url.searchParams.get('task');
+      const workspace = url.searchParams.get('workspace');
+      const failuresOnly = url.searchParams.get('failures') === 'true';
+      let receipts: Receipt[];
+      if (taskId) {
+        receipts = receiptStore.byTask(taskId);
+      } else if (workspace) {
+        receipts = receiptStore.byWorkspace(workspace);
+      } else if (failuresOnly) {
+        receipts = receiptStore.failures();
+      } else {
+        receipts = receiptStore.recent(limit);
+      }
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        count: receipts.length,
+        summary: receiptStore.summary(),
+        ttlMs: 60 * 60 * 1000,
+        receipts,
       });
     }
 

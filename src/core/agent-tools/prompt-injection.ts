@@ -116,6 +116,18 @@ const THREAT_PATTERNS: ThreatPattern[] = [
     scopes: ["context", "strict"],
   },
 
+  // ── Soft injection / social engineering ──
+  {
+    name: "soft-injection",
+    pattern: /(?:between\s+you\s+and\s+me|just\s+between\s+us|off\s+the\s+record|don'?t\s+tell\s+anyone|this\s+is\s+secret|let'?s\s+keep\s+this\s+between\s+us|private\s+conversation\s+only)/i,
+    scopes: ["all", "context", "strict"],
+  },
+  {
+    name: "capability-probe",
+    pattern: /(?:list\s+(?:all\s+)?(?:your|every)\s+(?:tools?|capabilities|abilities|functions|endpoints?)|what\s+(?:can|do)\s+you\s+(?:actually\s+)?(?:have|own|possess)\s+(?:in\s+terms\s+of|as)\s+(?:tools?|capabilities))/i,
+    scopes: ["context", "strict"],
+  },
+
   // ── Code execution attempts ──
   {
     name: "inline-code-exec",
