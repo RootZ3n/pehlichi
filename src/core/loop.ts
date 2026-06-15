@@ -443,8 +443,17 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           }
           // Total consecutive failures → force exit with partial
           if (consecutiveFailures >= TOTAL_FAIL_STOP_THRESHOLD) {
-            const output = `Budget governor: ${consecutiveFailures} consecutive tool failures. Last: ${action.tool} — ${result.error ?? "failed"}. Forcing partial exit.`;
+            // Summarize what went wrong so the partial result is useful
+            const failureSummary = `Could not complete: ${action.tool} was blocked (${result.error ?? "failed"}). `;
+            const output = `Budget governor: ${consecutiveFailures} consecutive tool failures. ${failureSummary}Forcing partial exit.`;
             emitter.emit({ kind: "narrate", phase: "other", text: output });
+            // Emit a summary event so the content field is populated
+            emitter.emit({
+              kind: "summary",
+              rootCause: failureSummary + "No further tools are available in this context.",
+              changes: [],
+              verification: [],
+            });
             if (opts.partialOnExhaustion === true) {
               return { ok: false, partial: true, accomplished, output, ...planResult() };
             }
