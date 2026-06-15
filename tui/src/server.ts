@@ -249,11 +249,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const chatToken = opts.chatToken ?? process.env.IKBI_CHAT_TOKEN;
   const hasChatToken = typeof chatToken === 'string' && chatToken.length > 0;
   const isInjected = opts.driver !== undefined;
+  // Write posture: allowWrites controls tool access; chatToken controls endpoint auth.
+  // They are independent: writes work without auth, and auth works without writes.
   const allowWritesEffective = isInjected
     ? opts.allowWrites === true
-    : (opts.allowWrites === true && hasChatToken);
-  if (!isInjected && opts.allowWrites === true && !hasChatToken) {
-    console.warn('[auth] IKBI_CHAT_TOKEN is unset — writes are ALLOWED but unauthenticated. Set IKBI_CHAT_TOKEN to require auth for write operations.');
+    : opts.allowWrites === true;
+  if (!isInjected && !hasChatToken) {
+    console.warn('[auth] IKBI_CHAT_TOKEN is unset — /chat endpoints are OPEN (no auth required).');
   }
 
   // H2 (cross-room bleed): every Matrix room (and DM) gets its OWN KernelChatSession so
