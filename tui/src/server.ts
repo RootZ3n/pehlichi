@@ -770,6 +770,14 @@ export function createPehServer(opts: PehServerOptions = {}): {
         endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
         model: MODEL,
         features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
+        conversations: {
+          canSendMessage: true,
+          canListConversations: false,
+          canReadConversation: false,
+          canCreateConversation: false,
+          canAppendToConversation: false,
+          historyMode: 'stateless',
+        },
       });
     }
 
