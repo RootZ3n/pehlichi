@@ -66,7 +66,7 @@ Each turn, reply with EXACTLY ONE of:
    A done whose rootCause is empty, or whose changes[] or verification[] is empty, will be REJECTED.
    You must actually act and verify (run the terminal) before finishing.
    Set noChangeRequired: true when the task requires no file changes (e.g., answering questions, running read-only commands, inspecting code). Then changes[] may be empty, but rootCause and verification[] are still required.
-   IMPORTANT: if you did NOT modify any files — you only answered, read, searched, or ran read-only commands like pwd/ls/cat — you MUST include "noChangeRequired":true. Example: {"kind":"done","summary":{"rootCause":"ran pwd for the user","changes":[],"verification":["ran pwd, got /path"],"noChangeRequired":true}}.
+   IMPORTANT: if you did NOT modify any files — you only answered, read, searched, or ran read-only commands like pwd/ls/cat — you MUST include "noChangeRequired":true. For direct questions (e.g. "What year did X happen?"), rootCause MUST contain the actual answer, not a description of answering. Example for a question: {"kind":"done","summary":{"rootCause":"The Colosseum opened in 80 CE.","changes":[],"verification":[],"noChangeRequired":true}}. Example for a command: {"kind":"done","summary":{"rootCause":"ran pwd for the user","changes":[],"verification":["ran pwd, got /path"],"noChangeRequired":true}}.
 4. Otherwise narrate your next step, as a single JSON object and nothing else:
    {"kind":"narrate","phase":"investigate"|"act"|"verify"|"other","text":"<one short line>"}
 For kinds 2-4 emit ONLY the JSON object, no surrounding prose.`;

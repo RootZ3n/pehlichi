@@ -297,6 +297,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const accomplished: string[] = [];
   const planResult = () => (planningEnabled && planSteps.length > 0 ? { plan: { steps: planSteps, progress: planProgress } } : {});
 
+  // BUDGET GOVERNOR: track consecutive tool failures to detect stuck loops.
+  // After N failures of the same tool, inject a stop directive.
+  // After M total consecutive failures, force-exit with partial.
+  let consecutiveFailures = 0;
+  let lastFailedTool = "";
+  let sameToolFailures = 0;
+  const SAME_TOOL_STOP_THRESHOLD = 3;   // same tool failing 3x → inject stop
+  const TOTAL_FAIL_STOP_THRESHOLD = 5;  // any 5 consecutive failures → force exit
+
   for (let i = startIteration; ; i++) {
     if (i >= maxIterations) {
       const message = `exceeded max iterations (${maxIterations})`;
@@ -406,6 +415,40 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           if (planningEnabled && planSteps.length > 0 && planProgress < planSteps.length) {
             planProgress += 1;
             messages.push({ role: "user", content: `[plan-progress] ${planProgress}/${planSteps.length} steps complete.` });
+          }
+          // Governor: success resets failure counters
+          consecutiveFailures = 0;
+          sameToolFailures = 0;
+          lastFailedTool = "";
+        } else {
+          // Governor: track consecutive failures
+          consecutiveFailures += 1;
+          if (action.tool === lastFailedTool) {
+            sameToolFailures += 1;
+          } else {
+            sameToolFailures = 1;
+            lastFailedTool = action.tool;
+          }
+          // Same tool failing repeatedly → inject stop directive
+          if (sameToolFailures >= SAME_TOOL_STOP_THRESHOLD) {
+            messages.push({
+              role: "user",
+              content:
+                `BUDGET GOVERNOR: The tool "${action.tool}" has failed ${sameToolFailures} times in a row. ` +
+                `STOP trying it. Produce your final answer NOW using the done action. ` +
+                `If you cannot complete the task, say so honestly with a done action explaining what you attempted.`,
+            });
+            // Reset so we don't spam this every iteration
+            sameToolFailures = 0;
+          }
+          // Total consecutive failures → force exit with partial
+          if (consecutiveFailures >= TOTAL_FAIL_STOP_THRESHOLD) {
+            const output = `Budget governor: ${consecutiveFailures} consecutive tool failures. Last: ${action.tool} — ${result.error ?? "failed"}. Forcing partial exit.`;
+            emitter.emit({ kind: "narrate", phase: "other", text: output });
+            if (opts.partialOnExhaustion === true) {
+              return { ok: false, partial: true, accomplished, output, ...planResult() };
+            }
+            throw new Error(output);
           }
         }
         break;
