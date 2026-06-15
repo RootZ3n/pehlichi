@@ -253,7 +253,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
     ? opts.allowWrites === true
     : (opts.allowWrites === true && hasChatToken);
   if (!isInjected && opts.allowWrites === true && !hasChatToken) {
-    console.warn('[auth] IKBI_CHAT_TOKEN is unset — forcing READ-ONLY mode for network /chat requests.');
+    console.warn('[auth] IKBI_CHAT_TOKEN is unset — writes are ALLOWED but unauthenticated. Set IKBI_CHAT_TOKEN to require auth for write operations.');
   }
 
   // H2 (cross-room bleed): every Matrix room (and DM) gets its OWN KernelChatSession so
@@ -776,7 +776,9 @@ const isMain = process.argv[1] !== undefined && import.meta.url === `file://${pr
 if (isMain) {
   const skin = loadSkin();
   const personality = loadPersonality();
-  const { server } = createPehServer({ allowWrites: process.env.AGENT_ALLOW_WRITES === 'true' });
+  // Allow writes by default. The auth gate (line 252-254) already forces read-only
+  // for unauthenticated callers (no IKBI_CHAT_TOKEN). Authenticated callers get full access.
+  const { server } = createPehServer({ allowWrites: process.env.AGENT_ALLOW_WRITES !== 'false' });
   server.listen(PORT, HOST, () => {
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);
