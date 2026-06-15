@@ -21,7 +21,7 @@ import { createServer as createHttpServer, type IncomingMessage, type Server, ty
 import { readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { dirname, join, extname, sep } from 'node:path';
+import { dirname, join, extname, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -263,19 +263,40 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // demand and keyed by room id; a request without a room id uses the 'default' session
   // (the one returned to embedders/tests). Each room also gets its own checkpoint subdir
   // so per-room history persists independently and never clobbers another room's.
-  const makeSession = (roomKey: string): KernelChatSession =>
-    new KernelChatSession({
+  //
+  // N-WORKSPACE: when a caller supplies `workspace` in the request body (e.g. Howa
+  // trial workspaces), a separate session is created with tools rooted at that
+  // workspace so file operations land in the caller's directory, not the server's
+  // default. The composite key `roomKey + "::" + workspace` keeps workspace-targeted
+  // sessions isolated from each other and from the room's normal session.
+  const makeSession = (roomKey: string, overrideWorkspace?: string): KernelChatSession => {
+    const effectiveWorkspace = overrideWorkspace ?? workspaceRoot;
+    const effectiveLabStore = overrideWorkspace
+      ? join(effectiveWorkspace, '..', 'lab-store')
+      : labStoreRoot;
+    // When workspace is overridden, build a fresh tool registry rooted at that workspace
+    // so all file ops resolve against the caller's directory.
+    const effectiveTools = overrideWorkspace
+      ? createFullToolRegistry({
+          workspaceRoot: effectiveWorkspace,
+          agentServerUrl: `http://${opts.host ?? HOST}:${opts.port ?? PORT}`,
+          ...(apiKey !== undefined ? { apiKey } : {}),
+          delegateAllowWrites: opts.allowWrites === true,
+        })
+      : extraTools;
+    return new KernelChatSession({
       profile: pehProfile,
       driver,
-      workspaceRoot,
-      labStoreRoot,
-      extraTools,
+      workspaceRoot: effectiveWorkspace,
+      labStoreRoot: effectiveLabStore,
+      extraTools: effectiveTools,
       capabilities: capabilitiesSummary,
-      taskId: `pehlichi-${roomKey}`,
+      taskId: `pehlichi-${roomKey}${overrideWorkspace ? `@${basename(overrideWorkspace)}` : ''}`,
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
       ...(checkpointDir !== undefined ? { checkpointDir: join(checkpointDir, sanitizeRoomKey(roomKey)) } : {}),
     });
+  };
 
   // BLOCKER-1: each per-room session carries a lastAccessedAt so idle ones can be evicted.
   interface SessionEntry { session: KernelChatSession; lastAccessedAt: number; }
@@ -305,11 +326,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
     return entry.cs;
   };
-  const sessionFor = (roomKey: string): KernelChatSession => {
-    let entry = sessions.get(roomKey);
+  const sessionFor = (roomKey: string, overrideWorkspace?: string): KernelChatSession => {
+    // N-WORKSPACE: composite key keeps workspace-targeted sessions isolated.
+    const key = overrideWorkspace ? `${roomKey}::${overrideWorkspace}` : roomKey;
+    let entry = sessions.get(key);
     if (entry === undefined) {
-      entry = { session: makeSession(roomKey), lastAccessedAt: now() };
-      sessions.set(roomKey, entry);
+      entry = { session: makeSession(roomKey, overrideWorkspace), lastAccessedAt: now() };
+      sessions.set(key, entry);
     } else {
       entry.lastAccessedAt = now();
     }
@@ -580,8 +603,18 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
 
+      // N-WORKSPACE: when the caller supplies a workspace directory, Pehlichi's file
+      // tools resolve paths against it instead of the server's default root.
+      let overrideWorkspace: string | undefined;
+      try {
+        overrideWorkspace = parseWorkspaceOverride(body);
+      } catch (err) {
+        return json(res, 400, { error: (err as Error).message });
+      }
+      if (overrideWorkspace) console.log(`[chat] workspace override: ${overrideWorkspace}`);
+
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body));
+      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
 
       // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
       // request can be traced; a missing id is stamped (and logged as anonymous) rather
@@ -642,8 +675,17 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
 
+      // N-WORKSPACE: same workspace override as /chat.
+      let overrideWorkspace: string | undefined;
+      try {
+        overrideWorkspace = parseWorkspaceOverride(body);
+      } catch (err) {
+        return json(res, 400, { error: (err as Error).message });
+      }
+      if (overrideWorkspace) console.log(`[chat/stream] workspace override: ${overrideWorkspace}`);
+
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body));
+      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
 
       // BLOCKER-2 (callee): track the streamed task too so it is pollable on timeout.
       const streamCaller = (req.headers['x-agent-id'] as string) || 'anonymous';
@@ -753,6 +795,27 @@ function roomKeyOf(body: Record<string, unknown>): string {
     if (typeof rid === 'string' && rid.length > 0) return rid;
   }
   return 'default';
+}
+
+/**
+ * N-WORKSPACE: parse and validate an optional `workspace` field from a request body.
+ * Returns the absolute path when present and valid, `undefined` when absent, or throws
+ * with a human-readable message when the value is present but invalid.
+ */
+function parseWorkspaceOverride(body: Record<string, unknown>): string | undefined {
+  const raw = body.workspace;
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  if (!raw.startsWith('/') || raw.includes('..')) {
+    throw new Error('workspace must be an absolute path without ..');
+  }
+  try {
+    const st = statSync(raw);
+    if (!st.isDirectory()) throw new Error('workspace is not a directory');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'workspace is not a directory') throw err;
+    throw new Error(`workspace directory not found: ${raw}`);
+  }
+  return raw;
 }
 
 /** Make a room id safe as a single path segment for its checkpoint subdir. */
