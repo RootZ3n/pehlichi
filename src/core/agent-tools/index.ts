@@ -35,6 +35,7 @@ import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
 import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
 import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js';
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
+import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -178,6 +179,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
 
   const clarifyHandlers = createClarifyToolHandlers();
 
+  // BRAIN (gbrain bridge): search/think recall + put/sync write-back over the knowledge
+  // brain. brain_sync is receipt-gated inside the handler.
+  const brainHandlers = createBrainToolHandlers();
+
   const tools: ToolDef[] = [];
 
   // Browser tools
@@ -249,6 +254,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Coordination tools (agent_sync)
   for (const spec of coordinationToolSpecs) {
     const handler = coordinationHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Brain tools (gbrain bridge)
+  for (const spec of brainToolSpecs) {
+    const handler = brainHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
