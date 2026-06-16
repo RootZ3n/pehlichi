@@ -18,7 +18,7 @@
  * count so an operator can tell the two apart and see which one owns which schedules.
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join, extname, sep, basename } from 'node:path';
@@ -850,24 +850,72 @@ function roomKeyOf(body: Record<string, unknown>): string {
 }
 
 /**
- * N-WORKSPACE: parse and validate an optional `workspace` field from a request body.
- * Returns the absolute path when present and valid, `undefined` when absent, or throws
- * with a human-readable message when the value is present but invalid.
+ * Approved roots a caller-supplied `workspace` override may point inside. Operator-configured via
+ * PEHLICHI_WORKSPACE_ROOTS (comma-separated absolute paths). Each is realpath-resolved so symlinks
+ * can't widen the set. EMPTY when unset ⇒ overrides fail closed (the default server workspace, which
+ * is NOT caller-controlled, still works without an allowlist).
  */
-function parseWorkspaceOverride(body: Record<string, unknown>): string | undefined {
+function allowedWorkspaceRoots(): string[] {
+  const raw = process.env.PEHLICHI_WORKSPACE_ROOTS ?? '';
+  const roots: string[] = [];
+  for (const part of raw.split(',')) {
+    const p = part.trim();
+    if (p.length === 0 || !p.startsWith('/')) continue;
+    try {
+      roots.push(realpathSync(p));
+    } catch {
+      // A configured root that doesn't exist is silently dropped — it can confine nothing.
+    }
+  }
+  return roots;
+}
+
+/** True iff `target` is `root` itself or a path strictly inside it. */
+function isWithin(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + sep);
+}
+
+/**
+ * N-WORKSPACE: parse and CONFINE an optional `workspace` field from a request body.
+ * Returns the realpath'd absolute path when present and inside an approved root, `undefined` when
+ * absent, or throws with operator guidance when present but invalid/outside the allowlist.
+ *
+ * Hardening (Codex P6): a caller may NOT point tools at an arbitrary absolute directory. The path
+ * must (a) be absolute and free of `..`, (b) exist as a directory, and (c) realpath INTO one of the
+ * PEHLICHI_WORKSPACE_ROOTS — which rejects /etc, the home root, sibling repos, and symlink escapes.
+ */
+export function parseWorkspaceOverride(body: Record<string, unknown>): string | undefined {
   const raw = body.workspace;
   if (typeof raw !== 'string' || raw.length === 0) return undefined;
   if (!raw.startsWith('/') || raw.includes('..')) {
     throw new Error('workspace must be an absolute path without ..');
   }
+
+  const roots = allowedWorkspaceRoots();
+  if (roots.length === 0) {
+    throw new Error(
+      'workspace override is disabled: set PEHLICHI_WORKSPACE_ROOTS to a comma-separated list of ' +
+        'approved absolute roots (e.g. PEHLICHI_WORKSPACE_ROOTS=/pehverse/repos,/pehverse/projects)',
+    );
+  }
+
+  let real: string;
   try {
     const st = statSync(raw);
     if (!st.isDirectory()) throw new Error('workspace is not a directory');
+    real = realpathSync(raw); // collapses symlinks — a symlink pointing outside is caught below
   } catch (err) {
     if (err instanceof Error && err.message === 'workspace is not a directory') throw err;
     throw new Error(`workspace directory not found: ${raw}`);
   }
-  return raw;
+
+  if (!roots.some((root) => isWithin(root, real))) {
+    throw new Error(
+      `workspace "${raw}" is outside the approved roots [${roots.join(', ')}]; ` +
+        'add its root to PEHLICHI_WORKSPACE_ROOTS to allow it',
+    );
+  }
+  return real;
 }
 
 /** Make a room id safe as a single path segment for its checkpoint subdir. */

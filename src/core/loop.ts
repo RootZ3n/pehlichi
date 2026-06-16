@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
 
+import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import type { Driver, Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
@@ -23,10 +24,26 @@ import {
   type ToolResult,
 } from "./tools.js";
 
-const DEFAULT_MAX_ITERATIONS = 50;
+// Runaway guard default. Deliberately MODEST: a direct/library run never silently grinds through
+// 50 iterations. A trusted operator can raise it explicitly via opts.maxIterations (e.g. the server
+// assigns a higher budget for an escalated mutation/delegation task).
+const DEFAULT_MAX_ITERATIONS = 12;
 
-/** The decision used when no approval callback is wired: approve every tool. */
-const APPROVED: ToolApprovalDecision = { approved: true };
+/**
+ * Default approval when NO approvalCallback is wired (direct/library use). It auto-approves only
+ * the small, explicit read-only set and DENIES every mutating tool. Direct callers MUST pass an
+ * explicit approvalCallback to run mutating tools — the library never default-approves mutation.
+ * (Server flows always pass defaultApprovalPolicy, so this only governs direct library callers.)
+ */
+const defaultLibraryApproval: ApprovalCallback = ({ tool }) =>
+  READ_ONLY_TOOLS.has(tool)
+    ? { approved: true }
+    : {
+        approved: false,
+        reason:
+          `mutating tool "${tool}" denied by default: direct/library use requires an explicit ` +
+          `approvalCallback to authorize mutating tools (read-only tools run without one)`,
+      };
 
 export interface RunAgentOptions {
   readonly profile: AgentProfile;
@@ -371,7 +388,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           // a failure result; the handler is never invoked. Unset callback => approve.
           const decision = opts.approvalCallback
             ? await opts.approvalCallback({ tool: action.tool, args: action.args, ctx })
-            : APPROVED;
+            : await defaultLibraryApproval({ tool: action.tool, args: action.args, ctx });
           if (!decision.approved) {
             result = {
               ok: false,

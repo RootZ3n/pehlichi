@@ -45,6 +45,9 @@ async function runShadow(
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
       sinks: [events],
+      // These tests exercise terminal MECHANICS (cwd/env/output/receipt); the loop now denies
+      // mutating tools by default, so authorize explicitly to reach the handler under test.
+      approvalCallback: () => ({ approved: true }),
     });
   } finally {
     rmSync(labStore, { recursive: true, force: true });

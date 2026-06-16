@@ -49,6 +49,21 @@ function assertSubsequence(actual: string[], expected: string[]): void {
   assert.equal(i, expected.length, `expected subsequence [${expected.join(", ")}] within [${actual.join(", ")}]`);
 }
 
+// Explicit allow-all approval. Direct/library runs now DENY mutating tools by default, so tests that
+// exercise tool MECHANICS (terminal, seam tools, planning) opt in explicitly to authorize them.
+const allowAll = () => ({ approved: true as const });
+
+// A seam tool named like a known read-only tool (read_file ∈ READ_ONLY_TOOLS), so the default
+// library approval auto-approves it. Used to prove read-only tools still run with no callback.
+const readOnlyProbeTool: ToolDef = {
+  spec: {
+    name: "read_file",
+    description: "Read-only probe",
+    parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
+  },
+  handler: async (args) => ({ ok: true, output: `read ${String(args.path ?? "")}` }),
+};
+
 test("1. full-loop scenario: events in order, real command, real file change", async () => {
   const workspace = createWorkspace();
   const labStore = createLabStore();
@@ -61,6 +76,7 @@ test("1. full-loop scenario: events in order, real command, real file change", a
       labStoreRoot: labStore,
       driver: new ScriptedDriver(scenarioActions()),
       sinks: [sink],
+      approvalCallback: allowAll,
     });
 
     // 1a. the stream carries the key events IN ORDER.
@@ -138,6 +154,7 @@ test("3. terminal command that exits non-zero returns ok=false", async () => {
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
       sinks: [sink],
+      approvalCallback: allowAll,
     });
     const res = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
     assert.ok(res && res.kind === "tool-result");
@@ -165,6 +182,7 @@ test("4. terminal timeout surfaces as a clean tool-result error, not a hang", as
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
       sinks: [sink],
+      approvalCallback: allowAll,
     });
     const res = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
     assert.ok(res && res.kind === "tool-result");
@@ -234,6 +252,7 @@ test("6. extraTools seam: agent-supplied tools are registered alongside core", a
       driver: new ScriptedDriver(actions),
       sinks: [sink],
       extraTools: [echoTool],
+      approvalCallback: allowAll,
     });
     const res = events.find((e) => e.kind === "tool-result" && e.tool === "echo");
     assert.ok(res && res.kind === "tool-result");
@@ -350,6 +369,7 @@ test("10. partialOnExhaustion: exhausting the budget returns a partial result wi
       driver: new ScriptedDriver(actions),
       maxIterations: 3,
       partialOnExhaustion: true,
+      approvalCallback: allowAll,
     });
     assert.equal(result.ok, false);
     assert.equal(result.partial, true);
@@ -401,6 +421,7 @@ test("12. planning enabled: a numbered plan is captured and progress is tracked"
       workspaceRoot: workspace,
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
+      approvalCallback: allowAll,
     });
     assert.equal(result.ok, true);
     assert.ok(result.plan, "a plan was captured");
@@ -551,13 +572,48 @@ test("17. approvalCallback rejects a tool: the handler never runs and a rejectio
   }
 });
 
-test("18. no approvalCallback (default): every tool executes normally", async () => {
+test("18. no approvalCallback (default): a MUTATING tool is DENIED, never executed", async () => {
+  // SAFETY: direct/library use must NOT default-approve mutating tools. With no approvalCallback,
+  // `terminal` (mutating) is denied at the gate — the handler never runs, the failure is fed back,
+  // and the failure cannot be summarized as success.
   const workspace = createWorkspace();
   const labStore = createLabStore();
   const { events, sink } = capture();
   const actions: DriverAction[] = [
-    { kind: "tool", tool: "terminal", args: { command: "echo approved" } },
+    { kind: "tool", tool: "terminal", args: { command: "echo SHOULD_NOT_RUN" } },
     { kind: "done", summary: { rootCause: "r", changes: ["c"], verification: ["v"] } },
+  ];
+  try {
+    await runAgent({
+      profile: testProfile,
+      task: "t",
+      workspaceRoot: workspace,
+      labStoreRoot: labStore,
+      driver: new ScriptedDriver(actions),
+      sinks: [sink],
+      // NO approvalCallback — exercising the library default.
+    });
+    const res = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
+    assert.ok(res && res.kind === "tool-result");
+    assert.equal(res.ok, false, "mutating tool is denied by default");
+    assert.match(res.error ?? "", /denied by default|requires an explicit approvalCallback/);
+    // The command must NOT have executed (no output echoed back) — the denial is recorded as a
+    // failed tool-result, so a denied mutation can never be presented as a successful tool call.
+    assert.ok(!(res.output ?? "").includes("SHOULD_NOT_RUN"), "the denied command never ran");
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("18b. no approvalCallback (default): a READ-ONLY tool still runs", async () => {
+  // The default policy auto-approves the explicit read-only set, so a read tool runs without a callback.
+  const workspace = createWorkspace();
+  const labStore = createLabStore();
+  const { events, sink } = capture();
+  const actions: DriverAction[] = [
+    { kind: "tool", tool: "read_file", args: { path: "app.sh" } },
+    { kind: "done", summary: { rootCause: "r", changes: [], verification: ["v"], noChangeRequired: true } },
   ];
   try {
     const result = await runAgent({
@@ -567,12 +623,12 @@ test("18. no approvalCallback (default): every tool executes normally", async ()
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
       sinks: [sink],
+      extraTools: [readOnlyProbeTool],
     });
-    assert.equal(result.ok, true);
-    const res = events.find((e) => e.kind === "tool-result" && e.tool === "terminal");
-    assert.ok(res && res.kind === "tool-result");
+    const res = events.find((e) => e.kind === "tool-result" && e.tool === "read_file");
+    assert.ok(res && res.kind === "tool-result", "read_file was reached (not denied at the gate)");
     assert.equal(res.ok, true);
-    assert.match(res.output, /approved/);
+    assert.equal(result.ok, true);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
     rmSync(labStore, { recursive: true, force: true });
