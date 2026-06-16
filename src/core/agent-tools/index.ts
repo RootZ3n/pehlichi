@@ -32,6 +32,7 @@ import { delegateToolSpecs, createDelegateToolHandlers } from './delegate-tools.
 import { todoToolSpecs, createTodoToolHandlers } from './todo-tools.js';
 import { skillToolSpecs, createSkillToolHandlers } from './skill-tools.js';
 import { memoryToolSpecs, createMemoryToolHandlers } from './memory-tools.js';
+import { createFileMemoryGovernance, createFileBrainGovernance } from './memory-governance.js';
 import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
 import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js';
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
@@ -162,7 +163,14 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
   const skillHandlers = createSkillToolHandlers(skillsRoot);
   const memoryDir = config.memoryDir ?? join(config.workspaceRoot, 'memories');
-  const memoryHandlers = createMemoryToolHandlers({ memoryDir });
+  // GOVERNANCE BOUNDARY: the agent-facing memory tool ALWAYS gets a governance sink,
+  // so durable add/replace/remove create proposals (returns a proposal id, no durable
+  // write) instead of installing memory directly. Proposals land in <memoryDir>/.proposals
+  // for human verification + approval. The raw handler keeps a trusted direct-write mode
+  // (no sink) for internal callers/tests only.
+  const memoryGovernance = createFileMemoryGovernance({ proposalsDir: join(memoryDir, '.proposals') });
+  const memoryAgentId = config.agentId ?? config.workspaceRoot.split('/').filter(Boolean).pop() ?? 'pehlichi';
+  const memoryHandlers = createMemoryToolHandlers({ memoryDir, governance: memoryGovernance, agentId: memoryAgentId });
   // CRON (Blocker 3): the execute callback runs a REAL agent loop in a disposable
   // shadow workspace and returns its summary — not a stub string. Jobs persist to a
   // JSON file and active ones re-arm on the next process start.
@@ -180,8 +188,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const clarifyHandlers = createClarifyToolHandlers();
 
   // BRAIN (gbrain bridge): search/think recall + put/sync write-back over the knowledge
-  // brain. brain_sync is receipt-gated inside the handler.
-  const brainHandlers = createBrainToolHandlers();
+  // brain. brain_sync is receipt-gated inside the handler. brain_put (durable write) is
+  // routed through a governance proposal — the agent cannot write the brain directly.
+  const brainGovernance = createFileBrainGovernance({ proposalsDir: join(memoryDir, '.proposals') });
+  const brainHandlers = createBrainToolHandlers({ governance: brainGovernance, agentId: memoryAgentId });
 
   const tools: ToolDef[] = [];
 

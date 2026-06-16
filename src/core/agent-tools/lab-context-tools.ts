@@ -33,11 +33,36 @@ function getStoreRoot(): string {
 async function getStore() {
   if (_store && _storeRoot === getStoreRoot()) return _store;
   const root = getStoreRoot();
-  // Dynamic import so we don't crash if lab-memory isn't installed
+  // Dynamic import so we don't crash if lab-memory isn't installed.
+  // NOTE: reads only. createMemoryStore({ root }) is unguarded; this handler never
+  // calls its createMemory/supersedeMemory — durable writes go through governance
+  // (proposeMemoryCreate / proposeMemorySupersede) below.
   const { createMemoryStore } = await import(join(root, 'src/store.js'));
   _store = createMemoryStore({ root });
   _storeRoot = root;
   return _store;
+}
+
+/** Load lab-memory's agent-facing proposal API (no durable write — returns a pending proposal). */
+async function getGovernance() {
+  const root = getStoreRoot();
+  const { proposeMemoryCreate, proposeMemorySupersede } = await import(join(root, 'src/governance.js'));
+  return { proposeMemoryCreate, proposeMemorySupersede };
+}
+
+/** Render a lab-memory proposal as a clear, non-installed tool result. */
+function renderProposal(p: any): string {
+  return [
+    `Lab memory ${p.kind} PROPOSAL created — NOT installed.`,
+    `  target:    ${p.target}`,
+    `  project:   ${p.project}`,
+    `  risk:      ${p.risk}`,
+    `  status:    ${p.status} — pending verification + human approval`,
+    `  installed: no (shared lab memory is unchanged)`,
+    ``,
+    `Durable lab memory is governed: this proposal must be verified and approved through`,
+    `improvement-governance before it is installed. Nothing was written to disk.`,
+  ].join('\n');
 }
 
 // ── Tool specs ───────────────────────────────────────────────────────────────
@@ -62,12 +87,13 @@ Returns memory entries with: id, title, description, project, status, version, t
   },
   {
     name: 'lab_context_write',
-    description: `Write to shared lab memory. Two modes:
-- Create: provide id, title, description, project, body to create a new entry
-- Supersede: provide oldId, newId, title, description, project, body to replace an existing entry
+    description: `Propose a change to shared lab memory. Two modes:
+- Create: provide id, title, description, project, body to propose a new entry
+- Supersede: provide oldId, newId, title, description, project, body to propose replacing an entry
 
-Superseding maintains exactly ONE current entry per chain (the core invariant).
-Every write is git-committed for full audit trail.`,
+GOVERNED: this does NOT install durable memory. It creates a governance proposal
+(returns its target + risk) that must be verified and approved by a human through
+improvement-governance before anything is written. Reads are direct; writes are proposals.`,
     parameters: {
       type: 'object',
       properties: {
@@ -141,7 +167,6 @@ const readHandler: ToolHandler = async (args) => {
 
 const writeHandler: ToolHandler = async (args) => {
   try {
-    const store = await getStore();
     const action = args.action as string;
 
     // Scan for injection in the body
@@ -158,11 +183,18 @@ const writeHandler: ToolHandler = async (args) => {
     // Sanitize all text fields
     const sanitize = (s: unknown) => typeof s === 'string' ? sanitizeMessage(s) : '';
 
+    // GOVERNANCE BOUNDARY: this agent-facing tool may PROPOSE durable lab-memory
+    // changes but may NOT install them. It calls lab-memory's proposal API (which
+    // never writes) instead of the store's createMemory/supersedeMemory. Install
+    // happens only after the proposal is verified + approved through
+    // improvement-governance.
+    const { proposeMemoryCreate, proposeMemorySupersede } = await getGovernance();
+
     if (action === 'create') {
       if (!args.id || typeof args.id !== 'string') {
         return { ok: false, output: '', error: 'create requires an id (slug)' };
       }
-      const meta = store.createMemory({
+      const proposal = proposeMemoryCreate({
         id: args.id,
         title: sanitize(args.title),
         description: sanitize(args.description),
@@ -170,10 +202,7 @@ const writeHandler: ToolHandler = async (args) => {
         tags: Array.isArray(args.tags) ? args.tags.map(sanitize) : [],
         body: sanitize(body),
       });
-      return {
-        ok: true,
-        output: `Created memory entry "${meta.id}" (v${meta.version}, project: ${meta.project})`,
-      };
+      return { ok: true, output: renderProposal(proposal) };
     }
 
     if (action === 'supersede') {
@@ -183,7 +212,7 @@ const writeHandler: ToolHandler = async (args) => {
       if (!args.newId || typeof args.newId !== 'string') {
         return { ok: false, output: '', error: 'supersede requires newId' };
       }
-      const result = store.supersedeMemory({
+      const proposal = proposeMemorySupersede({
         oldId: args.oldId,
         newId: args.newId,
         title: sanitize(args.title),
@@ -192,10 +221,7 @@ const writeHandler: ToolHandler = async (args) => {
         tags: Array.isArray(args.tags) ? args.tags.map(sanitize) : [],
         body: sanitize(body),
       });
-      return {
-        ok: true,
-        output: `Superseded "${result.superseded.id}" → "${result.current.id}" (v${result.current.version}, project: ${result.current.project})`,
-      };
+      return { ok: true, output: renderProposal(proposal) };
     }
 
     return { ok: false, output: '', error: `Unknown action: ${action}. Use 'create' or 'supersede'.` };

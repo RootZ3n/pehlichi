@@ -23,6 +23,7 @@ import {
   type ToolDef,
   type ToolResult,
 } from "./tools.js";
+import { RepetitionDetector, resolveToolBudget, type BudgetTier } from "./agent-tools/tool-governor.js";
 
 // Runaway guard default. Deliberately MODEST: a direct/library run never silently grinds through
 // 50 iterations. A trusted operator can raise it explicitly via opts.maxIterations (e.g. the server
@@ -55,6 +56,15 @@ export interface RunAgentOptions {
   readonly sinks?: readonly EventSink[];
   /** Runaway guard. Default 50. */
   readonly maxIterations?: number;
+  /**
+   * Per-tier tool budget (Phase 7). When set and `maxIterations` is not explicitly
+   * given, the loop derives its iteration cap from the tier:
+   * converse=4, readonly=12, mutation=12, escalation up to 20 (with a reason). A
+   * casual prompt thus cannot spin a long tool loop.
+   */
+  readonly budgetTier?: BudgetTier;
+  /** Justification + requested ceiling for an escalation budget tier. */
+  readonly budgetEscalation?: { readonly requested: number; readonly reason?: string };
   /** Inject a store (tests); otherwise one is bound to labStoreRoot. */
   readonly store?: Store;
   /**
@@ -226,7 +236,13 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const clock = opts.clock ?? Date.now;
   const emitter = new EventEmitter(opts.sinks ?? [], clock);
-  const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  // Per-tier budget (Phase 7): an explicit maxIterations always wins; otherwise a
+  // budgetTier derives the cap (converse=4 keeps casual prompts out of long loops).
+  const maxIterations =
+    opts.maxIterations ??
+    (opts.budgetTier !== undefined
+      ? resolveToolBudget({ tier: opts.budgetTier, ...(opts.budgetEscalation !== undefined ? { escalate: opts.budgetEscalation } : {}) }).max
+      : DEFAULT_MAX_ITERATIONS);
   const workspaceRoot = resolve(opts.workspaceRoot);
   const store = opts.store ?? createStore({ root: opts.labStoreRoot });
   // Seam A: a memory store only when the run wires one (injected or by root).
@@ -322,6 +338,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   let sameToolFailures = 0;
   const SAME_TOOL_STOP_THRESHOLD = 2;   // same tool failing 2x → inject stop
   const TOTAL_FAIL_STOP_THRESHOLD = 3;  // any 3 consecutive failures → force exit
+  // Phase 7: repeated same-args / no-progress / stuck-delegation detection. Tools whose
+  // name contains "delegate" are treated as delegation calls — repeated failure is a HARD
+  // stop (a human should review rather than letting Pehlichi hammer the delegate target).
+  const repetition = new RepetitionDetector();
+  let repetitionStopInjected = false;
 
   for (let i = startIteration; ; i++) {
     if (i >= maxIterations) {
@@ -426,6 +447,37 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         // here. A call that never executed (e.g. textual-call-detected) produces
         // NO such message — the model has nothing to cite for it.
         messages.push({ role: "tool", content: toolResultForHistory(action.tool, result) });
+
+        // REPETITION / NO-PROGRESS GOVERNOR (Phase 7): detect same-tool+same-args
+        // loops, repeated no-evidence reads, and stuck delegations. A hard stop
+        // (repeated delegation failure) forces a partial exit for human review; a
+        // soft stop injects a single directive to finish without more tools.
+        const isDelegation = /delegate/i.test(action.tool);
+        const verdict = repetition.record({
+          tool: action.tool,
+          args: action.args,
+          ok: result.ok,
+          ...(isDelegation ? { isDelegation: true } : {}),
+        });
+        if (verdict.stop && verdict.hard === true) {
+          const output = `BUDGET GOVERNOR: ${verdict.reason}. Forcing partial exit.`;
+          emitter.emit({ kind: "narrate", phase: "other", text: output });
+          emitter.emit({ kind: "summary", rootCause: verdict.reason ?? "stopped", changes: [], verification: [] });
+          if (opts.partialOnExhaustion === true) {
+            return { ok: false, partial: true, accomplished, output, ...planResult() };
+          }
+          throw new Error(output);
+        }
+        if (verdict.stop && !repetitionStopInjected) {
+          repetitionStopInjected = true;
+          messages.push({
+            role: "user",
+            content:
+              `BUDGET GOVERNOR: ${verdict.reason}. DO NOT call this tool again with the same input. ` +
+              `Produce your final answer NOW using the done action; if you cannot, explain why in rootCause.`,
+          });
+        }
+
         // PARTIAL RESULTS: record the accomplishment; advance plan progress.
         if (result.ok) {
           accomplished.push(`${action.tool}: ${firstLine(result.output) || "ok"}`);

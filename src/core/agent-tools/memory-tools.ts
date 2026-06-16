@@ -25,6 +25,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
+import type { MemoryGovernance, MemoryChangeRequest } from './memory-governance.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -58,20 +59,27 @@ Two stores:
 - USER: what the agent knows about the user (preferences, communication style, workflow habits). ${USER_CHAR_LIMIT} char limit.
 
 Actions:
-- add: Append a new entry. Content should be a concise, factual statement.
-- replace: Find an entry by short unique substring, replace it with new content.
-- remove: Find an entry by short unique substring, delete it.
+- add: Propose appending a new entry. Content should be a concise, factual statement.
+- replace: Propose replacing an entry found by short unique substring.
+- remove: Propose deleting an entry found by short unique substring.
 - read: Read all current entries (returns live state from disk).
 
+GOVERNANCE: durable add/replace/remove do NOT write memory directly. They create a
+governance PROPOSAL (returns a proposal id) that a human must verify and approve
+before it is installed. Reads are always direct.
+
+EPHEMERAL SCRATCH: pass ephemeral=true with add/read to use session-only scratch
+memory. Scratch is NON-DURABLE — it is never installed and is gone at session end.
+
 Entries are § delimited. Be concise — each entry should be 1-3 sentences max.
-Memory entries are injected into the system prompt and survive context compaction.
-Write important things down — don't make the user repeat themselves.`,
+Durable memory entries are injected into the system prompt and survive compaction.`,
     parameters: obj(
       {
         action: { type: 'string', enum: ['add', 'replace', 'remove', 'read'], description: 'Action to perform' },
         target: { type: 'string', enum: ['memory', 'user'], description: 'Which store (memory=agent notes, user=user profile)' },
         content: { type: 'string', description: 'Entry content (for add/replace). Concise, factual statement.' },
         old_text: { type: 'string', description: 'Unique substring to find (for replace/remove)' },
+        ephemeral: { type: 'boolean', description: 'If true, use session-only NON-DURABLE scratch memory (no proposal, no durable write).' },
       },
       ['action'],
     ),
@@ -82,6 +90,16 @@ export interface MemoryStoreConfig {
   memoryDir: string;
   memoryCharLimit?: number;
   userCharLimit?: number;
+  /**
+   * GOVERNANCE SINK. When set, durable add/replace/remove create a pending
+   * proposal (returns a proposal id) instead of writing MEMORY.md/USER.md. The
+   * agent-facing wiring (createFullToolRegistry) ALWAYS supplies one — that is the
+   * trust boundary. When unset, the handler keeps the trusted direct-write mode
+   * for trusted internal callers and unit tests. Reads are unaffected either way.
+   */
+  governance?: MemoryGovernance;
+  /** Agent id recorded on each proposal (defaults to "pehlichi"). */
+  agentId?: string;
 }
 
 /**
@@ -93,6 +111,12 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
   const memoryDir = config.memoryDir;
   const memoryCharLimit = config.memoryCharLimit ?? MEMORY_CHAR_LIMIT;
   const userCharLimit = config.userCharLimit ?? USER_CHAR_LIMIT;
+  const governance = config.governance;
+  const agentId = config.agentId ?? 'pehlichi';
+
+  // EPHEMERAL SCRATCH: session-only, non-durable. Lives in this closure and is
+  // discarded when the process ends. Never written to disk, never installed.
+  const scratch: { memory: string[]; user: string[] } = { memory: [], user: [] };
 
   // Ensure memory directory exists
   if (!existsSync(memoryDir)) {
@@ -139,9 +163,31 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
   handlers.set('memory', async (args): Promise<ToolResult> => {
     const action = args.action as string;
     const target = (args.target as string) ?? 'memory';
+    const ephemeral = args.ephemeral === true;
 
     if (!['memory', 'user'].includes(target)) {
       return { ok: false, output: '', error: `Invalid target: ${target}. Use "memory" or "user".` };
+    }
+
+    // EPHEMERAL SCRATCH path: session-only, never durable, never proposed.
+    if (ephemeral) {
+      const bucket = scratch[target as 'memory' | 'user'];
+      switch (action) {
+        case 'add': {
+          const content = (args.content as string)?.trim();
+          if (!content) return { ok: false, output: '', error: 'content is required for add' };
+          const injection = scanForInjection(content);
+          if (injection) return { ok: false, output: '', error: injection };
+          bucket.push(content);
+          return { ok: true, output: `[ephemeral/non-durable] noted in ${target} scratch (${bucket.length} entries). Lost at session end.` };
+        }
+        case 'read': {
+          if (bucket.length === 0) return { ok: true, output: `[ephemeral/non-durable] No scratch entries in ${target}.` };
+          return { ok: true, output: `[ephemeral/non-durable] ${target} scratch:\n\n${bucket.map((e, i) => `${i + 1}. ${e}`).join('\n')}` };
+        }
+        default:
+          return { ok: false, output: '', error: `ephemeral scratch supports only add/read (got "${action}")` };
+      }
     }
 
     switch (action) {
@@ -169,6 +215,11 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
         const injection = scanForInjection(content);
         if (injection) {
           return { ok: false, output: '', error: injection };
+        }
+
+        // GOVERNANCE: a durable add becomes a proposal, not a direct write.
+        if (governance) {
+          return proposeChange(governance, agentId, { action: 'add', target: target as 'memory' | 'user', content });
         }
 
         const entries = loadEntries(target);
@@ -213,6 +264,16 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
         const injection = scanForInjection(newContent);
         if (injection) {
           return { ok: false, output: '', error: injection };
+        }
+
+        // GOVERNANCE: a durable replace becomes a proposal, not a direct write.
+        if (governance) {
+          return proposeChange(governance, agentId, {
+            action: 'replace',
+            target: target as 'memory' | 'user',
+            content: newContent,
+            oldText,
+          });
         }
 
         const entries = loadEntries(target);
@@ -262,6 +323,11 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
         const oldText = args.old_text as string;
         if (!oldText) {
           return { ok: false, output: '', error: 'old_text is required for remove' };
+        }
+
+        // GOVERNANCE: a durable remove becomes a proposal, not a direct write.
+        if (governance) {
+          return proposeChange(governance, agentId, { action: 'remove', target: target as 'memory' | 'user', oldText });
         }
 
         const entries = loadEntries(target);
@@ -347,4 +413,30 @@ function scanForInjection(content: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Route a durable memory change through governance: record a pending proposal and
+ * return a clear tool result that names the proposal, its target, risk, and that
+ * NOTHING was installed. This is the only durable-write path the agent can reach
+ * once a governance sink is wired.
+ */
+function proposeChange(
+  governance: MemoryGovernance,
+  agentId: string,
+  change: MemoryChangeRequest,
+): ToolResult {
+  const p = governance.propose(change, agentId);
+  const lines = [
+    `Memory ${change.action} PROPOSAL created — NOT installed.`,
+    `  proposal id:   ${p.id}`,
+    `  target:        ${p.target} (${p.namespace})`,
+    `  risk:          ${p.risk_level} (${p.improvement_type})`,
+    `  status:        ${p.status} — pending verification + ${p.requiresHumanApproval ? 'human approval' : 'approval'}`,
+    `  installed:     no (durable memory is unchanged)`,
+    ``,
+    `Durable memory is governed: a human must verify and approve proposal ${p.id} before it is installed.`,
+    `For session-only notes, call memory with ephemeral=true (non-durable scratch).`,
+  ];
+  return { ok: true, output: lines.join('\n') };
 }

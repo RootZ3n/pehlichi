@@ -20,6 +20,19 @@
 import type { ToolSpec, ToolHandler, ToolResult } from "../tools.js";
 import { GbrainError, searchBrain, thinkBrain, putPage, syncMemory } from "../gbrain-bridge.js";
 import { scanForInjection } from "./prompt-injection.js";
+import type { BrainGovernance } from "./memory-governance.js";
+
+export interface BrainToolConfig {
+  /**
+   * GOVERNANCE SINK for durable brain writes. When set, brain_put creates a pending
+   * proposal (returns a proposal id) instead of writing the brain directly. The
+   * agent-facing wiring always supplies one; the trusted/test mode (no sink) keeps
+   * the direct write. brain_search/brain_think (reads) are unaffected.
+   */
+  governance?: BrainGovernance;
+  /** Agent id recorded on each brain proposal (defaults to "pehlichi"). */
+  agentId?: string;
+}
 
 const obj = (
   properties: Record<string, unknown>,
@@ -103,8 +116,10 @@ function toError(tool: string, err: unknown): ToolResult {
   return { ok: false, output: "", error: `${tool} failed: ${err instanceof Error ? err.message : String(err)}` };
 }
 
-export function createBrainToolHandlers(): Map<string, ToolHandler> {
+export function createBrainToolHandlers(config: BrainToolConfig = {}): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
+  const governance = config.governance;
+  const agentId = config.agentId ?? "pehlichi";
 
   handlers.set("brain_search", async (args): Promise<ToolResult> => {
     const query = (args.query as string)?.trim();
@@ -140,6 +155,24 @@ export function createBrainToolHandlers(): Map<string, ToolHandler> {
     const scan = scanForInjection(content, "context");
     if (scan.detected) {
       return { ok: false, output: "", error: `brain_put blocked: injection pattern(s) ${scan.patterns.join(", ")}` };
+    }
+
+    // GOVERNANCE: a durable brain write becomes a proposal, not a direct write.
+    if (governance) {
+      const p = governance.proposePut(slug, content, agentId);
+      return {
+        ok: true,
+        output: [
+          `brain_put PROPOSAL created — NOT installed.`,
+          `  proposal id: ${p.id}`,
+          `  slug:        ${p.slug}`,
+          `  risk:        ${p.risk_level} (${p.improvement_type})`,
+          `  status:      ${p.status} — pending verification + ${p.requiresHumanApproval ? "human approval" : "approval"}`,
+          `  installed:   no (the brain is unchanged)`,
+          ``,
+          `Durable brain writes are governed: a human must approve proposal ${p.id} before the page is written.`,
+        ].join("\n"),
+      };
     }
 
     try {
