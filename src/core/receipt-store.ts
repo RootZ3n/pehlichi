@@ -24,6 +24,8 @@ export interface Receipt {
   readonly injectionDetected?: boolean;
   readonly partial?: boolean;
   readonly durationMs?: number;
+  /** Receipt ID alias for Kokuli/Ittunaha compatibility. */
+  readonly receipt_id?: string;
 }
 
 export interface ReceiptStoreOptions {
@@ -56,6 +58,7 @@ export class ReceiptStore {
       ...data,
       id: `r-${this.clock()}-${(++this.idCounter).toString(36)}`,
       timestamp: this.clock(),
+      receipt_id: `r-${this.clock()}-${this.idCounter.toString(36)}`,
     };
     this.receipts.set(receipt.id, receipt);
     return receipt;
