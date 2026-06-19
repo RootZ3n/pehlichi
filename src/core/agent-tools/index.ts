@@ -38,6 +38,7 @@ import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js'
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
 import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
+import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -198,6 +199,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // the base URL comes from IKBI_API_URL (default http://localhost:18796).
   const ikbiHandlers = createIkbiToolHandlers();
 
+  // MUSIC: MiniMax Music 2.6 API for song generation, lyrics, and covers.
+  // API key from MINIMAX_API_KEY env var.
+  const musicHandlers = createMusicToolHandlers();
+
   const tools: ToolDef[] = [];
 
   // Browser tools
@@ -281,6 +286,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Ikbi tools (build engine HTTP bridge)
   for (const spec of ikbiToolSpecs) {
     const handler = ikbiHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Music tools (MiniMax Music 2.6)
+  for (const spec of musicToolSpecs) {
+    const handler = musicHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
