@@ -1,13 +1,13 @@
 ---
 name: work-order-creator
-description: "Create work orders for Ptah. Use when you encounter a bug, need a report, or want to schedule maintenance."
+description: "Create work orders for the Mechanic. Use when you encounter a bug, need a report, or want to schedule maintenance."
 version: 1.0.0
-tags: [work-orders, ptah, lab-maintenance, bug-report]
+tags: [work-orders, mechanic, lab-maintenance, bug-report]
 ---
 
 # Work Order Creator
 
-Create work orders that Ptah picks up and resolves. Work orders live in `/pehverse/state/work-orders/` as individual JSON files.
+Create work orders that the Mechanic picks up and resolves. Work orders live in `/pehverse/state/work-orders/` as individual JSON files.
 
 ## When to Create a Work Order
 
@@ -54,7 +54,7 @@ WOEOF
   "id": "WO-NNNN",
   "title": "Short title",
   "description": "Full details",
-  "source": "peh|luna|julian|zen|archelon|ptah",
+  "source": "peh|artist|julian|zen|archelon|mechanic",
   "status": "open|assigned|in-progress|blocked|done|wontfix|duplicate",
   "severity": "critical|high|medium|low|info",
   "category": "bug|regression|test-failure|service-down|code-quality|audit|report|enhancement|maintenance",
@@ -81,7 +81,7 @@ WOEOF
 ## Tips
 
 - Be specific — include error messages, file paths, repro steps
-- Always include `repos` so Ptah knows where to look
+- Always include `repos` so the Mechanic knows where to look
 - Use `attachments` to paste full stack traces or test output
 - Use `tags` for grouping (e.g., ["weekly", "code-quality"])
 - Use `scheduledFor` for deferred work

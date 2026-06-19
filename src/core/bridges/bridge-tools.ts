@@ -100,8 +100,8 @@ export function createBridgeToolHandlers(
   handlers.set("bridge.list", async (): Promise<ToolResult> => {
     const services = [
       { name: "pehlichi", port: 18830, desc: "Lab coordinator (Julian)" },
-      { name: "ptah", port: 18810, desc: "Operational executor" },
-      { name: "luna", port: 18792, desc: "Creative production" },
+      { name: "mechanic", port: 18810, desc: "Operational executor" },
+      { name: "artist", port: 18792, desc: "Creative production" },
       { name: "ikbi", port: 18796, desc: "Build/repair engine" },
       { name: "toba", port: 18815, desc: "Career transformation" },
       { name: "nusika", port: 18793, desc: "Adaptive learning" },

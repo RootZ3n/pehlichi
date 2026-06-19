@@ -1,7 +1,7 @@
 /**
- * loony-luna — core runtime re-exports.
+ * the-artist — core runtime re-exports.
  *
- * This is luna's OWN copy of the agent runtime (same code as mad-ptah/src/core/
+ * This is artist's OWN copy of the agent runtime (same code as the-mechanic/src/core/
  * and peh-agent/src/core/). Each agent owns its core — no shared package.
  */
 

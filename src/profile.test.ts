@@ -90,12 +90,12 @@ test("skillpack slot: an active skillpack injects its structured fields; the ker
     doneCriteria: ["DONE-LINE-A"],
     evidenceRequirements: ["EVIDENCE-LINE-A"],
     reportFormat: ["REPORT-LINE-A"],
-    routingRoster: ["ops -> Ptah"],
+    routingRoster: ["ops -> the Mechanic"],
   };
 
   const withPack = buildSystemPrompt(pehProfile, [pack], tools, pack);
   assert.match(withPack, /ACTIVE SKILLPACK — demo-pack/);
-  for (const needle of ["CONTRACT-LINE-A", "DONE-LINE-A", "EVIDENCE-LINE-A", "REPORT-LINE-A", "ops -> Ptah"]) {
+  for (const needle of ["CONTRACT-LINE-A", "DONE-LINE-A", "EVIDENCE-LINE-A", "REPORT-LINE-A", "ops -> the Mechanic"]) {
     assert.match(withPack, new RegExp(needle));
   }
   assert.match(withPack, /NARRATE → ACT → NARRATE/);

@@ -574,7 +574,7 @@ export class AgentChatSession {
       '- lab-memory: shared project state store (git-versioned, supersession chains)',
       '- lab-store: skills and conventions (reusable procedures)',
       `- Services: ikbi:18796, luak:18795, nusika:18793, howa:18799, toba:18815, ittunaha:18821`,
-      `- Agents: Pehlichi:18830 (coordinator), Ptah:18810 (builder), Luna:18792 (creative)`,
+      `- Agents: Pehlichi:18830 (coordinator), the Mechanic:18810 (builder), the Artist:18792 (creative)`,
       memorySnapshot ? `\n${memorySnapshot}` : '',
     ].filter(Boolean).join('\n');
   }

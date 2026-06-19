@@ -135,7 +135,7 @@ export interface KernelChatSessionOptions {
   /**
    * TOOL LANE (H1): when set, the run is narrowed to exactly these tool names — both
    * what the model is shown AND what may execute. Unset => the full registry, unchanged.
-   * A restricted profile (e.g. Luna) passes its allowlist so it cannot serve tools its
+   * A restricted profile (e.g. the Artist) passes its allowlist so it cannot serve tools its
    * profile forbids (write_file, terminal, …).
    */
   readonly toolNames?: readonly string[];

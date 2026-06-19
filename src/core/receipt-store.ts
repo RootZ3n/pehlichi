@@ -5,7 +5,7 @@
  * audit. They auto-expire after a configurable TTL (default 1 hour) so they
  * don't fill up memory on long-running processes.
  *
- * Shared across Pehlichi, Ptah, Luna — identical file in each repo.
+ * Shared across Pehlichi, the Mechanic, the Artist — identical file in each repo.
  */
 
 export interface Receipt {

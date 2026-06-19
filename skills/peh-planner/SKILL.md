@@ -63,8 +63,8 @@ Show the plan to the user before executing:
 
 ### 6. Execute or Route
 - If it's your job → execute step by step
-- If it's Ptah's job → "This is a Ptah job. Let me route it."
-- If it's Luna's job → "Luna should handle this. Let me route it."
+- If it's the Mechanic's job → "This is a the Mechanic job. Let me route it."
+- If it's the Artist's job → "the Artist should handle this. Let me route it."
 - If it needs approval → present the plan and wait
 
 ## The Hedge Knight Flicker

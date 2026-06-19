@@ -4,7 +4,7 @@
  * These tools let agents interact with any ecosystem service via bridges.
  * Registered via the core's tool-registration seam (extraTools).
  *
- * Services: pehlichi, ptah, luna, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
+ * Services: pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
  */
 import { randomUUID } from "node:crypto";
 import type { ToolSpec } from "../core/driver.js";
@@ -18,8 +18,8 @@ const obj = (
 /** Service URL map — which port each service runs on. */
 const SERVICE_PORTS: Record<string, number> = {
   pehlichi: 18830,
-  ptah: 18810,
-  luna: 18792,
+  mechanic: 18810,
+  artist: 18792,
   ikbi: 18796,
   toba: 18815,
   nusika: 18793,
@@ -84,7 +84,7 @@ export const bridgeToolSpecs: ToolSpec[] = [
     name: "bridge.health",
     description: "Check if an ecosystem service is reachable and healthy. Read-only.",
     parameters: obj(
-      { service: { type: "string", description: "Service name (pehlichi, ptah, luna, ikbi, toba, nusika, howa, kokuli, luak, ittunaha)" } },
+      { service: { type: "string", description: "Service name (pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha)" } },
       ["service"],
     ),
   },

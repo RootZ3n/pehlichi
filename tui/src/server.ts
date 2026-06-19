@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Ptah HTTP Server — the lab task runner.
+ * the Mechanic HTTP Server — the lab task runner.
  *
  * Blocker 1: production now runs on the HARDENED KERNEL. Every /chat request drives
  * the kernel's `runAgent()` (via KernelChatSession) instead of an ad-hoc fetch loop:
@@ -187,7 +187,7 @@ export interface PehServerOptions {
 }
 
 /**
- * Build the Ptah HTTP server WITHOUT listening. Exposes the kernel session and tool
+ * Build the the Mechanic HTTP server WITHOUT listening. Exposes the kernel session and tool
  * names so tests can drive the real request path with an injected driver.
  */
 export function createPehServer(opts: PehServerOptions = {}): {
