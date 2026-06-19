@@ -37,6 +37,7 @@ import { cronToolSpecs, createCronToolHandlers } from './cron-tools.js';
 import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js';
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
 import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
+import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -193,6 +194,10 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const brainGovernance = createFileBrainGovernance({ proposalsDir: join(memoryDir, '.proposals') });
   const brainHandlers = createBrainToolHandlers({ governance: brainGovernance, agentId: memoryAgentId });
 
+  // IKBI (Phase 10.3): thin HTTP client over ikbi's build engine API. No config —
+  // the base URL comes from IKBI_API_URL (default http://localhost:18796).
+  const ikbiHandlers = createIkbiToolHandlers();
+
   const tools: ToolDef[] = [];
 
   // Browser tools
@@ -270,6 +275,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Brain tools (gbrain bridge)
   for (const spec of brainToolSpecs) {
     const handler = brainHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Ikbi tools (build engine HTTP bridge)
+  for (const spec of ikbiToolSpecs) {
+    const handler = ikbiHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

@@ -69,6 +69,10 @@ export const coordinatorToolNames: readonly string[] = Object.freeze([
   "delegate_task",
   "cronjob",
   "execute_code",
+  // Ikbi build engine (Phase 10.3 — submit build/fix tasks, poll status)
+  "ikbi_build",
+  "ikbi_fix",
+  "ikbi_status",
 ]);
 
 export const pehProfile: AgentProfile = {
