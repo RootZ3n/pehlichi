@@ -199,6 +199,66 @@ test("ikbi_build errors when ikbi accepts but returns no taskId", async () => {
   );
 });
 
+test("an Authorization: Bearer header is sent when IKBI_API_TOKEN is set (HIGH 3)", async () => {
+  const prev = process.env["IKBI_API_TOKEN"];
+  process.env["IKBI_API_TOKEN"] = "s3cret-ikbi-token";
+  try {
+    await withFetch(
+      () => jsonResponse(200, { taskId: "t" }),
+      async (calls) => {
+        await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
+        const headers = calls[0]!.init?.headers as Record<string, string> | undefined;
+        assert.equal(headers?.["authorization"], "Bearer s3cret-ikbi-token");
+        // The content-type is preserved for the POST body alongside the auth header.
+        assert.equal(headers?.["content-type"], "application/json");
+      },
+    );
+  } finally {
+    if (prev === undefined) delete process.env["IKBI_API_TOKEN"];
+    else process.env["IKBI_API_TOKEN"] = prev;
+  }
+});
+
+test("no Authorization header is sent when IKBI_API_TOKEN is unset (open mode, HIGH 3)", async () => {
+  const prev = process.env["IKBI_API_TOKEN"];
+  delete process.env["IKBI_API_TOKEN"];
+  try {
+    await withFetch(
+      () => jsonResponse(200, { tasks: [] }),
+      async (calls) => {
+        await handlers.get("ikbi_status")!({}, ctx);
+        const headers = (calls[0]!.init?.headers ?? {}) as Record<string, string>;
+        assert.equal(headers["authorization"], undefined);
+      },
+    );
+  } finally {
+    if (prev !== undefined) process.env["IKBI_API_TOKEN"] = prev;
+  }
+});
+
+test("error messages strip credentials embedded in IKBI_API_URL (MEDIUM 7)", async () => {
+  const prevUrl = process.env["IKBI_API_URL"];
+  process.env["IKBI_API_URL"] = "http://peh:sup3rsecret@ikbi.internal:9999";
+  try {
+    await withFetch(
+      () => {
+        throw new Error("connect ECONNREFUSED");
+      },
+      async () => {
+        const res = await handlers.get("ikbi_status")!({ taskId: "t" }, ctx);
+        assert.equal(res.ok, false);
+        const err = res.error ?? "";
+        assert.doesNotMatch(err, /sup3rsecret/, "the password must not leak into the error");
+        assert.doesNotMatch(err, /peh:/, "the userinfo must not leak into the error");
+        assert.match(err, /ikbi\.internal:9999/, "the origin is still shown for diagnosability");
+      },
+    );
+  } finally {
+    if (prevUrl === undefined) delete process.env["IKBI_API_URL"];
+    else process.env["IKBI_API_URL"] = prevUrl;
+  }
+});
+
 test("IKBI_API_URL overrides the base URL", async () => {
   const prev = process.env["IKBI_API_URL"];
   process.env["IKBI_API_URL"] = "http://ikbi.internal:9999/";

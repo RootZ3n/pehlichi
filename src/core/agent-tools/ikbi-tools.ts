@@ -32,6 +32,29 @@ function ikbiBaseUrl(): string {
   return (raw && raw.length > 0 ? raw : DEFAULT_IKBI_API_URL).replace(/\/+$/, "");
 }
 
+/**
+ * The optional bearer token for a protected ikbi (HIGH 3). When IKBI_API_TOKEN is set, every
+ * request carries `Authorization: Bearer <token>`; when unset, no auth header is sent (open mode).
+ */
+function ikbiAuthToken(): string | undefined {
+  const t = process.env["IKBI_API_TOKEN"]?.trim();
+  return t !== undefined && t.length > 0 ? t : undefined;
+}
+
+/**
+ * A credential-safe display form of the ikbi URL for ERROR MESSAGES (MEDIUM 7): strips any
+ * userinfo (`user:pass@`) by keeping only the origin, optionally re-appending the request path.
+ * Falls back to the raw base when it can't be parsed as a URL.
+ */
+function safeDisplayUrl(path = ""): string {
+  const raw = ikbiBaseUrl();
+  try {
+    return `${new URL(raw).origin}${path}`;
+  } catch {
+    return `${raw}${path}`;
+  }
+}
+
 export const ikbiToolSpecs: ToolSpec[] = [
   {
     name: "ikbi_build",
@@ -94,24 +117,28 @@ async function ikbiRequest(
   body?: Record<string, unknown>,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const url = `${ikbiBaseUrl()}${path}`;
+  const token = ikbiAuthToken();
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (token !== undefined) headers["authorization"] = `Bearer ${token}`;
   let response: Response;
   try {
     response = await fetch(url, {
       method,
       signal: AbortSignal.timeout(IKBI_REQUEST_TIMEOUT_MS),
-      ...(body !== undefined
-        ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-        : {}),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   } catch (err) {
-    // Connection refused, DNS failure, or AbortSignal timeout all land here.
+    // Connection refused, DNS failure, or AbortSignal timeout all land here. Error messages use a
+    // credential-safe URL (no userinfo) so a token embedded in IKBI_API_URL never leaks (MEDIUM 7).
     if (err instanceof Error && err.name === "TimeoutError") {
-      return { ok: false, error: `${tool}: ikbi did not respond within ${IKBI_REQUEST_TIMEOUT_MS}ms (${url})` };
+      return { ok: false, error: `${tool}: ikbi did not respond within ${IKBI_REQUEST_TIMEOUT_MS}ms (${safeDisplayUrl(path)})` };
     }
     const detail = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
-      error: `${tool}: cannot reach ikbi at ${ikbiBaseUrl()} (${detail}). Is the ikbi service running?`,
+      error: `${tool}: cannot reach ikbi at ${safeDisplayUrl()} (${detail}). Is the ikbi service running?`,
     };
   }
 
