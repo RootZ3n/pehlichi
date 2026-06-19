@@ -56,6 +56,7 @@ export const coordinatorToolNames: readonly string[] = Object.freeze([
   "write_file",
   "patch",
   "terminal",
+  "process",
   // Memory (persistent curated memory)
   "memory",
   // Self-improvement
