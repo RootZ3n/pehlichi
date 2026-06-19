@@ -39,6 +39,9 @@ import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordin
 import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
 import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
+import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context-tools.js';
+import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
+import { bridgeRegistry } from '../bridges/registry.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -203,6 +206,17 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // API key from MINIMAX_API_KEY env var.
   const musicHandlers = createMusicToolHandlers();
 
+  // LAB CONTEXT: bridge agents to lab-memory (shared project state store).
+  const labContextHandlers = createLabContextToolHandlers();
+
+  // BRIDGES: inter-agent communication via HTTP. getServiceUrl resolves service
+  // names to base URLs using the bridge registry (known ports).
+  const bridgeHandlers = createBridgeToolHandlers((name: string) => {
+    const info = bridgeRegistry.get(name);
+    if (!info || info.port === 0) return undefined;
+    return `http://localhost:${info.port}`;
+  });
+
   const tools: ToolDef[] = [];
 
   // Browser tools
@@ -293,6 +307,25 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   for (const spec of musicToolSpecs) {
     const handler = musicHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
+  }
+
+  // Lab context tools (lab-memory read/write/query)
+  for (const spec of labContextToolSpecs) {
+    const handler = labContextHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Bridge tools (inter-agent communication via HTTP)
+  // Bridge handlers use a simpler signature (args only); adapt to core ToolHandler (args, ctx).
+  for (const spec of bridgeToolSpecs) {
+    const bridgeHandler = bridgeHandlers.get(spec.name);
+    if (bridgeHandler) {
+      const handler = async (args: Record<string, unknown>, _ctx: any) => {
+        const result = await bridgeHandler(args);
+        return { ok: result.ok, output: result.output, ...(result.error !== undefined ? { error: result.error } : {}) };
+      };
+      tools.push({ spec, handler });
+    }
   }
 
   return tools;

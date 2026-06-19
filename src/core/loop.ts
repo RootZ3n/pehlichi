@@ -11,7 +11,7 @@ import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
-import type { Driver, Message } from "./driver.js";
+import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
 import type { AgentProfile } from "./profile.js";
 import { ShadowWorkspace } from "./shadow.js";
@@ -24,6 +24,14 @@ import {
   type ToolResult,
 } from "./tools.js";
 import { RepetitionDetector, resolveToolBudget, type BudgetTier } from "./agent-tools/tool-governor.js";
+import { ContextCompressor } from "./context-compressor.js";
+import { ReceiptStore } from "./receipt-store.js";
+import { TokenMonitor, IterationBudget } from "./agent-tools/infrastructure.js";
+import {
+  unattendedToolDenyReason,
+  assertUnattendedStartup,
+  type UnattendedToolContext,
+} from "./agent-tools/unattended.js";
 
 // Runaway guard default. Deliberately MODEST: a direct/library run never silently grinds through
 // 50 iterations. A trusted operator can raise it explicitly via opts.maxIterations (e.g. the server
@@ -121,6 +129,21 @@ export interface RunAgentOptions {
   readonly resumeFromCheckpoint?: boolean;
   /** Correlation id stored in checkpoints (defaults to the task string). */
   readonly taskId?: string;
+  /**
+   * UNATTENDED MODE: when true, enforces a strict deny-by-default tool policy.
+   * Only tools in the unattended allowlist (plus any `unattendedGrantedTools`) are
+   * permitted. Shell metacharacters are blocked; secret files cannot be read.
+   * The unattended startup guard is also applied (AGENT_FS_UNRESTRICTED must not be true).
+   */
+  readonly unattended?: boolean;
+  /** Additional tools granted in unattended mode beyond the default allowlist. */
+  readonly unattendedGrantedTools?: ReadonlySet<string>;
+  /**
+   * CONTEXT COMPRESSION: the context window size in tokens. When the conversation
+   * approaches this limit, the context compressor summarizes middle turns. Typical
+   * values: 128000 (MiMo-v2.5), 32768 (smaller models). Unset ⇒ no compression.
+   */
+  readonly contextWindow?: number;
   /**
    * PARTIAL RESULTS (opt-in): when true, exhausting the iteration budget RETURNS a
    * partial result ({ ok:false, partial:true, accomplished, output }) instead of
@@ -249,6 +272,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const memoryStore =
     opts.memoryStore ?? (opts.memoryStoreRoot !== undefined ? createMemoryStore({ root: opts.memoryStoreRoot }) : undefined);
 
+  // Infrastructure: context compression, receipt tracking, token monitoring
+  const compressor = new ContextCompressor();
+  const receiptStore = new ReceiptStore();
+  const tokenMonitor = new TokenMonitor({ model: "mimo-v2.5" });
+
+  // Unattended mode: assert startup guards before proceeding
+  if (opts.unattended === true) {
+    assertUnattendedStartup();
+  }
+
   emitter.emit({
     kind: "session-start",
     profile: { name: opts.profile.name, role: opts.profile.role },
@@ -326,6 +359,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     }
   }
 
+  // Iteration budget: formal budget tracker, initialized after checkpoint resume
+  // so startIteration is known. Accounts for resumed iterations.
+  const iterationBudget = new IterationBudget(maxIterations);
+  for (let j = 0; j < startIteration; j++) iterationBudget.consume();
+
   // PARTIAL RESULTS (item 3): every successful tool call appends an accomplishment.
   const accomplished: string[] = [];
   const planResult = () => (planningEnabled && planSteps.length > 0 ? { plan: { steps: planSteps, progress: planProgress } } : {});
@@ -345,8 +383,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   let repetitionStopInjected = false;
 
   for (let i = startIteration; ; i++) {
-    if (i >= maxIterations) {
-      const message = `exceeded max iterations (${maxIterations})`;
+    if (!iterationBudget.consume()) {
+      const budgetStatus = iterationBudget.status();
+      const message = `exceeded max iterations (${budgetStatus.max})`;
       // Opt-in: return a partial result describing what was accomplished instead of
       // throwing. Default (unset) preserves the proven fail-loud runaway guard.
       if (opts.partialOnExhaustion === true) {
@@ -358,6 +397,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       throw new Error(message);
     }
 
+    // Context compression: compact messages when approaching context window limit
+    if (opts.contextWindow !== undefined && compressor.shouldCompress(messages, opts.contextWindow)) {
+      const compResult = await compressor.compress(messages);
+      if (compResult.compressed) {
+        messages.length = 0;
+        messages.push(...(compResult.messages as Message[]));
+        emitter.emit({ kind: "narrate", phase: "other", text: `[context] compacted ${compResult.originalCount} → ${compResult.compressedCount} messages (${compResult.strategyUsed})` });
+      }
+    }
+
     let action;
     try {
       action = await opts.driver.next({ messages, tools: specs });
@@ -367,6 +416,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       const message = messageOf(err);
       emitter.emit({ kind: "error", where: "driver", message });
       throw err instanceof Error ? err : new Error(message);
+    }
+
+    // Token monitoring: record usage if the driver supports it
+    if (isUsageReportingDriver(opts.driver)) {
+      for (const usage of opts.driver.drainUsage()) {
+        tokenMonitor.recordUsage(usage);
+      }
     }
 
     switch (action.kind) {
@@ -407,9 +463,19 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           // APPROVAL GATE: a known, in-lane tool still passes the approval policy
           // (when one is wired) BEFORE its handler runs. A refusal short-circuits to
           // a failure result; the handler is never invoked. Unset callback => approve.
-          const decision = opts.approvalCallback
-            ? await opts.approvalCallback({ tool: action.tool, args: action.args, ctx })
-            : await defaultLibraryApproval({ tool: action.tool, args: action.args, ctx });
+          // Unattended mode: strict deny-by-default gate runs BEFORE regular approval.
+          const decision = await (async () => {
+            if (opts.unattended === true) {
+              const unattCtx: UnattendedToolContext = opts.unattendedGrantedTools !== undefined
+                ? { grantedTools: opts.unattendedGrantedTools }
+                : {};
+              const denyReason = unattendedToolDenyReason(action.tool, unattCtx);
+              if (denyReason !== null) return { approved: false as const, reason: denyReason };
+            }
+            return opts.approvalCallback
+              ? opts.approvalCallback({ tool: action.tool, args: action.args, ctx })
+              : defaultLibraryApproval({ tool: action.tool, args: action.args, ctx });
+          })();
           if (!decision.approved) {
             result = {
               ok: false,
@@ -431,6 +497,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           ok: result.ok,
           output: result.output,
           ...(result.error !== undefined ? { error: result.error } : {}),
+        });
+        // Receipt store: record audit trail for every tool call
+        receiptStore.record({
+          agent: opts.profile.name,
+          status: result.ok ? "success" : "failed",
+          toolCallCount: 1,
+          contentSummary: `${action.tool}: ${firstLine(result.output) || (result.ok ? "ok" : (result.error ?? "error"))}`,
+          ...(opts.taskId !== undefined ? { taskId: opts.taskId } : {}),
         });
         if (result.receipt) {
           emitter.emit({ kind: "terminal-receipt", ...result.receipt });
