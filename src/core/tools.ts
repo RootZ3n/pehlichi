@@ -8,12 +8,16 @@
  * TOOL-REGISTRATION SEAM: createToolRegistry accepts optional extraTools so
  * agent repos can register their own tools (e.g. image-generation tools in a
  * specialized agent) without the core knowing them. The seam is GENERIC — the
- * core knows "an agent may contribute tools," never WHICH tools.
+ * The core knows "an agent may contribute tools," never WHICH tools.
+ * Extra tools are subject to the same toolNames gate (advertisement + execution
+ * allowlist) as built-in tools, so a tool outside the run's lane can never run
+ * even if the model names it directly.
  */
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
+import type { ReceiptStore } from "./receipt-store.js";
 import {
   getProcess,
   killProcess,
@@ -69,6 +73,8 @@ export interface ToolContext {
   readonly labStoreRoot: string;
   readonly store: any;
   readonly memoryStore?: any;
+  /** Receipt store for audit trail logging (reasonix infrastructure). */
+  readonly receiptStore?: ReceiptStore;
 }
 
 export type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;

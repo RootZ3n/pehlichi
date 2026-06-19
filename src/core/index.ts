@@ -70,6 +70,47 @@ export { ShadowWorkspace } from "./shadow.js";
 export { type AgentProfile } from "./profile.js";
 export { buildSystemPrompt } from "./prompt.js";
 
+// Reasonix infrastructure re-exports
+export { ContextCompressor, type CompressResult, type ContextCompressorOptions } from "./context-compressor.js";
+export { ReceiptStore, type Receipt, type ReceiptStoreOptions } from "./receipt-store.js";
+export {
+  CircuitBreaker,
+  getCircuit,
+  allCircuits,
+  RetryPolicy,
+  withRetry,
+  isRetryable,
+  sleep,
+  IterationBudget,
+  TokenMonitor,
+  type CircuitConfig,
+  type CircuitState,
+  type CircuitStatus,
+  type RetryConfig,
+  type BudgetStatus,
+  type TokenMonitorConfig,
+  type UsageRecord,
+  type TokenSummary,
+} from "./agent-tools/infrastructure.js";
+
+// Bridge infrastructure re-exports
+export { HttpBridge, BridgeError, type BridgeConfig, type BridgeReceipt } from "./bridges/http-bridge.js";
+export { BridgeRegistry, bridgeRegistry, type BridgeInfo, type BridgeHealth } from "./bridges/registry.js";
+
+// Unattended policy re-exports
+export {
+  unattendedToolDenyReason,
+  isToolAllowedUnattended,
+  assertUnattendedStartup,
+  delegationDepthDenyReason,
+  verifyUnattendedSuccess,
+  SharedBudget,
+  UNATTENDED_ALLOWED_TOOLS,
+  type UnattendedToolContext,
+  type GovernedExecRequest,
+  type UnattendedResult,
+} from "./agent-tools/unattended.js";
+
 export {
   runAgent,
   runAgentInShadow,

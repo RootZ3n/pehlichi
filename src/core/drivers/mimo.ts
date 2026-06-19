@@ -9,12 +9,20 @@
  *   - extraBody { thinking: { type: "disabled" } }
  *   - token limit under "max_completion_tokens" (default 12288)
  *
+ * RELIABILITY (reasonix infrastructure): optional circuit-breaker protection
+ * and retry with jittered backoff. When enabled, transient failures are
+ * retried automatically and the circuit opens after repeated failures to
+ * fast-fail and protect the provider.
+ *
  * No OpenRouter, no token-plan host, no local model, no retries (fail loud).
  * The deterministic loop tests never touch this — the real-model proof is the
  * separate sanity:mimo entrypoint.
  */
 import type { DriverAction, DriverContext, Message, ToolSpec, TokenUsage, UsageReportingDriver } from "../driver.js";
 import type { Phase } from "../events.js";
+import { CircuitBreaker, getCircuit } from "../agent-tools/circuit-breaker.js";
+import { withRetry, type RetryConfig } from "../agent-tools/retry.js";
+import { classifyError } from "../agent-tools/error-classifier.js";
 
 const DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEFAULT_MODEL = "mimo-v2.5";
@@ -46,6 +54,19 @@ export interface MimoDriverOptions {
   readonly requestTimeoutMs?: number;
   /** Injectable fetch (default: global fetch). */
   readonly fetchImpl?: FetchLike;
+  /**
+   * RELIABILITY (reasonix infrastructure): enable circuit-breaker protection
+   * for the provider. When set, repeated failures fast-fail to protect the
+   * endpoint. Pass `true` for defaults, or a partial config to customize.
+   * Default: disabled (backward compatible).
+   */
+  readonly circuitBreaker?: boolean | Partial<{ failureThreshold: number; cooldownMs: number; successThreshold: number }>;
+  /**
+   * RELIABILITY (reasonix infrastructure): enable retry with jittered backoff
+   * for transient failures (timeout, 5xx, rate-limit). Pass `true` for defaults
+   * or a partial RetryConfig to customize. Default: disabled (backward compatible).
+   */
+  readonly retry?: boolean | Partial<RetryConfig>;
 }
 
 /**
@@ -80,6 +101,10 @@ export class MimoDriver implements UsageReportingDriver {
   private readonly temperature: number | undefined;
   private readonly requestTimeoutMs: number;
   private readonly fetchImpl: FetchLike;
+  /** Circuit breaker for provider health protection (reasonix infrastructure). */
+  private readonly breaker: CircuitBreaker | undefined;
+  /** Retry policy for transient failures (reasonix infrastructure). */
+  private readonly retryConfig: Partial<RetryConfig> | undefined;
   /** H4: token usage accumulated since the last drain (real numbers from the API). */
   private pendingUsage: TokenUsage[] = [];
 
@@ -100,6 +125,15 @@ export class MimoDriver implements UsageReportingDriver {
     this.temperature = opts.temperature;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.fetchImpl = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    // Circuit breaker: opt-in via options (reasonix infrastructure)
+    if (opts.circuitBreaker) {
+      const config = typeof opts.circuitBreaker === "object" ? opts.circuitBreaker : undefined;
+      this.breaker = getCircuit(`mimo-${this.baseUrl}`, config ?? {});
+    }
+    // Retry: opt-in via options (reasonix infrastructure)
+    if (opts.retry) {
+      this.retryConfig = typeof opts.retry === "object" ? opts.retry : {};
+    }
   }
 
   async next(ctx: DriverContext): Promise<DriverAction> {
@@ -113,10 +147,15 @@ export class MimoDriver implements UsageReportingDriver {
       ...(ctx.tools.length > 0 ? { tools: toProviderTools(ctx.tools) } : {}),
     };
 
-    const signal = AbortSignal.timeout(this.requestTimeoutMs);
-    let res: Awaited<ReturnType<FetchLike>>;
-    try {
-      res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+    // Circuit-breaker: fast-fail when provider is unhealthy
+    if (this.breaker && !this.breaker.allow()) {
+      throw new MimoError("circuit breaker open: mimo provider is temporarily unavailable");
+    }
+
+    // Execute the API call, optionally with retry for transient failures
+    const doFetch = async (): Promise<ParsedCompletion> => {
+      const signal = AbortSignal.timeout(this.requestTimeoutMs);
+      const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -130,24 +169,44 @@ export class MimoDriver implements UsageReportingDriver {
         body: JSON.stringify(body),
         signal,
       });
-    } catch (cause) {
-      const aborted = cause instanceof Error && cause.name === "TimeoutError";
-      throw new MimoError(`${aborted ? "timeout" : "network error"} calling mimo: ${messageOf(cause)}`);
-    }
 
-    if (!res.ok) {
-      const detail = sanitizeDetail(await res.text().catch(() => ""), MAX_ERROR_DETAIL);
-      throw new MimoError(`mimo HTTP ${res.status}: ${detail}`);
-    }
+      if (!res.ok) {
+        const detail = sanitizeDetail(await res.text().catch(() => ""), MAX_ERROR_DETAIL);
+        // Use error classifier to enrich the error with actionable metadata
+        const classified = classifyError(null, res.status, detail);
+        const err = new MimoError(`mimo HTTP ${res.status}: ${detail}`);
+        // Attach classification metadata for upstream consumers
+        (err as any).classified = classified;
+        throw err;
+      }
 
-    let json: unknown;
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch (cause) {
+        throw new MimoError(`malformed JSON from mimo: ${messageOf(cause)}`);
+      }
+
+      return parseChatCompletion(json);
+    };
+
+    let parsed: ParsedCompletion;
     try {
-      json = await res.json();
-    } catch (cause) {
-      throw new MimoError(`malformed JSON from mimo: ${messageOf(cause)}`);
+      if (this.retryConfig) {
+        parsed = await withRetry(doFetch, this.retryConfig);
+      } else {
+        parsed = await doFetch();
+      }
+      // Record success with circuit breaker
+      this.breaker?.success();
+    } catch (err) {
+      // Record failure with circuit breaker
+      this.breaker?.failure();
+      if (err instanceof MimoError) throw err;
+      const aborted = err instanceof Error && err.name === "TimeoutError";
+      throw new MimoError(`${aborted ? "timeout" : "network error"} calling mimo: ${messageOf(err)}`);
     }
 
-    const parsed = parseChatCompletion(json);
     // H4: record the REAL token usage the provider reported, so the session's
     // TokenMonitor reflects actual consumption instead of staying at zero.
     if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);

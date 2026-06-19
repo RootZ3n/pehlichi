@@ -294,6 +294,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     workspaceRoot,
     labStoreRoot: opts.labStoreRoot,
     store,
+    receiptStore,
     ...(memoryStore !== undefined ? { memoryStore } : {}),
   };
 
