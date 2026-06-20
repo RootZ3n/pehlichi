@@ -43,7 +43,7 @@ const obj = (
 function defaultMemoryRoot(): string {
   return process.env["LAB_MEMORY_ROOT"]
     ?? process.env["MEMORY_STORE_ROOT"]
-    ?? "/pehverse/repos/lab-memory";
+    ?? "/pehverse/repos/ecosystem/lab-memory";
 }
 
 export const brainToolSpecs: ToolSpec[] = [

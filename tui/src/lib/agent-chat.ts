@@ -416,7 +416,7 @@ export class AgentChatSession {
               try {
                 result = await toolDef.handler(toolArgs, {
                   workspaceRoot: this.workspaceRoot,
-                  labStoreRoot: process.env.LAB_STORE_ROOT ?? '/pehverse/repos/lab-store',
+                  labStoreRoot: process.env.LAB_STORE_ROOT ?? '/pehverse/repos/ecosystem/lab-store',
                   store: {} as any,
                 });
               } catch (err) {

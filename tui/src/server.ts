@@ -201,7 +201,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
 } {
   const skin = loadSkin();
   const personality = loadPersonality();
-  const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/pehlichi';
+  const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/ecosystem/pehlichi';
   const labStoreRoot = opts.labStoreRoot ?? process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store');
   const apiKey = resolveApiKey();
 

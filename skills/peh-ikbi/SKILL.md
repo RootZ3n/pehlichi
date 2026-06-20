@@ -18,41 +18,41 @@ ikbi is the lab's build engine. When Pehlichi needs to build, test, or deploy so
 
 ## ikbi CLI Commands
 
-ikbi runs from `/pehverse/repos/ikbi`. Always `cd /pehverse/repos/ikbi` first.
+ikbi runs from `/pehverse/repos/ecosystem/ikbi`. Always `cd /pehverse/repos/ecosystem/ikbi` first.
 
 ### Health Check
 ```bash
-cd /pehverse/repos/ikbi && node dist/cli/index.js doctor
+cd /pehverse/repos/ecosystem/ikbi && node dist/cli/index.js doctor
 ```
 Reports: config, trust keys, providers, modules, connectivity.
 
 ### Build
 ```bash
-cd /pehverse/repos/ikbi && pnpm build
+cd /pehverse/repos/ecosystem/ikbi && pnpm build
 ```
 Compiles TypeScript. Always run before tests.
 
 ### Test
 ```bash
-cd /pehverse/repos/ikbi && pnpm test
+cd /pehverse/repos/ecosystem/ikbi && pnpm test
 ```
 Runs the full test suite (940+ tests).
 
 ### REPL (interactive)
 ```bash
-cd /pehverse/repos/ikbi && node dist/cli/index.js repl
+cd /pehverse/repos/ecosystem/ikbi && node dist/cli/index.js repl
 ```
 Interactive build session. Use for complex multi-step builds.
 
 ### Capabilities
 ```bash
-cd /pehverse/repos/ikbi && node dist/cli/index.js capabilities
+cd /pehverse/repos/ecosystem/ikbi && node dist/cli/index.js capabilities
 ```
 List available tools and their descriptions.
 
 ### Clean
 ```bash
-cd /pehverse/repos/ikbi && node dist/cli/index.js clean
+cd /pehverse/repos/ecosystem/ikbi && node dist/cli/index.js clean
 ```
 Clean orphaned files and artifacts.
 
@@ -70,13 +70,13 @@ GET  http://127.0.0.1:18796/capabilities   # Available capabilities
 When the user says "build X" or "test Y":
 
 1. **Check ikbi health** — `curl http://127.0.0.1:18796/health`
-2. **Build** — `cd /pehverse/repos/ikbi && pnpm build`
-3. **Test** — `cd /pehverse/repos/ikbi && pnpm test`
+2. **Build** — `cd /pehverse/repos/ecosystem/ikbi && pnpm build`
+3. **Test** — `cd /pehverse/repos/ecosystem/ikbi && pnpm test`
 4. **Report** — test count, pass/fail, any issues
 
 For specific repo builds:
 ```bash
-cd /pehverse/repos/<target> && pnpm build && pnpm test
+cd /pehverse/repos/ecosystem/<target> && pnpm build && pnpm test
 ```
 
 ## When to Route to ikbi

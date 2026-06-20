@@ -267,13 +267,15 @@ export class KernelChatSession {
       ...(this.opts.clock !== undefined ? { clock: this.opts.clock } : {}),
     });
 
-    // H4: drain the REAL token usage the driver recorded during this run into the
-    // TokenMonitor. Previously the monitor was wired but never fed, so it always read
-    // zero; now every model call's usage is accounted for and surfaced as tokenUsage.
-    if (isUsageReportingDriver(this.opts.driver)) {
-      for (const u of this.opts.driver.drainUsage()) {
-        this.tokenMonitor.recordUsage(u);
-      }
+    // H4: use the token usage that runAgent already collected from the driver.
+    // The loop drains the driver's drainUsage() internally, so we must NOT drain
+    // again — we'd get an empty array. Instead, use the result's tokenUsage.
+    if (result.tokenUsage) {
+      this.tokenMonitor.recordUsage({
+        input: result.tokenUsage.totalInput,
+        output: result.tokenUsage.totalOutput,
+        cached: result.tokenUsage.totalCached,
+      });
     }
 
     const toolCalls = collectToolCalls(events);

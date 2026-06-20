@@ -11,7 +11,7 @@ import type { AgentProfile } from "./profile.js";
 import { createLabStore } from "./scenario.js";
 import { ShadowWorkspace } from "./shadow.js";
 
-const REAL_REPO = "/pehverse/repos/pehlichi";
+const REAL_REPO = "/pehverse/repos/ecosystem/pehlichi";
 const EXPECTED_ENV_KEYS = ["HOME", "LANG", "LC_ALL", "PATH", "SHELL", "TMPDIR"];
 // vars the shell itself injects into a child's env (not inherited from the parent)
 const SHELL_INJECTED = new Set(["PWD", "SHLVL", "_", "OLDPWD"]);
