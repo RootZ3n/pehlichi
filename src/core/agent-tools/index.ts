@@ -40,6 +40,7 @@ import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
 import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
 import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context-tools.js';
+import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
 import { bridgeRegistry } from '../bridges/registry.js';
 
@@ -209,6 +210,9 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // LAB CONTEXT: bridge agents to lab-memory (shared project state store).
   const labContextHandlers = createLabContextToolHandlers();
 
+  // LABMEM: lab-wide memory system (recall shared/own/project memory; record own).
+  const labmemHandlers = createLabmemToolHandlers();
+
   // BRIDGES: inter-agent communication via HTTP. getServiceUrl resolves service
   // names to base URLs using the bridge registry (known ports).
   const bridgeHandlers = createBridgeToolHandlers((name: string) => {
@@ -312,6 +316,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Lab context tools (lab-memory read/write/query)
   for (const spec of labContextToolSpecs) {
     const handler = labContextHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Labmem tools (lab-wide memory recall/record)
+  for (const spec of labmemToolSpecs) {
+    const handler = labmemHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

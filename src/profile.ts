@@ -59,6 +59,9 @@ export const coordinatorToolNames: readonly string[] = Object.freeze([
   "process",
   // Memory (persistent curated memory)
   "memory",
+  // Lab-wide memory (labmem): recall shared/own/project memory; record own
+  "labmem_recall",
+  "labmem_remember",
   // Self-improvement
   "skills_list",
   "skill_view",
