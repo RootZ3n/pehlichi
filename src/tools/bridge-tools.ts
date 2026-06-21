@@ -7,6 +7,7 @@
  * Services: pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync, existsSync } from "node:fs";
 import type { ToolSpec } from "../core/driver.js";
 import type { ToolHandler, ToolResult } from "../core/tools.js";
 
@@ -15,8 +16,14 @@ const obj = (
   required: string[],
 ): Record<string, unknown> => ({ type: "object", properties, required, additionalProperties: false });
 
-/** Service URL map — which port each service runs on. */
-const SERVICE_PORTS: Record<string, number> = {
+/**
+ * Behaviour-preserving fallback map — the ports Peh used before the canonical
+ * lab-registry existed. This is what keeps standalone / release-mode working
+ * when the shared registry file is absent: if nothing can be read, these exact
+ * values are used, so behaviour never regresses. Includes the legacy aliases
+ * (mechanic, artist) that existing skills and tests still call by name.
+ */
+const DEFAULT_SERVICE_PORTS: Record<string, number> = {
   pehlichi: 18830,
   mechanic: 18810,
   artist: 18792,
@@ -24,10 +31,51 @@ const SERVICE_PORTS: Record<string, number> = {
   toba: 18815,
   nusika: 18793,
   howa: 18799,
-  kokuli: 3000,
+  kokuli: 18800,
   luak: 18795,
   ittunaha: 18821,
 };
+
+/** Shape of one entry in the canonical lab-registry services.json (DATA, not a package). */
+interface RegistryService {
+  readonly id: string;
+  readonly port?: number | null;
+  readonly aliases?: readonly string[];
+}
+
+/**
+ * Overlay the canonical lab service registry onto the fallback map. The registry
+ * is the single source of truth in the lab; we read it as DATA (a JSON file),
+ * never as a cross-repo runtime import — so Peh keeps owning her own core. If the
+ * registry cannot be read (released standalone build, missing file, bad JSON) we
+ * silently keep the defaults. Resolved once at module load.
+ */
+function loadServicePortMap(): Record<string, number> {
+  const ports: Record<string, number> = { ...DEFAULT_SERVICE_PORTS };
+  const candidates = [
+    process.env.LAB_REGISTRY_PATH,
+    "/pehverse/repos/lab-utilities/lab-registry/services.json",
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
+  for (const path of candidates) {
+    try {
+      if (!existsSync(path)) continue;
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as { services?: readonly RegistryService[] };
+      for (const svc of parsed.services ?? []) {
+        if (typeof svc.port === "number" && svc.port > 0) {
+          ports[svc.id] = svc.port;
+          for (const alias of svc.aliases ?? []) ports[alias] = svc.port;
+        }
+      }
+      break; // first readable registry wins
+    } catch {
+      // Unreadable/invalid registry — fall back to defaults. Never throw here.
+    }
+  }
+  return ports;
+}
+
+/** Service URL map — canonical lab-registry overlaid on the built-in fallback. */
+const SERVICE_PORTS: Record<string, number> = loadServicePortMap();
 
 function getServiceUrl(service: string): string | undefined {
   const port = SERVICE_PORTS[service];

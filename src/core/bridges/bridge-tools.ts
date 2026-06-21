@@ -106,7 +106,7 @@ export function createBridgeToolHandlers(
       { name: "toba", port: 18815, desc: "Career transformation" },
       { name: "nusika", port: 18793, desc: "Adaptive learning" },
       { name: "howa", port: 18799, desc: "Agent proving ground" },
-      { name: "kokuli", port: 3000, desc: "Adversarial testing" },
+      { name: "kokuli", port: 18800, desc: "Adversarial testing" },
       { name: "luak", port: 18795, desc: "Scoreboard/evidence" },
       { name: "ittunaha", port: 18821, desc: "Command center" },
     ];
