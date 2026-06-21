@@ -135,11 +135,19 @@ const rememberHandler: ToolHandler = async (args) => {
       shared: args.shared === true,
       subject: typeof args.subject === 'string' ? args.subject : null,
     }, { dryRun });
-    if (!dryRun) c.rebuildIndex(labmemRoot());
+    // Applied own-memory writes refresh the index; dry-run/shared proposals leave a
+    // DURABLE proposal receipt instead (the memory write itself is NOT applied).
+    let proposalPath: string | undefined;
+    if (!dryRun) {
+      c.rebuildIndex(labmemRoot());
+    } else if (typeof c.writeProposal === 'function') {
+      proposalPath = c.writeProposal(labmemRoot(), res.receipt);
+    }
 
     const lines = [`${res.receipt.result}: ${res.meta.fqid}`];
     if (isGlobal) lines.push(`(shared lab memory is not applied by agents — recorded as a dry-run proposal; a human applies it via the \`memory\` CLI)`);
     lines.push(`rollback: ${res.receipt.rollback}`);
+    if (proposalPath) lines.push(`proposal receipt: ${proposalPath}`);
     if (res.conflicts.length > 0) lines.push(`⚠️ conflict on subject: ${res.conflicts.map((cf: any) => cf.subject).join(', ')} — surface this, do not paper over it`);
     return { ok: true, output: lines.join('\n') };
   } catch (err) {
