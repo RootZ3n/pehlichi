@@ -19,7 +19,8 @@
  * never crashes the agent — reads/writes degrade to a clear tool error.
  */
 
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ToolSpec, ToolHandler } from '../tools.js';
 import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
@@ -27,8 +28,26 @@ import { sanitizeMessage } from './input-sanitization.js';
 /** This agent's labmem namespace (scope:agent / scope:project key). */
 const AGENT = 'pehlichi';
 
+/**
+ * Portable default labmem root: the in-ecosystem vendored labmem, resolved by
+ * walking up to the `ecosystem/` directory so the code ships no absolute lab
+ * path. The vendored copy ships CODE only — set LABMEM_ROOT to point at the real
+ * mutable memory DATA (the home lab sets it via .env; public installs set it to
+ * their own store).
+ */
+function defaultLabmemRoot(): string {
+  let d = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 12; i++) {
+    if (basename(d) === 'ecosystem') return join(d, 'lab-memory', 'labmem');
+    const parent = dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return join(process.cwd(), 'lab-memory', 'labmem');
+}
+
 function labmemRoot(): string {
-  return process.env['LABMEM_ROOT'] ?? '/pehverse/repos/lab-utilities/lab-memory/labmem';
+  return process.env['LABMEM_ROOT'] ?? defaultLabmemRoot();
 }
 
 /** Lazy dynamic import of labmem: built dist first (compiled-safe), TS source fallback (tsx dev). */

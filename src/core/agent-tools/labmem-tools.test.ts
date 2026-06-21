@@ -18,14 +18,20 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { createLabmemToolHandlers } from './labmem-tools.js';
 import type { ToolContext, ToolResult } from '../tools.js';
 
 const AGENT = 'pehlichi';
-const REAL_LABMEM = process.env['LABMEM_REAL'] ?? '/pehverse/repos/lab-utilities/lab-memory/labmem';
+// Portable: the in-ecosystem vendored labmem (CODE) — override with LABMEM_REAL.
+const REAL_LABMEM = process.env['LABMEM_REAL'] ?? (() => {
+  let d = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 12; i++) { if (basename(d) === 'ecosystem') return join(d, 'lab-memory', 'labmem'); const p = dirname(d); if (p === d) break; d = p; }
+  return join(process.cwd(), 'lab-memory', 'labmem');
+})();
 
 const handlers = createLabmemToolHandlers();
 const recall = handlers.get('labmem_recall')!;
