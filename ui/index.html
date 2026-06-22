@@ -218,22 +218,21 @@ function pehDevSwitchProduct(productId){
   render();
 }
 var _dashAutoOpenDone=false;
+// Auto-open disabled: previously this flooded the dashboard by opening every
+// product workspace on first render, burying the world view under panels. The
+// dashboard now starts empty and the user opens workspaces deliberately.
 function pehAutoOpenDashboard(){
-  pehProductWorkspaces(pehActiveProductId()).filter(function(id){
-    const d=pehWorkspaceDef(id);return d&&d.product!=null;
-  }).forEach(function(id){
-    const def=pehWorkspaceDef(id);if(!def)return;
-    if(state.pehverse.workspaces.find(function(w){return w.defId===id;}))return;
-    state.pehverse.workspaces.push({uid:'ws'+(++state.pehverse.wsSeq),defId:id,dock:def.dock||'right',min:false});
-  });
-  if(state.pehverse.workspaces.length)
-    state.pehverse.focus=state.pehverse.workspaces[state.pehverse.workspaces.length-1].uid;
+  /* no-op — see comment above */
 }
 function pehSetMode(mode){
   if(mode!=='immersive'&&mode!=='dashboard')return;
   state.pehverse.mode=mode;
   localStorage.setItem('pehverse-mode',mode);
   if(mode==='dashboard'){_dashAutoOpenDone=false;}
+  if(mode==='immersive'){
+    state.pehverse.workspaces=[];
+    state.pehverse.focus=null;
+  }
   render();
 }
 function pehToggleMode(){pehSetMode(state.pehverse.mode==='immersive'?'dashboard':'immersive')}
