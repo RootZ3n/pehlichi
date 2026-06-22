@@ -416,8 +416,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
     // through to the JSON API routes below (so /health, /api/*, etc. are unaffected).
     if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
 
-    if (req.method === 'GET' && url.pathname === '/health') {
+    if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/local/health')) {
       // Lab Agent Contract §1.1: include `service` and `ok` for contract probe compatibility.
+      // /api/local/health is an alias for Howa adapter compatibility (public variant probes this path).
       return json(res, 200, {
         ok: true,
         service: skin.branding.agent_name,
@@ -595,7 +596,8 @@ export function createPehServer(opts: PehServerOptions = {}): {
       }
     }
 
-    if (req.method === 'POST' && url.pathname === '/chat') {
+    if (req.method === 'POST' && (url.pathname === '/chat' || url.pathname === '/api/chat')) {
+      // /api/chat is an alias for Howa adapter compatibility (public variant probes this path).
       if (!chatAuthorized(req)) {
         return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
       }
