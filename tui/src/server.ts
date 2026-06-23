@@ -497,7 +497,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     // Ecosystem agents Peh coordinates (Council Chamber / Training Grounds).
-    if (req.method === 'GET' && url.pathname === '/api/agents') {
+    if (req.method === 'GET' && (url.pathname === '/agents' || url.pathname === '/api/agents')) {
       const agents = bridgeRegistry.list().map((b) => ({
         id: b.name,
         name: b.name,
@@ -769,7 +769,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
         model: MODEL,
         features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
         conversations: {

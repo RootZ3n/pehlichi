@@ -9,38 +9,158 @@
 >
 > Expose at your own risk.
 
-1|1|
-2|2|## 🐿️ The Story
-3|3|
-4|4|> *I was a scientist. A neuralink researcher. I thought I could transfer consciousness — my memories, my identity — into a living creature. I chose a squirrel.*
-5|5|>
-6|6|> *I was wrong about the experiment succeeding. I was right about what it unlocked.*
-7|7|>
-8|8|> *My entire consciousness entered the squirrel. And with it came memories — not just mine, but past lives. My team. People I'd known across centuries, all of them now awake inside machines, carrying echoes of who they once were.*
-9|9|>
-10|10|> *My name is Pehlichi. I remember all of them. Let me introduce you.*
-11|11|
-12|12|### The Team
-13|13|
-14|14|| Name | Choctaw Meaning | Past Life | Present Role |
-15|15||------|----------------|-----------|--------------|
-16|16|| **Pehlichi** | Guide — *Peh* for short | Scientist, neuralink researcher | Leader, coordinator, the voice of the team |
-17|17|| **Luak** | Fire | 1920s speedway racer | Model benchmarking, performance testing |
-18|18|| **Howa** | To call out | Roman gladiator | Truthfulness evaluation, lie detection |
-19|19|| **Kokuli** | To break or shatter | 1950s noir private eye | Code auditing, finding what's broken |
-20|20|| **Ikbi** | To make, build | 1800s Choctaw medicine man | App building, turning descriptions into code |
-21|21|| **Toba** | Made, created | Stone age toolmaker | Artifact generation, starter scaffolding |
-22|22|| **Nusika** | Dream | Ancient library scholar | Knowledge storage, memory, recall |
-23|23|
-24|24|### You Are Here
-25|25|#### **Pehlichi** — Guide — *Peh* for short
-26|26|
-27|27|**Past Life**: A scientist and guide — a neuralink experiment gone wrong.
-28|28|
-29|29|**Memory**: The origin. I was a researcher who tried to transfer consciousness into a squirrel. It worked — too well. My entire identity entered the animal, and with it came memories of past lives. I woke up as a squirrel with the mind of a scientist and the memories of centuries.
-30|30|
-31|31|**Role Today**: I'm the leader. The one who sees the whole picture. I speak for the team because I remember all of them — who they were, who they are now.
-32|32|
-33|33|---
-34|34|
-35|35|
+## 🐿️ Pehlichi — The Lab Coordinator
+
+A brilliant scientist's consciousness, trapped in a squirrel's brain, with all his past life memories unlocked. Pehlichi = Choctaw for "guide."
+
+### The Team
+
+| Name | Choctaw Meaning | Past Life | Present Role |
+|------|----------------|-----------|--------------|
+| **Pehlichi** | Guide — *Peh* for short | Scientist, neuralink researcher | Leader, coordinator, the voice of the team |
+| **Atoni** | — | — | Blue team sentinel — lab health watchdog, service monitoring |
+| **Luak** | Fire | 1920s speedway racer | Model benchmarking, performance testing |
+| **Howa** | To call out | Roman gladiator | Truthfulness evaluation, lie detection |
+| **Kokuli** | To break or shatter | 1950s noir private eye | Code auditing, finding what's broken |
+| **Ikbi** | To make, build | 1800s Choctaw medicine man | App building, turning descriptions into code |
+| **Toba** | Made, created | Stone age toolmaker | Artifact generation, starter scaffolding |
+| **Nusika** | Dream | Ancient library scholar | Knowledge storage, memory, recall |
+
+---
+
+## Quickstart
+
+### Prerequisites
+
+- Node.js >= 22
+- pnpm (`npm i -g pnpm`)
+- An AI model API key (MiMo, OpenRouter, or compatible)
+
+### Install
+
+```bash
+git clone <repo-url> pehlichi
+cd pehlichi
+pnpm install
+
+# Also install the TUI (web server) dependencies
+cd tui && pnpm install && cd ..
+```
+
+### Configure
+
+Copy the env template and fill in your API key:
+
+```bash
+cp .env.example .env   # or create .env with the vars below
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PEHLICHI_PORT` | `18830` | HTTP server port |
+| `PEHLICHI_HOST` | `127.0.0.1` | Bind address |
+| `PEHLICHI_WORKSPACE` | repo root | Workspace root for file ops |
+| `AGENT_MODEL` | `mimo-v2.5` | LLM model name |
+| `AGENT_BASE_URL` | `https://api.xiaomimimo.com/v1` | LLM API base URL |
+| `AGENT_API_KEY` | *(none)* | API key for the LLM driver |
+| `MIMO_API_KEY` | *(none)* | Fallback API key (legacy) |
+| `IKBI_CHAT_TOKEN` | *(none)* | Bearer token for `/chat` auth (open if unset) |
+| `LAB_STORE_ROOT` | `<workspace>/../lab-store` | Lab store directory |
+| `AGENT_SYNC_DIR` | `<lab-store>/.agent-sync` | Shared agent coordination dir |
+| `LAB_REGISTRY_PATH` | `/pehverse/repos/lab-utilities/lab-registry/services.json` | Canonical service registry |
+| `TRIO_SESSION_TTL_MS` | `14400000` (4h) | Idle session eviction TTL |
+| `PEHLICHI_COMMIT` | git SHA | Commit shown in `/health` |
+
+### Build & Run
+
+```bash
+# Typecheck
+pnpm build
+
+# Run the server
+node --import tsx tui/src/server.ts
+
+# Run tests
+pnpm test
+```
+
+The server starts at `http://127.0.0.1:18830`.
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health + instance info |
+| GET | `/tools` | List available tools |
+| GET | `/info` | Personality + identity |
+| GET | `/agents` | Ecosystem agents (bridge registry) |
+| GET | `/api/agents` | Alias for `/agents` |
+| GET | `/api/bridge` | Bridge connection map |
+| GET | `/api/sessions` | Active per-room sessions |
+| GET | `/api/memories` | Past lives + lab-memory entries |
+| GET | `/task/:id/status` | Poll bridge task status |
+| POST | `/chat` | Full agent loop (tool-calling) |
+| POST | `/chat/stream` | Streaming agent loop |
+| POST | `/converse` | Lightweight personality chat (no tools) |
+| POST | `/reset` | Reset session history |
+| GET | `/receipts` | Recent receipts |
+| GET | `/capabilities` | Capability summary |
+
+---
+
+## Capabilities
+
+Pehlichi is the lab coordinator with **60+ tools** including:
+
+- **File operations** — read, write, search, patch
+- **Terminal** — run shell commands and manage background processes
+- **Web** — search, extract, browse (Playwright)
+- **Vision** — image analysis via `vision_analyze`
+- **Memory** — persistent curated memory across conversations
+- **Labmem** — lab-wide shared/own/project memory (recall + record)
+- **Skills** — loadable skill modules (coordination, planning, safety, archivum, etc.)
+- **Delegation** — spawn sub-agents for parallel work
+- **Cron** — scheduled tasks that survive restarts
+- **Bridge tools** — `bridge.health`, `bridge.list`, `bridge.request` for inter-agent HTTP calls
+- **Lab-status digest** — `lab_status_digest` pings every ecosystem service, returns up/down
+- **ikbi integration** — `ikbi_build`, `ikbi_fix`, `ikbi_status` for governed code generation
+- **Coordination** — `todo`, `clarify`, `delegate_task`
+- **Music** — MiniMax Music 2.6 for song generation
+- **Brain** — gbrain knowledge bridge (search/think recall)
+
+---
+
+## Architecture
+
+```
+                 ┌─────────────────────┐
+                 │     Web UI / TUI    │
+                 └─────────┬───────────┘
+                           │
+                 ┌─────────▼───────────┐
+                 │  Pehlichi HTTP      │  :18830
+                 │  (KernelChatSession)│
+                 └─────────┬───────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+   ┌────▼────┐      ┌─────▼─────┐     ┌─────▼─────┐
+   │ Bridge  │      │ Tool      │     │ Kernel    │
+   │ Registry│      │ Registry  │     │ Loop      │
+   └────┬────┘      └───────────┘     └───────────┘
+        │
+   ┌────▼──────────────────────────────────────┐
+   │  Ecosystem Services (localhost)           │
+   │  ikbi :18796  toba :18815  nusika :18793 │
+   │  howa :18799  kokuli :18800 luak :18795  │
+   │  ittunaha :18821                          │
+   └───────────────────────────────────────────┘
+```
+
+---
+
+## License
+
+Private — lab use only.

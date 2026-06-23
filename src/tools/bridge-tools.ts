@@ -160,6 +160,11 @@ export const bridgeToolSpecs: ToolSpec[] = [
       ["service", "method", "path"],
     ),
   },
+  {
+    name: "lab_status_digest",
+    description: "Proactive lab-status digest — pings every registered service and returns up/down. Read-only.",
+    parameters: obj({}, []),
+  },
 ];
 
 /** Default bridge.request timeout — real agent work takes minutes, not 30s (B7). */
@@ -289,6 +294,37 @@ export function createBridgeToolHandlers(config: BridgeToolConfig = {}): Map<str
       ok: false,
       output: "",
       error: `${service}${path} failed after ${maxAttempts} attempts: ${lastError}. The callee may still be working — poll ${service} /task/${taskId}/status to recover the result. (${trace})`,
+    };
+  });
+
+  // Lab-status digest: ping every known service and return up/down summary
+  handlers.set("lab_status_digest", async (): Promise<ToolResult> => {
+    const allServices = Object.entries(SERVICE_PORTS).map(([name, port]) => ({ name, port }));
+
+    const results = await Promise.allSettled(
+      allServices.map(async (svc) => {
+        const url = `http://localhost:${svc.port}/health`;
+        try {
+          const resp = await fetchImpl(url, { signal: AbortSignal.timeout(5000) });
+          return { name: svc.name, port: svc.port, up: resp.ok, status: resp.status };
+        } catch {
+          return { name: svc.name, port: svc.port, up: false, status: 0 };
+        }
+      }),
+    );
+
+    const digest = results.map((r) => (r.status === "fulfilled" ? r.value : { name: "unknown", port: 0, up: false, status: 0 }));
+    const up = digest.filter((d) => d.up);
+    const down = digest.filter((d) => !d.up);
+
+    return {
+      ok: true,
+      output: JSON.stringify({
+        summary: `${up.length} up, ${down.length} down`,
+        up: up.map((d) => `${d.name}:${d.port}`),
+        down: down.map((d) => `${d.name}:${d.port}`),
+        services: digest,
+      }, null, 2),
     };
   });
 

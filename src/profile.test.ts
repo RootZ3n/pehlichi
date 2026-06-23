@@ -38,7 +38,7 @@ test("peh profile: VOICE ONLY — identity/voice; no procedure, done-criteria, o
   assert.equal(pehProfile.role, "coordinator");
   assert.match(pehProfile.personaPreamble, /coordinator/i);
   assert.doesNotMatch(pehProfile.personaPreamble, /supersede|duplicate|route to|do not do the work|durable/i);
-  assert.deepEqual(pehProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika"]);
+  assert.deepEqual(pehProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika", "security"]);
   assert.ok(!("verificationPolicy" in pehProfile));
 });
 

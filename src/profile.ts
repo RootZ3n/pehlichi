@@ -77,6 +77,12 @@ export const coordinatorToolNames: readonly string[] = Object.freeze([
   "ikbi_build",
   "ikbi_fix",
   "ikbi_status",
+  // Bridge (inter-agent communication via HTTP)
+  "bridge.health",
+  "bridge.list",
+  "bridge.request",
+  // Lab-status digest (proactive ecosystem health)
+  "lab_status_digest",
 ]);
 
 export const pehProfile: AgentProfile = {
@@ -140,5 +146,6 @@ export const pehProfile: AgentProfile = {
     "learning",
     "toba",
     "nusika",
+    "security",
   ],
 };
