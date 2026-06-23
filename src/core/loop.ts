@@ -34,9 +34,11 @@ import {
 } from "./agent-tools/unattended.js";
 
 // Runaway guard default. Deliberately MODEST: a direct/library run never silently grinds through
-// 50 iterations. A trusted operator can raise it explicitly via opts.maxIterations (e.g. the server
-// assigns a higher budget for an escalated mutation/delegation task).
-const DEFAULT_MAX_ITERATIONS = 12;
+// dozens of iterations. Eight is enough for real work; a trusted operator can raise it explicitly
+// via opts.maxIterations (e.g. the server assigns a higher budget for an escalated mutation/delegation
+// task), or re-submit if more is genuinely needed. Twenty iterations on a "hi" message is absurd —
+// the model just grinds tools until its budget is exhausted.
+const DEFAULT_MAX_ITERATIONS = 8;
 
 /**
  * Default approval when NO approvalCallback is wired (direct/library use). It auto-approves only

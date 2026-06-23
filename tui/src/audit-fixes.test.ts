@@ -103,13 +103,13 @@ test('H2. /chat routes each room to its own session — one room never sees anot
 
   try {
     await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
-      await post(base, 'alpha-secret', '!roomA');
+      await post(base, 'run alpha-secret', '!roomA');
       // Second turn in room A must carry room A's first message as prior context.
-      await post(base, 'beta-followup', '!roomA');
+      await post(base, 'run beta-followup', '!roomA');
       assert.match(corpus(), /alpha-secret/, 'room A turn 2 sees room A turn 1');
 
       // Room B is a different session — it must NOT see room A's transcript.
-      await post(base, 'gamma-other', '!roomB');
+      await post(base, 'run gamma-other', '!roomB');
       const bCorpus = corpus();
       assert.match(bCorpus, /gamma-other/);
       assert.doesNotMatch(bCorpus, /alpha-secret/, 'room B does NOT see room A history (no bleed)');
@@ -204,7 +204,7 @@ test('H1. /chat with the correct bearer token passes the auth gate', async () =>
         const res = await fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer s3cret' },
-          body: JSON.stringify({ message: 'hi' }),
+          body: JSON.stringify({ message: 'run it' }),
         });
         assert.notEqual(res.status, 401);
         const body = await res.json() as { content: string };

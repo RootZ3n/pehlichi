@@ -49,7 +49,10 @@ import { sanitizeMessage } from '../../../src/core/agent-tools/input-sanitizatio
 import { classifyError } from '../../../src/core/agent-tools/error-classifier.js';
 import { withRetry } from '../../../src/core/agent-tools/retry.js';
 
-const DEFAULT_MAX_ITERATIONS = 20;
+// Eight is enough for real chat-driven work; the operator can re-submit for more. Twenty
+// made "hi" grind the tool loop until the budget was exhausted (the dead-/chat bug). A caller
+// may still override per-session via KernelChatSessionOptions.maxIterations.
+const DEFAULT_MAX_ITERATIONS = 8;
 
 /** One structured tool call as surfaced to HTTP consumers — INCLUDING its receipt (Blocker 5). */
 export interface KernelToolCall {
@@ -209,6 +212,18 @@ export class KernelChatSession {
     // circuit breaker lives in the injected ResilientDriver, not the session, so it is
     // reset at the driver layer.)
     this.tokenMonitor.reset();
+  }
+
+  /**
+   * STREAMING (additive): identical to send(), but named for the SSE path and with a
+   * REQUIRED per-event callback. The callback fires synchronously the instant each kernel
+   * event is emitted (tool-call / tool-result / terminal-receipt / narrate / summary) — the
+   * run does NOT buffer events, so an SSE endpoint can flush every step the moment it
+   * happens instead of waiting for the whole turn to finish. The returned response is the
+   * same final blob send() returns, so the caller can emit a closing `done` frame from it.
+   */
+  async stream(userMessage: string, onEvent: (e: AgentEvent) => void): Promise<KernelChatResponse> {
+    return this.send(userMessage, onEvent);
   }
 
   async send(userMessage: string, onEvent?: (e: AgentEvent) => void): Promise<KernelChatResponse> {

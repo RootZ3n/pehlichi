@@ -77,6 +77,9 @@ test("1. full-loop scenario: events in order, real command, real file change", a
       driver: new ScriptedDriver(scenarioActions()),
       sinks: [sink],
       approvalCallback: allowAll,
+      // The full-loop scenario scripts 11 steps; give it the budget explicitly since the
+      // default runaway guard was lowered to 8 (this test exercises tool mechanics, not the cap).
+      maxIterations: 12,
     });
 
     // 1a. the stream carries the key events IN ORDER.
