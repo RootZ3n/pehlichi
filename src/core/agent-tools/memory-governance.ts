@@ -34,6 +34,84 @@ export type MemoryImprovementType =
   | "identity_persona"
   | "security_sensitive";
 
+/**
+ * Reference-only evidence an agent may OPTIONALLY attach to a memory proposal. This is
+ * provenance/binding for a later reviewer (Truth Firewall) — it never marks memory as verified and
+ * never changes approval/install. Stores REFERENCES (paths/hashes/ids), never blob content.
+ * Deferred kinds (command_receipt/tool_receipt) are intentionally absent: current agent receipts
+ * are in-memory/TTL and not durable/referenceable at proposal time.
+ */
+export type MemoryEvidenceKind =
+  | "file"
+  | "commit"
+  | "existing_memory"
+  | "user_message"
+  | "agent_report"
+  | "manual_note";
+
+export interface EvidenceRef {
+  readonly kind: MemoryEvidenceKind;
+  readonly path?: string;
+  readonly sha256?: string;
+  readonly lines?: string;
+  readonly commit?: string;
+  readonly repo?: string;
+  readonly ref?: string;
+  readonly description?: string;
+}
+
+const MEMORY_EVIDENCE_KINDS: ReadonlySet<string> = new Set<MemoryEvidenceKind>([
+  "file",
+  "commit",
+  "existing_memory",
+  "user_message",
+  "agent_report",
+  "manual_note",
+]);
+const EVIDENCE_DESCRIPTION_MAX = 500;
+
+/**
+ * Sanitize agent-supplied evidence into well-formed, REFERENCE-ONLY EvidenceRefs. Authoritative at
+ * the governance boundary (also called by the tool for early feedback). Drops anything that could
+ * never be verified later: unknown/deferred kinds (incl. command_receipt/tool_receipt), `file`
+ * without a `path`, `commit` without a `commit`, `existing_memory` without a `ref`. Carries
+ * `sha256` when provided (never required). Provenance kinds may carry only a description. Never
+ * embeds blob content; a description is trimmed to a bounded length.
+ */
+export function sanitizeMemoryEvidence(input: unknown): EvidenceRef[] {
+  if (!Array.isArray(input)) return [];
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const out: EvidenceRef[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    if (typeof e.kind !== "string" || !MEMORY_EVIDENCE_KINDS.has(e.kind)) continue;
+    const kind = e.kind as MemoryEvidenceKind;
+    const path = str(e.path);
+    const commit = str(e.commit);
+    const ref = str(e.ref);
+    // Required-field gates per kind — reject garbage that a reviewer could never resolve.
+    if (kind === "file" && !path) continue;
+    if (kind === "commit" && !commit) continue;
+    if (kind === "existing_memory" && !ref) continue;
+    const sha256 = str(e.sha256);
+    const lines = str(e.lines);
+    const repo = str(e.repo);
+    const desc = str(e.description);
+    out.push({
+      kind,
+      ...(path ? { path } : {}),
+      ...(sha256 ? { sha256 } : {}),
+      ...(lines ? { lines } : {}),
+      ...(commit ? { commit } : {}),
+      ...(repo ? { repo } : {}),
+      ...(ref ? { ref } : {}),
+      ...(desc ? { description: desc.length > EVIDENCE_DESCRIPTION_MAX ? desc.slice(0, EVIDENCE_DESCRIPTION_MAX) : desc } : {}),
+    });
+  }
+  return out;
+}
+
 /** The change an agent is proposing to durable memory. */
 export interface MemoryChangeRequest {
   readonly action: "add" | "replace" | "remove";
@@ -41,6 +119,8 @@ export interface MemoryChangeRequest {
   readonly target: "memory" | "user";
   readonly content?: string;
   readonly oldText?: string;
+  /** OPTIONAL reference-only evidence (sanitized at the boundary). Empty/absent ⇒ no evidence. */
+  readonly evidence?: ReadonlyArray<EvidenceRef>;
 }
 
 /** A persisted, NON-INSTALLED proposal. Creating one never writes durable memory. */
@@ -56,6 +136,8 @@ export interface MemoryChangeProposal {
   readonly namespace: string;
   readonly content?: string;
   readonly oldText?: string;
+  /** OPTIONAL reference-only evidence (omitted when empty). Advisory — never marks memory verified. */
+  readonly evidence?: ReadonlyArray<EvidenceRef>;
   readonly risk_level: MemoryRisk;
   readonly requiresHumanApproval: boolean;
   /** Hard invariant: proposing never installs. */
@@ -175,6 +257,9 @@ export function createFileMemoryGovernance(opts: FileMemoryGovernanceOptions): M
   return {
     propose(change: MemoryChangeRequest, agent: string): MemoryChangeProposal {
       const { improvement_type, risk_level } = classifyMemoryChange(change);
+      // Evidence is REFERENCE-ONLY provenance for a later reviewer; it does NOT influence risk
+      // classification, approval, or install. Sanitized here (authoritative) and omitted when empty.
+      const evidence = sanitizeMemoryEvidence(change.evidence);
       const proposal: MemoryChangeProposal = {
         id: idGen(),
         status: "pending_verification",
@@ -186,6 +271,7 @@ export function createFileMemoryGovernance(opts: FileMemoryGovernanceOptions): M
         namespace: change.target === "user" ? "USER.md" : "MEMORY.md",
         ...(change.content !== undefined ? { content: change.content } : {}),
         ...(change.oldText !== undefined ? { oldText: change.oldText } : {}),
+        ...(evidence.length > 0 ? { evidence } : {}),
         risk_level,
         requiresHumanApproval: requiresHumanApproval(improvement_type, risk_level),
         installed: false,
