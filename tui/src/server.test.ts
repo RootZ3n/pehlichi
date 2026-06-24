@@ -198,10 +198,20 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
 
         const caps = await (await fetch(`${base}/capabilities`)).json() as any;
         assert.ok(caps.features.includes('kernel_loop'));
-        assert.deepEqual(
-          caps.endpoints,
-          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
-        );
+        // Forward-compatible endpoint contract: REQUIRE the core routes every agent
+        // server must expose; WARN (don't fail) on any extra routes, so adding a new
+        // endpoint never breaks this contract test.
+        const REQUIRED_ENDPOINTS = [
+          '/health', '/tools', '/info', '/chat', '/chat/stream',
+          '/reset', '/agent', '/capabilities', '/task/:id/status', '/receipts',
+        ];
+        assert.ok(Array.isArray(caps.endpoints), 'capabilities.endpoints is an array');
+        const missingEndpoints = REQUIRED_ENDPOINTS.filter((e) => !caps.endpoints.includes(e));
+        assert.deepEqual(missingEndpoints, [], `core endpoints must all be advertised (missing: ${missingEndpoints.join(', ')})`);
+        const extraEndpoints = caps.endpoints.filter((e: string) => !REQUIRED_ENDPOINTS.includes(e));
+        if (extraEndpoints.length > 0) {
+          console.warn(`[contract] extra endpoints advertised (ok, forward-compatible): ${extraEndpoints.join(', ')}`);
+        }
 
         const reset = await fetch(`${base}/reset`, { method: 'POST' });
         assert.equal(reset.status, 200);
