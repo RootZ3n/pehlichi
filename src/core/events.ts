@@ -57,7 +57,7 @@ export type AgentEventInput =
       op: string;
       detail: Record<string, unknown>;
     }
-  | { kind: "summary"; rootCause: string; changes: string[]; verification: string[] }
+  | { kind: "summary"; rootCause: string; changes: string[]; verification: string[]; injectionFindings?: number }
   | { kind: "done" }
   | { kind: "error"; where: string; message: string };
 

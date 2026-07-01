@@ -43,6 +43,11 @@ import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context
 import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
 import { bridgeRegistry } from '../bridges/registry.js';
+// OPTIONAL tool modules (Phase C): present in the SHARED registry, enabled per-agent via
+// AgentToolConfig flags so this file is identical across every agent. Default OFF.
+import { teachingToolSpecs, createTeachingToolHandlers } from './teaching-tools.js';
+import { workOrderToolSpecs, createWorkOrderToolHandlers } from '../../tools/work-order-tools.js';
+import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -96,6 +101,17 @@ export interface AgentToolConfig {
    * the default runs a REAL agent loop in a disposable shadow workspace.
    */
   cronExecute?: (prompt: string) => Promise<string>;
+  /**
+   * OPTIONAL TOOL MODULES (Phase C) — agent-specialization as config, not forked code. The
+   * shared registry contains every optional module; each agent enables only the ones its role
+   * uses, so `index.ts` is byte-identical across all agents. All default OFF.
+   */
+  /** pehlichi-pub teaching tools: teach_lesson / teach_hover / teach_challenge (lesson cards). */
+  enableTeaching?: boolean;
+  /** Ptah work-order tools: typed CRUD over the lab repair queue. */
+  enableWorkOrders?: boolean;
+  /** Ptah occasio bridge: file a detection as a work order + route it through the trio. */
+  enableOccasio?: boolean;
 }
 
 /**
@@ -335,6 +351,29 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
         return { ok: result.ok, output: result.output, ...(result.error !== undefined ? { error: result.error } : {}) };
       };
       tools.push({ spec, handler });
+    }
+  }
+
+  // OPTIONAL tool modules (Phase C): identical code in every agent; enabled per role via config.
+  if (config.enableTeaching) {
+    const teachingHandlers = createTeachingToolHandlers();
+    for (const spec of teachingToolSpecs) {
+      const handler = teachingHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
+    }
+  }
+  if (config.enableWorkOrders) {
+    const workOrderHandlers = createWorkOrderToolHandlers();
+    for (const spec of workOrderToolSpecs) {
+      const handler = workOrderHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
+    }
+  }
+  if (config.enableOccasio) {
+    const occasioHandlers = createOccasioToolHandlers();
+    for (const spec of occasioToolSpecs) {
+      const handler = occasioHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
     }
   }
 

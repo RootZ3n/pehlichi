@@ -28,6 +28,7 @@ import {
   MimoDriver,
   ScriptedDriver,
   createToolRegistry,
+  runtimeCapabilities,
   type Driver,
   type DriverAction,
   type AgentEvent,
@@ -186,6 +187,13 @@ export interface PehServerOptions {
   /** Allow write/destructive tools without gating (default false — writes require approval). */
   readonly allowWrites?: boolean;
   /**
+   * EVIDENCE GATE (P0.1): require a `done` that claims changes/verification to be backed by
+   * tools that actually ran this session (see RunAgentOptions.requireEvidence). Defaults ON
+   * for the production path and OFF under an injected test driver (scripted-driver tests
+   * assert success without running real tools). Tests that want the gate pass `true`.
+   */
+  readonly requireEvidence?: boolean;
+  /**
    * CHECKPOINTING (H6): directory for crash-safe conversation checkpoints. When unset,
    * production defaults it under the lab store (so a restart resumes); tests that inject
    * a driver leave it off, so no checkpoint files are written during a test run.
@@ -257,11 +265,17 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // Without it the converse lane (no tools) answered "my mind" / "I don't know" / "nothing
   // between conversations". Just names + a plain-English summary — not the 29 full tool
   // descriptions. The personality prompt still owns his squirrel voice; this is only facts.
+  // TRUTHFUL (P0.4): only claim WRITE ability when writes are actually enabled this run.
+  // With writes off (the P0.3 safe default), claiming "you can write files" is an over-claim.
+  const writesEnabledForSummary = opts.allowWrites === true;
   const capabilitiesSummary =
     `YOUR CAPABILITIES (real tools you have — talk about them in your own voice):\n` +
     `You have ${toolNames.length} tools available: ${toolNames.join(', ')}.\n` +
-    `You can: read files, write files, edit files (patch), search code, run terminal commands, ` +
-    `browse the web, and manage processes.\n` +
+    (writesEnabledForSummary
+      ? `You can: read files, write files, edit files (patch), search code, run terminal commands, ` +
+        `browse the web, and manage processes. Any file change you make can be undone via /undo.\n`
+      : `You can: read files, search code, run read-only commands, browse the web, and inspect processes. ` +
+        `File writes/edits are currently DISABLED (operator has not enabled writes) — do NOT claim you wrote or changed a file.\n`) +
     `You have persistent memory across conversations via the memory tool — you do NOT forget everything between chats.\n` +
     `You have a /tools endpoint that lists your tools, and a /info endpoint with your identity.`;
   // The converse lane runs WITHOUT tools, so Peh must be told he still has them elsewhere.
@@ -295,6 +309,23 @@ export function createPehServer(opts: PehServerOptions = {}): {
   if (!isInjected && !hasChatToken) {
     console.warn('[auth] IKBI_CHAT_TOKEN is unset — /chat endpoints are OPEN (no auth required).');
   }
+
+  // TRUTHFUL CAPABILITIES (P0.4): derive what this run can ACTUALLY do from the real wiring,
+  // so /capabilities and the model's self-description never claim a capability that is off.
+  // As P1 wires compaction/schema-repair/provider-switch, flip the inputs here and the report
+  // follows — no hand-maintained feature list to drift out of sync with reality.
+  const requireEvidenceEffective = opts.requireEvidence ?? !isInjected;
+  const caps = runtimeCapabilities({
+    allowWrites: allowWritesEffective,
+    requireEvidence: requireEvidenceEffective,
+    // P1.1: KernelChatSession wires a context window by default ⇒ compaction is active.
+    // (Mirrors KernelChatSession's DEFAULT_CONTEXT_WINDOW; the value only drives the flag here.)
+    contextWindow: 128_000,
+    schemaRepair: true, // P1.2: the live MiMo driver now repairs near-JSON tool-call args.
+    providerSwitch: false, // single hardcoded driver; no runtime switch (P2).
+    memoryWired: toolNames.includes('memory') || toolNames.includes('labmem_recall'),
+    toolCount: toolNames.length,
+  });
 
   // H2 (cross-room bleed): every Matrix room (and DM) gets its OWN KernelChatSession so
   // one room's transcript is NEVER visible in another's context. Sessions are created on
@@ -332,6 +363,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
       taskId: `pehlichi-${roomKey}${overrideWorkspace ? `@${basename(overrideWorkspace)}` : ''}`,
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
+      // P0.1: prove-don't-assert. ON in production; OFF under an injected test driver unless
+      // the test explicitly opts in (scripted drivers finish without running real tools).
+      requireEvidence: opts.requireEvidence ?? !isInjected,
       ...(checkpointDir !== undefined ? { checkpointDir: join(checkpointDir, sanitizeRoomKey(roomKey)) } : {}),
     });
   };
@@ -842,6 +876,45 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
     }
 
+    // REVERSIBILITY (P0.3): list the file edits the room's session has made this session.
+    // Read-only, but auth-gated (it reveals workspace paths), like /chat.
+    if (req.method === 'POST' && url.pathname === '/session/changes') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
+      const body = await parseBody(req);
+      const changes = sessionFor(roomKeyOf(body)).changedFiles();
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        count: changes.length,
+        changes: changes.map((c) => ({ path: c.path, created: c.before === null })),
+      });
+    }
+
+    // REVERSIBILITY (P0.3): undo the room session's edits — the last one, or ALL when
+    // { all: true }. Restores each file to its pre-edit content (or deletes a created file).
+    // Auth-gated (it mutates the workspace), like /chat writes.
+    if (req.method === 'POST' && url.pathname === '/undo') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
+      const body = await parseBody(req);
+      const session = sessionFor(roomKeyOf(body));
+      if (body['all'] === true) {
+        const r = session.revertAll();
+        return json(res, 200, { agent: skin.branding.agent_name, revertedAll: true, reverted: r.reverted, errors: r.errors });
+      }
+      const r = session.undo();
+      if (r.reverted === null && r.error === undefined) {
+        return json(res, 200, { agent: skin.branding.agent_name, reverted: null, note: 'nothing to undo' });
+      }
+      return json(res, r.error !== undefined ? 500 : 200, {
+        agent: skin.branding.agent_name,
+        reverted: r.reverted,
+        ...(r.error !== undefined ? { error: r.error } : {}),
+      });
+    }
+
     if (req.method === 'GET' && url.pathname === '/agent') {
       return json(res, 200, {
         id: skin.branding.agent_name.toLowerCase(),
@@ -858,9 +931,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/undo', '/session/changes', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
         model: MODEL,
-        features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
+        // TRUTHFUL (P0.4): the ACTUAL wired capabilities of this run — a capability reads
+        // `true` only when it is actually active (writesEnabled/evidenceGate/contextCompaction/
+        // schemaRepair/providerSwitch reflect the real posture, not an aspiration).
+        capabilities: caps,
+        writePosture: allowWritesEffective ? 'writes-enabled' : 'read-only',
         conversations: {
           canSendMessage: true,
           canListConversations: false,
@@ -1032,9 +1109,17 @@ const isMain = process.argv[1] !== undefined && import.meta.url === `file://${pr
 if (isMain) {
   const skin = loadSkin();
   const personality = loadPersonality();
-  // Allow writes by default. The auth gate (line 252-254) already forces read-only
-  // for unauthenticated callers (no IKBI_CHAT_TOKEN). Authenticated callers get full access.
-  const { server } = createPehServer({ allowWrites: process.env.AGENT_ALLOW_WRITES !== 'false' });
+  // WRITE SAFETY (P0.3): writes are OFF by default and require an EXPLICIT opt-in
+  // (AGENT_ALLOW_WRITES=true). Previously writes defaulted ON, so an authenticated caller
+  // could drive destructive tools against the real workspace with no deliberate enablement.
+  // Auth still gates the endpoint (no IKBI_CHAT_TOKEN => read-only regardless); this makes the
+  // WRITE posture a conscious operator decision. Any write the agent does make is reversible
+  // via /undo. To restore full write access, set AGENT_ALLOW_WRITES=true in the service env.
+  const allowWrites = process.env.AGENT_ALLOW_WRITES === 'true';
+  const { server } = createPehServer({ allowWrites });
+  if (!allowWrites) {
+    console.warn('[write-safety] writes are DISABLED (AGENT_ALLOW_WRITES!=="true"); mutating tools will be refused. Set AGENT_ALLOW_WRITES=true to enable.');
+  }
   server.listen(PORT, HOST, () => {
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);

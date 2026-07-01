@@ -47,12 +47,31 @@ import { scanForInjection } from '../../../src/core/agent-tools/prompt-injection
 import { TokenMonitor } from '../../../src/core/agent-tools/token-monitor.js';
 import { sanitizeMessage } from '../../../src/core/agent-tools/input-sanitization.js';
 import { classifyError } from '../../../src/core/agent-tools/error-classifier.js';
+import { writeFileSync, rmSync, existsSync } from 'node:fs';
+
+/** One reversible file edit recorded from a kernel `diff` event (P0.3 reversibility). */
+export interface FileEdit {
+  /** Absolute path the tool wrote. */
+  readonly path: string;
+  /** Content before the edit; null if the file was newly created (undo => delete). */
+  readonly before: string | null;
+  /** Content after the edit. */
+  readonly after: string;
+}
 import { withRetry } from '../../../src/core/agent-tools/retry.js';
 
 // Eight is enough for real chat-driven work; the operator can re-submit for more. Twenty
 // made "hi" grind the tool loop until the budget was exhausted (the dead-/chat bug). A caller
 // may still override per-session via KernelChatSessionOptions.maxIterations.
 const DEFAULT_MAX_ITERATIONS = 8;
+
+/**
+ * CONTEXT COMPACTION (P1.1): the context window the kernel compresses toward. mimo-v2.5 is
+ * ~128k; the compressor summarizes middle turns once the transcript passes ~80% of this, so a
+ * long conversation stops silently overflowing. Compression has a deterministic (no-network)
+ * fallback, so enabling it by default is safe even when the summarizer model is unavailable.
+ */
+const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 /** One structured tool call as surfaced to HTTP consumers — INCLUDING its receipt (Blocker 5). */
 export interface KernelToolCall {
@@ -144,6 +163,26 @@ export interface KernelChatSessionOptions {
   readonly toolNames?: readonly string[];
   readonly memoryStoreRoot?: string;
   /**
+   * EVIDENCE GATE (P0.1): when true, the run may not finish with a `done` that CLAIMS
+   * changes/verification unless a tool actually performed them this session (see
+   * RunAgentOptions.requireEvidence). Production wires this ON so the agent proves success
+   * instead of asserting it. Unset => shape-only validation, unchanged.
+   */
+  readonly requireEvidence?: boolean;
+  /**
+   * CONTEXT COMPACTION (P1.1): the context window (tokens) the kernel compresses toward.
+   * Defaults to DEFAULT_CONTEXT_WINDOW. The compressor summarizes middle turns once the
+   * transcript passes ~80% of this; unset uses the default (compaction ON).
+   */
+  readonly contextWindow?: number;
+  /**
+   * VELUM OUTPUT-GUARDING (Phase C): when true, tool output is sanitized + injection-scanned +
+   * quarantine-wrapped before re-entering context (see RunAgentOptions.guardToolOutput). A
+   * hardening-focused agent (Ptah) sets this; the others leave it off. The kernel is identical
+   * across agents — only this run-config posture differs.
+   */
+  readonly guardToolOutput?: boolean;
+  /**
    * CHECKPOINTING (H6): when set, the session resumes its conversation from the latest
    * checkpoint in this directory on construction and writes a fresh checkpoint after
    * every turn, so a restart is no longer total amnesia. Unset => no checkpointing.
@@ -172,6 +211,14 @@ export class KernelChatSession {
   private history: Message[] = [];
   /** Monotonic turn counter — the checkpoint iteration (H6). */
   private turnCount = 0;
+  /**
+   * REVERSIBILITY (P0.3): a LIFO journal of every file edit this session made, recorded
+   * from kernel `diff` events (write_file/patch now report before/after). `undo()` reverts
+   * the most recent edit; `revertAll()` unwinds the whole session. This is the live-path
+   * rollback the loop's shadow workspaces give cron/delegate runs — a mutation the agent
+   * makes on the real workspace is never unrecoverable.
+   */
+  private undoJournal: FileEdit[] = [];
 
   constructor(opts: KernelChatSessionOptions) {
     this.opts = opts;
@@ -193,9 +240,55 @@ export class KernelChatSession {
     return this.history;
   }
 
+  /**
+   * REVERSIBILITY (P0.3): the file edits this session has made, oldest → newest. Returns a
+   * SNAPSHOT COPY — `undo()`/`revertAll()` pop the internal journal, so handing out the live
+   * array would mutate a caller's reference underneath them.
+   */
+  changedFiles(): readonly FileEdit[] {
+    return [...this.undoJournal];
+  }
+
+  /**
+   * REVERSIBILITY (P0.3): revert the MOST RECENT file edit — restore the file to its
+   * `before` content, or delete it if it was newly created. The reverted entry is popped,
+   * so repeated calls unwind the session edit-by-edit (LIFO). Returns the reverted path, or
+   * null when there is nothing to undo. Best-effort per entry: an I/O failure surfaces in
+   * `error` rather than throwing, so an operator undo can never crash the server.
+   */
+  undo(): { reverted: string | null; error?: string } {
+    const last = this.undoJournal.pop();
+    if (last === undefined) return { reverted: null };
+    try {
+      if (last.before === null) {
+        if (existsSync(last.path)) rmSync(last.path);
+      } else {
+        writeFileSync(last.path, last.before, 'utf8');
+      }
+      return { reverted: last.path };
+    } catch (err) {
+      return { reverted: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** REVERSIBILITY (P0.3): unwind EVERY edit this session made (newest → oldest). */
+  revertAll(): { reverted: string[]; errors: string[] } {
+    const reverted: string[] = [];
+    const errors: string[] = [];
+    while (this.undoJournal.length > 0) {
+      const r = this.undo();
+      if (r.reverted !== null) reverted.push(r.reverted);
+      if (r.error !== undefined) errors.push(r.error);
+    }
+    return { reverted, errors };
+  }
+
   reset(): void {
     this.history = [];
     this.turnCount = 0;
+    // A reset starts a fresh session — the prior turns' undo journal no longer applies.
+    // (Files already written stay on disk; reset clears the transcript, not the workspace.)
+    this.undoJournal = [];
     // C4 (transcript resurrection): a /reset must ERASE the on-disk checkpoints, not
     // just the in-memory transcript. Otherwise the next turn writes a fresh checkpoint at
     // a LOW iteration while prune keeps the higher pre-reset ones, and loadLatestCheckpoint
@@ -244,10 +337,14 @@ export class KernelChatSession {
     // 2. SANITIZE the user message.
     const task = sanitizeMessage(userMessage);
 
-    // 3. Capture EVERY kernel event (Blocker 5).
+    // 3. Capture EVERY kernel event (Blocker 5). Also journal file edits for undo (P0.3):
+    // every `diff` event is a real write the agent just made to the workspace.
     const events: AgentEvent[] = [];
     const sink = (e: AgentEvent): void => {
       events.push(e);
+      if (e.kind === 'diff') {
+        this.undoJournal.push({ path: e.path, before: e.before, after: e.after });
+      }
       onEvent?.(e);
     };
 
@@ -279,6 +376,9 @@ export class KernelChatSession {
       ...(this.opts.approvalCallback !== undefined ? { approvalCallback: this.opts.approvalCallback } : {}),
       ...(this.opts.toolNames !== undefined ? { toolNames: this.opts.toolNames } : {}), // H1: tool lane.
       ...(this.opts.memoryStoreRoot !== undefined ? { memoryStoreRoot: this.opts.memoryStoreRoot } : {}),
+      ...(this.opts.requireEvidence === true ? { requireEvidence: true } : {}), // P0.1: prove, don't assert.
+      contextWindow: this.opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW, // P1.1: compact long transcripts.
+      ...(this.opts.guardToolOutput === true ? { guardToolOutput: true } : {}), // Phase C: Velum posture (Ptah).
       ...(this.opts.clock !== undefined ? { clock: this.opts.clock } : {}),
     });
 

@@ -197,7 +197,10 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
         assert.ok(tools.tools.includes('terminal'), 'kernel terminal tool is advertised');
 
         const caps = await (await fetch(`${base}/capabilities`)).json() as any;
-        assert.ok(caps.features.includes('kernel_loop'));
+        // P0.4: /capabilities now reports a TRUTHFUL derived capability object (not a static
+        // `features` list). The always-on kernel guarantees read true.
+        assert.equal(caps.capabilities.kernelLoop, true);
+        assert.equal(caps.capabilities.undo, true);
         // Forward-compatible endpoint contract: REQUIRE the core routes every agent
         // server must expose; WARN (don't fail) on any extra routes, so adding a new
         // endpoint never breaks this contract test.

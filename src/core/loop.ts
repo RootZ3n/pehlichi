@@ -26,6 +26,7 @@ import {
 import { RepetitionDetector, resolveToolBudget, type BudgetTier } from "./agent-tools/tool-governor.js";
 import { ContextCompressor } from "./context-compressor.js";
 import { ReceiptStore } from "./receipt-store.js";
+import { guardToolOutput } from "./agent-tools/velum-scan.js";
 import { TokenMonitor, IterationBudget } from "./agent-tools/infrastructure.js";
 import {
   unattendedToolDenyReason,
@@ -182,6 +183,33 @@ export interface RunAgentOptions {
    * takes precedence: a resumed run REPLACES the whole transcript with the saved one.
    */
   readonly priorMessages?: readonly Message[];
+  /**
+   * EVIDENCE GATE (opt-in): when true, a `done` that CLAIMS work must be BACKED by tool
+   * calls that actually executed successfully THIS run — the model can no longer assert
+   * success it did not perform:
+   *   - a non-empty `verification[]` requires that a real command actually ran and passed
+   *     this run (a `terminal` receipt with exitCode 0, or a successful `execute_code`);
+   *   - a non-empty `changes[]` requires that a mutating tool actually succeeded this run
+   *     (`write_file`/`patch`, a result carrying a `diff`, or a successful command run).
+   * An unproven `done` is NOT accepted: instead the loop feeds an actionable correction
+   * back to the model ("you claimed X but ran no tool that proves it — actually run it")
+   * and CONTINUES, so the model goes and does the verification through the real channel.
+   * The correction consumes an iteration, so a model that never proves its claim still
+   * trips the runaway guard and fails loud rather than looping forever.
+   * `noChangeRequired:true` bypasses BOTH checks (a purely conversational answer legitimately
+   * has — and claims — no executed evidence). Unset/false => the summary is validated by
+   * SHAPE only (non-empty arrays), exactly as before, so every proven caller is unchanged.
+   */
+  readonly requireEvidence?: boolean;
+  /**
+   * VELUM OUTPUT-GUARDING (opt-in): when true, every tool result is routed through the Velum
+   * boundary — sanitized, scanned for prompt-injection, and quarantine-wrapped — before it
+   * re-enters the model's context; findings are counted in `injectionFindings` and narrated,
+   * never dropped. Unset/false => tool output is passed through verbatim exactly as before, so
+   * this is the seam that lets the SAME core serve a hardening-focused agent (Ptah) and the
+   * others without forking the loop. The core stays generic; the agent supplies the posture.
+   */
+  readonly guardToolOutput?: boolean;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -219,6 +247,8 @@ export interface RunAgentResult {
   readonly plan?: { readonly steps: readonly string[]; readonly progress: number };
   /** Token usage accumulated during this run (from the driver's drainUsage). */
   readonly tokenUsage?: { readonly totalInput: number; readonly totalOutput: number; readonly totalCached: number; readonly callCount: number };
+  /** Velum (improvement #3): how many tool outputs were flagged for injection this run. */
+  readonly injectionFindings?: number;
 }
 
 export interface RunAgentInShadowOptions extends Omit<RunAgentOptions, "workspaceRoot"> {
@@ -371,6 +401,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
   // PARTIAL RESULTS (item 3): every successful tool call appends an accomplishment.
   const accomplished: string[] = [];
+  // VELUM (improvement #3): per-session count of tool outputs flagged for injection.
+  let injectionFindings = 0;
+
+  // EVIDENCE GATE: track whether the run has ACTUALLY performed provable work, so a
+  // `done` that claims changes/verification can be checked against reality (opt-in via
+  // requireEvidence). `changeEvidence` = a mutating tool succeeded (write_file/patch, a
+  // diff-carrying result, or a real command that could mutate). `verifyEvidence` = a real
+  // command actually ran and passed (a terminal receipt with exitCode 0, or execute_code ok).
+  let changeEvidence = false;
+  let verifyEvidence = false;
   const planResult = () => (planningEnabled && planSteps.length > 0 ? { plan: { steps: planSteps, progress: planProgress } } : {});
   const tokenResult = () => ({ tokenUsage: tokenMonitor.summary() });
 
@@ -521,12 +561,25 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         if (result.skillCreated) {
           emitter.emit({ kind: "skill-created", ...result.skillCreated });
         }
+        // VELUM-GATED TOOL OUTPUT (improvement #3): route every tool result through
+        // the Velum boundary — sanitize, scan for injection, and quarantine-wrap the
+        // text before it re-enters the model's context. Findings are FLAGGED (counted
+        // + narrated), never dropped, so an audit agent still sees the hostile string.
+        const guarded = opts.guardToolOutput === true && result.output.length > 0 ? guardToolOutput(result.output, action.tool) : undefined;
+        if (guarded?.scan.detected) {
+          injectionFindings += 1;
+          emitter.emit({
+            kind: "narrate",
+            phase: "other",
+            text: `[velum] quarantined possible injection in ${action.tool} output: ${guarded.scan.patterns.join(", ")}`,
+          });
+        }
         // Feed the ACTUAL result back into history (output/error, success, and
         // the terminal receipt summary) so the model grounds its next turn on
         // results it RECEIVED, not ones it imagines. A failure puts its failure
         // here. A call that never executed (e.g. textual-call-detected) produces
         // NO such message — the model has nothing to cite for it.
-        messages.push({ role: "tool", content: toolResultForHistory(action.tool, result) });
+        messages.push({ role: "tool", content: toolResultForHistory(action.tool, result, guarded?.safe) });
 
         // REPETITION / NO-PROGRESS GOVERNOR (Phase 7): detect same-tool+same-args
         // loops, repeated no-evidence reads, and stuck delegations. A hard stop
@@ -544,7 +597,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           emitter.emit({ kind: "narrate", phase: "other", text: output });
           emitter.emit({ kind: "summary", rootCause: verdict.reason ?? "stopped", changes: [], verification: [] });
           if (opts.partialOnExhaustion === true) {
-            return { ok: false, partial: true, accomplished, output, ...planResult(), ...tokenResult() };
+            return { ok: false, partial: true, accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
           }
           throw new Error(output);
         }
@@ -561,6 +614,19 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         // PARTIAL RESULTS: record the accomplishment; advance plan progress.
         if (result.ok) {
           accomplished.push(`${action.tool}: ${firstLine(result.output) || "ok"}`);
+          // EVIDENCE GATE: a successful command that ran and passed (terminal receipt exit 0,
+          // or execute_code) is verification evidence AND — since a command can mutate files —
+          // also counts as change evidence. A successful write/patch (or a diff-carrying
+          // result) is change evidence only. Claims in `done` are checked against these below.
+          const ranCommand =
+            (result.receipt !== undefined && result.receipt.exitCode === 0) || action.tool === "execute_code";
+          if (ranCommand) {
+            verifyEvidence = true;
+            changeEvidence = true;
+          }
+          if (result.diff !== undefined || MUTATING_TOOLS.has(action.tool)) {
+            changeEvidence = true;
+          }
           if (planningEnabled && planSteps.length > 0 && planProgress < planSteps.length) {
             planProgress += 1;
             messages.push({ role: "user", content: `[plan-progress] ${planProgress}/${planSteps.length} steps complete.` });
@@ -604,7 +670,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
               verification: [],
             });
             if (opts.partialOnExhaustion === true) {
-              return { ok: false, partial: true, accomplished, output, ...planResult(), ...tokenResult() };
+              return { ok: false, partial: true, accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
             }
             throw new Error(output);
           }
@@ -631,15 +697,38 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         break;
       }
       case "done": {
+        // EVIDENCE GATE (opt-in): before accepting a `done`, verify its CLAIMS are backed by
+        // tools that actually ran this session. An unproven claim does NOT fail the run — it
+        // is fed back as an actionable correction and the loop CONTINUES, so the model goes
+        // and performs the verification/change through the real tool channel. noChangeRequired
+        // bypasses (a conversational answer claims nothing). The correction consumes an
+        // iteration, so a model that never proves its claim still trips the runaway guard.
+        if (opts.requireEvidence === true) {
+          const problem = unprovenClaim(action.summary, { changeEvidence, verifyEvidence });
+          if (problem !== null) {
+            emitter.emit({ kind: "narrate", phase: "verify", text: `[evidence-gate] done rejected: ${problem}` });
+            messages.push({
+              role: "user",
+              content:
+                `Your done was REJECTED by the evidence gate: ${problem} ` +
+                `You may not claim work you did not actually perform. Run the real tool now ` +
+                `(e.g. the terminal to build/test, or write_file/patch to make the change), THEN finish with done ` +
+                `citing what you actually ran. If the task truly needs no file change and no command, ` +
+                `finish with done and set "noChangeRequired":true (then changes[]/verification[] may be empty).`,
+            });
+            break;
+          }
+        }
         validateSummary(action.summary, emitter);
         emitter.emit({
           kind: "summary",
           rootCause: action.summary.rootCause,
           changes: action.summary.changes,
           verification: action.summary.verification,
+          injectionFindings, // improvement #3: per-session count surfaced in the closing summary
         });
         emitter.emit({ kind: "done" });
-        return { ok: true, accomplished, output: action.summary.rootCause, ...planResult(), ...tokenResult() };
+        return { ok: true, accomplished, output: action.summary.rootCause, injectionFindings, ...planResult(), ...tokenResult() };
       }
     }
 
@@ -682,6 +771,34 @@ function validateSummary(
   }
 }
 
+/**
+ * Tools that DIRECTLY mutate the workspace. A successful call to one of these is
+ * change evidence for the evidence gate. (A successful command — terminal/execute_code —
+ * also counts as change evidence at the call site, since a command can modify files.)
+ */
+const MUTATING_TOOLS: ReadonlySet<string> = new Set(["write_file", "patch"]);
+
+/**
+ * EVIDENCE GATE check: return a human-readable problem string when a `done` summary CLAIMS
+ * work that no tool actually performed this run, or null when the claims are backed (or
+ * bypassed by noChangeRequired). This is the truth-check that complements validateSummary's
+ * shape-check: shape asks "did you fill the arrays?", evidence asks "did you actually do it?".
+ */
+export function unprovenClaim(
+  summary: { changes: string[]; verification: string[]; noChangeRequired?: boolean },
+  evidence: { changeEvidence: boolean; verifyEvidence: boolean },
+): string | null {
+  // A conversational answer legitimately claims nothing to prove.
+  if (summary.noChangeRequired === true) return null;
+  if (Array.isArray(summary.verification) && summary.verification.length > 0 && !evidence.verifyEvidence) {
+    return "verification[] claims checks were run, but no command actually ran and passed this session (no terminal/execute_code success).";
+  }
+  if (Array.isArray(summary.changes) && summary.changes.length > 0 && !evidence.changeEvidence) {
+    return "changes[] claims files were changed, but no mutating tool (write_file/patch/command) succeeded this session.";
+  }
+  return null;
+}
+
 /** The up-front planning request appended to the transcript when planning is enabled. */
 const PLAN_INSTRUCTION =
   "Before acting, lay out a brief numbered plan (1., 2., 3., ...) of the steps you will take to " +
@@ -710,8 +827,13 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Render a real tool result for the model's history — actual content, incl. failures. */
-function toolResultForHistory(tool: string, result: ToolResult): string {
+/**
+ * Render a real tool result for the model's history — actual content, incl. failures.
+ * `outputOverride`, when supplied, is the Velum-guarded (sanitized + quarantine-wrapped)
+ * form of the output; it replaces the raw output so untrusted text never re-enters the
+ * context un-fenced.
+ */
+function toolResultForHistory(tool: string, result: ToolResult, outputOverride?: string): string {
   const parts = [`[tool:${tool}] ${result.ok ? "ok" : `FAILED: ${result.error ?? "error"}`}`];
   if (result.receipt) {
     const r = result.receipt;
@@ -719,6 +841,7 @@ function toolResultForHistory(tool: string, result: ToolResult): string {
       `receipt: exit=${r.exitCode} stdoutBytes=${r.stdoutBytes} stderrBytes=${r.stderrBytes} truncated=${r.truncated}`,
     );
   }
-  if (result.output.length > 0) parts.push(result.output);
+  const body = outputOverride ?? result.output;
+  if (body.length > 0) parts.push(body);
   return parts.join("\n");
 }

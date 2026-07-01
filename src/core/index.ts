@@ -70,6 +70,14 @@ export { ShadowWorkspace } from "./shadow.js";
 export { type AgentProfile } from "./profile.js";
 export { buildSystemPrompt } from "./prompt.js";
 
+// Runtime capabilities (P0.4): truthful, derived report of what the run can actually do.
+export {
+  runtimeCapabilities,
+  activeCapabilityList,
+  type RuntimeCapabilities,
+  type RuntimeCapabilityInput,
+} from "./runtime-capabilities.js";
+
 // Reasonix infrastructure re-exports
 export { ContextCompressor, type CompressResult, type ContextCompressorOptions } from "./context-compressor.js";
 export { ReceiptStore, type Receipt, type ReceiptStoreOptions } from "./receipt-store.js";

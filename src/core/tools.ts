@@ -193,7 +193,7 @@ const terminalTool: ToolHandler = async (args, ctx) => {
   const res = spawnSync(command, {
     shell: true,
     cwd, // locked — non-overridable by command/args
-    env, // complete environment: spawnSync does NOT merge with process.env
+    env: env as unknown as NodeJS.ProcessEnv, // complete env; Next requires NODE_ENV on ProcessEnv, assert through unknown (no behavior change)
     timeout,
     encoding: "utf8",
     maxBuffer: MAX_SPAWN_BUFFER_BYTES,

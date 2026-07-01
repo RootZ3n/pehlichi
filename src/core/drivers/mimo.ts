@@ -23,6 +23,7 @@ import type { Phase } from "../events.js";
 import { CircuitBreaker, getCircuit } from "../agent-tools/circuit-breaker.js";
 import { withRetry, type RetryConfig } from "../agent-tools/retry.js";
 import { classifyError } from "../agent-tools/error-classifier.js";
+import { parseToolArguments } from "../agent-tools/tool-arg-repair.js";
 
 const DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEFAULT_MODEL = "mimo-v2.5";
@@ -320,14 +321,16 @@ export function completionToAction(parsed: ParsedCompletion, knownTools: readonl
   // A tool/function call is the action.
   const tc = parsed.toolCalls[0];
   if (tc !== undefined) {
-    let args: Record<string, unknown>;
-    try {
-      args = tc.arguments.trim() === "" ? {} : (JSON.parse(tc.arguments) as unknown as Record<string, unknown>);
-    } catch (cause) {
-      throw new MimoError(`mimo tool call '${tc.name}' has non-JSON arguments: ${messageOf(cause)}`);
+    // SCHEMA REPAIR (P1.2): try the arguments strictly, then repair common near-JSON defects
+    // (trailing commas, single quotes, ```json fences, Python True/False/None). Valid input is
+    // never rewritten; irreparable input still fails loud so the model gets a clean error.
+    const parsedArgs = parseToolArguments(tc.arguments);
+    if (parsedArgs === null) {
+      throw new MimoError(
+        `mimo tool call '${tc.name}' has non-JSON arguments that could not be repaired: ${tc.arguments.slice(0, 200)}`,
+      );
     }
-    if (!isRecord(args)) throw new MimoError(`mimo tool call '${tc.name}' arguments are not an object`);
-    return { kind: "tool", tool: tc.name, args };
+    return { kind: "tool", tool: tc.name, args: parsedArgs.value };
   }
 
   // Otherwise the content carries a control JSON object (or plain narration).
