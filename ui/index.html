@@ -65,14 +65,14 @@ const SCENE_REGISTRY={
      desc:'The front gate of Pehlichi\'s settlement — where every path begins. Stone walls, warm lantern light, and a map pinned to the gatehouse.', peh:'star',
      pehSlot:{x:50, y:68, anchor:'center', variant:'gatekeeper'}, hotspots:[
       {id:'mg-overview',  label:'Overview',         x:50, y:60, workspace:'console',          greeting:"Welcome to the Settlement! I keep watch over everything from here."},
-      {id:'mg-keep',      label:'The Keep',         x:50, y:15, scene:'the-keep',             greeting:"The Keep — where I run the show. Command, admin, and strategy."},
-      {id:'mg-training',  label:'Training Yard',    x:25, y:30, scene:'training-yard',        greeting:"The Training Yard — sharpen your skills here, same as I do."},
-      {id:'mg-armory',    label:'The Armory',       x:15, y:50, scene:'the-armory',           greeting:"The Armory — tools, weapons, and the water wheel turning. Come see the smithwork."},
-      {id:'mg-quest',     label:'The Quest Board',  x:25, y:70, scene:'quest-board',          greeting:"The Quest Board — missions, objectives, and what needs doing next."},
-      {id:'mg-market',    label:'The Market Square',x:40, y:80, scene:'market-square',        greeting:"The Market Square — the heart of the settlement. Come trade and talk."},
-      {id:'mg-campsite',  label:'The Campsite',     x:70, y:78, scene:'the-campsite',         greeting:"The Campsite — rest your boots by the fire. I've got stories to tell."},
-      {id:'mg-chapel',    label:'The Chapel',       x:85, y:50, scene:'the-chapel',           greeting:"The Chapel — a quiet place of stone and light. For thinking on things bigger than us."},
-      {id:'mg-study',     label:'The Study',        x:78, y:28, scene:'the-study',            greeting:"The Study — three floors of books, maps, and everything I've ever learned."}
+      {id:'mg-keep',      label:'The Keep',         x:50, y:15, workspace:'keep-config',       greeting:"The Keep — where I run the show. Command, admin, and strategy."},
+      {id:'mg-training',  label:'Training Yard',    x:25, y:30, workspace:'training-identity', greeting:"The Training Yard — sharpen your skills here, same as I do."},
+      {id:'mg-armory',    label:'The Armory',       x:15, y:50, workspace:'armory-tools',      greeting:"The Armory — tools, weapons, and the water wheel turning. Come see the smithwork."},
+      {id:'mg-quest',     label:'The Quest Board',  x:25, y:70, workspace:'quest-research',    greeting:"The Quest Board — missions, objectives, and what needs doing next."},
+      {id:'mg-market',    label:'The Market Square',x:40, y:80, workspace:'market-comms',      greeting:"The Market Square — the heart of the settlement. Come trade and talk."},
+      {id:'mg-campsite',  label:'The Campsite',     x:70, y:78, workspace:'campsite-memory',   greeting:"The Campsite — rest your boots by the fire. I've got stories to tell."},
+      {id:'mg-chapel',    label:'The Chapel',       x:85, y:50, workspace:'chapel-meditation', greeting:"The Chapel — a quiet place of stone and light. For thinking on things bigger than us."},
+      {id:'mg-study',     label:'The Study',        x:78, y:28, workspace:'study-knowledge',   greeting:"The Study — three floors of books, maps, and everything I've ever learned."}
     ]},
     {id:'the-keep', title:'The Keep', purpose:'Command & administration', route:'/keep',
      desc:'The tallest tower in the settlement. From up here Pehlichi sees everything — dials, gauges, and a steady hand on the tiller.', peh:'gear',
@@ -397,21 +397,16 @@ function pehHotspotActivate(sceneId,hotspotId){
   const scene=pehScene(pehActiveProductId(),sceneId);
   const hotspot=scene&&scene.hotspots?scene.hotspots.find((h)=>h.id===hotspotId):null;
   if(!hotspot)return;
-  // Peh greets at the hotspot FIRST, then — after a short beat — the workspace
-  // pops up as a movable window beside the pin (or we travel to a sub-scene).
+  // Peh greets at the hotspot and the workspace opens AS A MOVABLE WINDOW pinned
+  // beside the pin — the map STAYS PUT (the luak model). The other hotspots never
+  // disappear; we do NOT travel to a sub-scene. Pure scene hotspots still travel.
   pehSayGreeting(hotspot,scene);
-  setTimeout(()=>{
-    if(hotspot.workspace){
-      if(hotspot.scene&&pehScene(pehActiveProductId(),hotspot.scene)){
-        state.pehverse.scene=hotspot.scene;state.pehverse.pehPosition=null;
-        try{localStorage.setItem('pehverse-scene',hotspot.scene)}catch(e){}
-      }
-      state.pehverse.pehPopUp={x:hotspot.x,y:hotspot.y};
-      pehOpenWorkspaceAt(hotspot.workspace,hotspot.x,hotspot.y);
-    }else if(hotspot.scene){
-      pehSetScene(hotspot.scene);
-    }
-  },300);
+  if(hotspot.workspace){
+    state.pehverse.pehPopUp={x:hotspot.x,y:hotspot.y};
+    pehOpenWorkspaceAt(hotspot.workspace,hotspot.x,hotspot.y);
+  }else if(hotspot.scene){
+    pehSetScene(hotspot.scene);
+  }
 }
 function pehFocusWorkspace(uid,skipRender){
   const ws=state.pehverse.workspaces.find((w)=>w.uid===uid);
@@ -498,7 +493,7 @@ function renderPehBubble(){
   return `<div class="peh-bubble-layer" aria-hidden="false">
     <div class="peh-bubble peh-bubble-anchor-${esc(b.anchor)} ${phaseClass}" style="left:${b.x}%;top:${b.y}%" role="status" title="Dismiss" onclick="pehDismissBubble()">
       <div class="peh-bubble-content">
-        <span class="peh-bubble-name">Pehlichi</span>
+        <span class="peh-bubble-name">Peh</span>
         <p class="peh-bubble-text">${esc(b.text)}</p>
       </div>
       <div class="peh-bubble-tail" aria-hidden="true"></div>
@@ -569,13 +564,10 @@ function renderPehMap(product,scene,deckMarkup){
       <h1 class="peh-scene-title">${esc(scene?scene.title:product.displayName)}</h1>
       <p class="peh-scene-desc">${esc(scene?scene.desc:product.blurb)}</p>
     </div>
-    ${renderPehSlot(scene)}
-    ${renderPehBubble()}
-    ${renderPehGuide(product)}
     ${renderHotspotLayer(scene)}
-    ${renderPehWaypoints(product,scene)}
     ${renderWorkspaceWindows(deckMarkup)}
     ${renderPehPopUp()}
+    ${renderPehBubble()}
   </div>`;
 }
 
