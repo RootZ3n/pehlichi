@@ -130,6 +130,8 @@ export const agentToolNames: readonly string[] = Object.freeze([
   // Lab-wide memory (labmem): recall shared/own/project memory; record own
   "labmem_recall",
   "labmem_remember",
+  // Shared cross-agent conversation (lab transcript): deep on-demand recall
+  "lab_recall_conversation",
   // Self-improvement
   "skills_list",
   "skill_view",

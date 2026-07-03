@@ -41,6 +41,7 @@ import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
 import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
 import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context-tools.js';
 import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
+import { labConversationToolSpecs, createLabConversationToolHandlers } from './lab-conversation-tools.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
 import { bridgeRegistry } from '../bridges/registry.js';
 // OPTIONAL tool modules (Phase C): present in the SHARED registry, enabled per-agent via
@@ -229,6 +230,9 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // LABMEM: lab-wide memory system (recall shared/own/project memory; record own).
   const labmemHandlers = createLabmemToolHandlers();
 
+  // LAB CONVERSATION: on-demand deep recall from the shared cross-agent transcript.
+  const labConversationHandlers = createLabConversationToolHandlers();
+
   // BRIDGES: inter-agent communication via HTTP. getServiceUrl resolves service
   // names to base URLs using the bridge registry (known ports).
   const bridgeHandlers = createBridgeToolHandlers((name: string) => {
@@ -338,6 +342,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // Labmem tools (lab-wide memory recall/record)
   for (const spec of labmemToolSpecs) {
     const handler = labmemHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Lab conversation tools (on-demand shared cross-agent transcript recall)
+  for (const spec of labConversationToolSpecs) {
+    const handler = labConversationHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

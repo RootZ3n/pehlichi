@@ -10,10 +10,10 @@ test("agent identity overlay", () => {
   assert.deepEqual(agentProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika", "security"]);
 });
 
-// Trio parity: the tool allowlist is the shared 37-tool union (swappable).
+// Trio parity: the tool allowlist is the shared 38-tool union (swappable).
 test("agent toolset is the canonical union", () => {
-  assert.equal(agentToolNames.length, 37);
-  for (const t of ["bridge.health", "bridge.list", "bridge.request", "lab_status_digest"]) {
+  assert.equal(agentToolNames.length, 38);
+  for (const t of ["bridge.health", "bridge.list", "bridge.request", "lab_status_digest", "lab_recall_conversation"]) {
     assert.ok(agentToolNames.includes(t), `missing ${t}`);
   }
 });
