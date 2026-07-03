@@ -27,6 +27,8 @@ const DEFAULT_SERVICE_PORTS: Record<string, number> = {
   pehlichi: 18830,
   mechanic: 18810,
   artist: 18792,
+  ptah: 18810,
+  luna: 18792,
   ikbi: 18796,
   toba: 18815,
   nusika: 18793,
