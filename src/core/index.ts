@@ -1,8 +1,9 @@
 /**
- * the-artist — core runtime re-exports.
+ * Lab agent — core runtime re-exports.
  *
- * This is artist's OWN copy of the agent runtime (same code as the-mechanic/src/core/
- * and peh-agent/src/core/). Each agent owns its core — no shared package.
+ * Each agent ships its OWN byte-identical copy of this runtime; the only
+ * per-agent differences live in the personality overlay (profile, skills,
+ * branding). Never import another agent's runtime.
  */
 
 export {

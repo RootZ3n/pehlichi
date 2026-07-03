@@ -26,7 +26,7 @@ import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
 
 /** This agent's labmem namespace (scope:agent / scope:project key). */
-const AGENT = 'pehlichi';
+const AGENT = process.env.AGENT_ID ?? 'lab-agent';
 
 /**
  * Portable default labmem root: the in-ecosystem vendored labmem, resolved by

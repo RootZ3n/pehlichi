@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { ScriptedDriver, type DriverAction } from "./driver.js";
@@ -11,7 +12,7 @@ import type { AgentProfile } from "./profile.js";
 import { createLabStore } from "./scenario.js";
 import { ShadowWorkspace } from "./shadow.js";
 
-const REAL_REPO = "/pehverse/repos/ecosystem/pehlichi";
+const REAL_REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXPECTED_ENV_KEYS = ["HOME", "LANG", "LC_ALL", "PATH", "SHELL", "TMPDIR"];
 // vars the shell itself injects into a child's env (not inherited from the parent)
 const SHELL_INJECTED = new Set(["PWD", "SHLVL", "_", "OLDPWD"]);

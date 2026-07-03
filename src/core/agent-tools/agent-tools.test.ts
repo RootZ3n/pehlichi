@@ -103,17 +103,17 @@ test("B7. delegatedFrom chain is propagated to the spawned job (parent goal appe
 test("B7. agent_sync shares a value durably across separate handler instances", async () => {
   const syncDir = mkdtempSync(join(tmpdir(), "b7-sync-"));
   try {
-    // Agent "mechanic" writes; a fresh handler instance (simulating another agent /
+    // Agent "ptah" writes; a fresh handler instance (simulating another agent /
     // restart) reads the same key back from the shared directory.
-    const writer = createCoordinationToolHandlers({ syncDir, agentId: "mechanic" }).get("agent_sync")!;
+    const writer = createCoordinationToolHandlers({ syncDir, agentId: "ptah" }).get("agent_sync")!;
     const wrote = await writer({ action: "write", key: "build-status", value: "green" }, ctx(syncDir));
     assert.equal(wrote.ok, true);
 
-    const reader = createCoordinationToolHandlers({ syncDir, agentId: "artist" }).get("agent_sync")!;
+    const reader = createCoordinationToolHandlers({ syncDir, agentId: "luna" }).get("agent_sync")!;
     const read = await reader({ action: "read", key: "build-status" }, ctx(syncDir));
     assert.equal(read.ok, true);
     assert.match(read.output, /green/);
-    assert.match(read.output, /mechanic/);
+    assert.match(read.output, /ptah/);
 
     const list = await reader({ action: "list" }, ctx(syncDir));
     assert.match(list.output, /build-status/);

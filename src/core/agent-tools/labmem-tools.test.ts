@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { createLabmemToolHandlers } from './labmem-tools.js';
 import type { ToolContext, ToolResult } from '../tools.js';
 
-const AGENT = 'pehlichi';
+const AGENT = process.env.AGENT_ID ?? 'lab-agent';
 // Portable: the in-ecosystem vendored labmem (CODE) — override with LABMEM_REAL.
 const REAL_LABMEM = process.env['LABMEM_REAL'] ?? (() => {
   let d = dirname(fileURLToPath(import.meta.url));
@@ -65,7 +65,7 @@ async function seed(root: string): Promise<void> {
 // ── 1. unavailable labmem → tool error, not a crash (MUST run first) ──────────
 
 test('labmem unavailable (bad LABMEM_ROOT) returns a tool error, not a crash', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'labmem-pehlichi-missing-')); // no dist/, no core/
+  const root = mkdtempSync(join(tmpdir(), 'labmem-missing-')); // no dist/, no core/
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {
@@ -81,7 +81,7 @@ test('labmem unavailable (bad LABMEM_ROOT) returns a tool error, not a crash', a
 // ── 2. recall returns shared + own + project; foreign private is absent ───────
 
 test('recall returns shared + own + project memory and hides other agents private memory', async () => {
-  const root = freshRoot('labmem-pehlichi-recall-');
+  const root = freshRoot('labmem-recall-');
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {
@@ -101,7 +101,7 @@ test('recall returns shared + own + project memory and hides other agents privat
 // ── 3. global/user write is forced to dry-run AND leaves a durable proposal ───
 
 test('global remember is forced to dry-run (even apply:true) and leaves a durable proposal receipt', async () => {
-  const root = freshRoot('labmem-pehlichi-proposal-');
+  const root = freshRoot('labmem-proposal-');
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {
@@ -133,7 +133,7 @@ test('global remember is forced to dry-run (even apply:true) and leaves a durabl
 // ── 4. own-memory write with apply:true is actually applied ───────────────────
 
 test('own-memory remember with apply:true is applied (not a dry-run)', async () => {
-  const root = freshRoot('labmem-pehlichi-apply-');
+  const root = freshRoot('labmem-apply-');
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {
