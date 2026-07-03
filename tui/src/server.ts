@@ -37,7 +37,7 @@ import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { agentProfile } from '../../src/profile.js';
 import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
-import { truthCognition } from '../../src/core/truth-bridge.js';
+import { truthCognition, reviewProposals } from '../../src/core/truth-bridge.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
@@ -453,6 +453,16 @@ export function createPehServer(opts: PehServerOptions = {}): {
     return parts.length ? parts.join('\n\n') : undefined;
   };
 
+  // TF-3: when a turn wrote durable/global memory, kick truth-firewall's ADVISORY review of
+  // the proposal inboxes (fire-and-forget; verdicts persist to the firewall store, surfaced
+  // later in ittunaha). Idempotent, so re-running over the inbox is safe.
+  const MEMORY_WRITE_TOOLS = new Set(['memory', 'labmem_remember', 'brain_put']);
+  const maybeReviewProposals = (toolCalls: ReadonlyArray<{ name: string }>): void => {
+    if (!LAB_TRUTH_ON) return;
+    if (!toolCalls.some((tc) => MEMORY_WRITE_TOOLS.has(tc.name))) return;
+    void reviewProposals();
+  };
+
   /**
    * BLOCKER-1: evict every idle session older than the TTL (never 'default'). Called before
    * each request AND on a periodic timer, so the map can't grow unbounded over weeks of
@@ -821,6 +831,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         });
         // SHARED LAB MEMORY: record the assistant turn (substantive kernel reply).
         recordTurn(chatRoomKey, 'assistant', response.content ?? '', receipt.id);
+        maybeReviewProposals(response.toolCalls);
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
@@ -899,6 +910,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         }
         // SHARED LAB MEMORY: record the assistant turn.
         recordTurn(streamRoomKey, 'assistant', response.content ?? '');
+        maybeReviewProposals(response.toolCalls);
         res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
       } catch (err) {
         if (streamTaskId) {

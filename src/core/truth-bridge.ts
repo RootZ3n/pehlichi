@@ -81,3 +81,26 @@ export async function truthCognition(input: TruthCognitionInput = {}): Promise<s
     return '';
   }
 }
+
+/**
+ * Trigger truth-firewall's ADVISORY review of durable/global memory proposals. Defaults to the
+ * labmem shared-proposals inbox (`<LABMEM_ROOT>/proposals`). Verdicts persist to the firewall
+ * store (surfaced later in ittunaha); returns a compact summary or '' (absent/nothing new).
+ * Never throws — safe to fire-and-forget.
+ */
+export async function reviewProposals(inboxDirs?: readonly string[]): Promise<string> {
+  try {
+    const f = await facade();
+    if (!f || typeof f['reviewLabMemoryProposals'] !== 'function') return '';
+    const review = f['reviewLabMemoryProposals'] as (
+      dirs: readonly string[],
+      opts?: unknown,
+    ) => { processed: number; hallucinations: number; skippedDuplicates: number; inboxes: number };
+    const dirs = inboxDirs && inboxDirs.length ? inboxDirs : [join(resolveLabmemRoot(), 'proposals')];
+    const r = review(dirs);
+    if (!r || (r.processed === 0 && r.hallucinations === 0)) return '';
+    return `truth-review: ${r.processed} new proposal-claim(s), ${r.hallucinations} advisory hallucination(s) across ${r.inboxes} inbox(es)`;
+  } catch {
+    return '';
+  }
+}
