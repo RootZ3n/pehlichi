@@ -37,6 +37,7 @@ import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { agentProfile } from '../../src/profile.js';
 import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
+import { truthCognition } from '../../src/core/truth-bridge.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
@@ -437,6 +438,21 @@ export function createPehServer(opts: PehServerOptions = {}): {
     appendTurn({ face: SELF_FACE, agent: agentProfile.name, room: roomKey, role, text, ts: now(), ...(receiptId ? { receiptId } : {}) });
   };
 
+  // TRUTH LAYER (lab overlay): fold an advisory memory-truth read into the turn alongside the
+  // shared-memory ambient. Gated on LAB_TRUTH / TRUTH_FIREWALL_ROOT; dynamic-imported and
+  // absent-safe (release builds get nothing). Both legs ride the one extraContext param.
+  const LAB_TRUTH_ON = process.env.LAB_TRUTH === '1' || !!process.env.TRUTH_FIREWALL_ROOT;
+  const buildExtraContext = async (roomKey: string, task: string): Promise<string | undefined> => {
+    const parts: string[] = [];
+    const ambient = sharedAmbient(roomKey);
+    if (ambient) parts.push(ambient);
+    if (LAB_TRUTH_ON) {
+      const truth = await truthCognition({ task });
+      if (truth) parts.push(truth);
+    }
+    return parts.length ? parts.join('\n\n') : undefined;
+  };
+
   /**
    * BLOCKER-1: evict every idle session older than the TTL (never 'default'). Called before
    * each request AND on a periodic timer, so the map can't grow unbounded over weeks of
@@ -738,7 +754,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // SHARED LAB MEMORY: record the user turn and gather role-aware ambient recall of
       // what was said on OTHER faces/surfaces (the live session already holds this thread).
       recordTurn(chatRoomKey, 'user', message);
-      const chatAmbient = sharedAmbient(chatRoomKey);
+      const chatExtra = await buildExtraContext(chatRoomKey, message);
 
       // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
       // request can be traced; a missing id is stamped (and logged as anonymous) rather
@@ -761,7 +777,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         const timeout = new Promise<'timeout'>((resolve) => {
           timer = setTimeout(() => resolve('timeout'), chatTimeoutMs);
         });
-        const work = roomSession.send(message, undefined, chatAmbient);
+        const work = roomSession.send(message, undefined, chatExtra);
         const raced = await Promise.race([work.then((r) => ({ r })), timeout]);
         if (timer) clearTimeout(timer);
 
@@ -861,7 +877,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
 
       // SHARED LAB MEMORY: record the user turn + gather role-aware ambient recall.
       recordTurn(streamRoomKey, 'user', message);
-      const streamAmbient = sharedAmbient(streamRoomKey);
+      const streamExtra = await buildExtraContext(streamRoomKey, message);
 
       // BLOCKER-2 (callee): track the streamed task too so it is pollable on timeout.
       const streamCaller = (req.headers['x-agent-id'] as string) || 'anonymous';
@@ -876,7 +892,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         // flushed the instant it is emitted (stream() does not buffer).
         const response = await roomSession.stream(message, (e: AgentEvent) => {
           res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
-        }, streamAmbient);
+        }, streamExtra);
         if (streamTaskId) {
           const rec = tasks.get(streamTaskId);
           if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }

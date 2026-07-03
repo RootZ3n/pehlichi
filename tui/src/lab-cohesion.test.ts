@@ -9,7 +9,7 @@
  * Gated on LAB_TRANSCRIPT_DIR: set here → memory ON; unset elsewhere → inert.
  */
 import assert from 'node:assert/strict';
-import { rmSync, mkdtempSync } from 'node:fs';
+import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -80,6 +80,39 @@ test('shared memory: kernel turns are recorded, and a later surface recalls them
     rmSync(ws, { recursive: true, force: true });
     rmSync(store, { recursive: true, force: true });
     rmSync(memDir, { recursive: true, force: true });
+  }
+});
+
+test('truth-layer advisory is injected into the turn when enabled (TF-2)', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  // A fake truth-firewall facade so the test is hermetic (no dependency on the real build).
+  const tfRoot = mkdtempSync(join(tmpdir(), 'fake-tf-'));
+  const tfDir = join(tfRoot, 'dist', 'src');
+  mkdirSync(tfDir, { recursive: true });
+  writeFileSync(join(tfRoot, 'package.json'), JSON.stringify({ type: 'module' }));
+  writeFileSync(
+    join(tfDir, 'lab-cognition.js'),
+    `export function cognitionForAgent(i){ return { advisoryOnly:true, task:i.task }; }\n` +
+      `export function renderCognitionForPrompt(s){ return s ? 'TRUTH-LAYER CHECK: ' + (s.task||'') : ''; }`,
+  );
+  process.env.LAB_TRUTH = '1';
+  process.env.TRUTH_FIREWALL_ROOT = tfRoot;
+  const driver = new RecordingDriver();
+  const truthMsg = (): string =>
+    driver.lastMessages.find((m) => m.content.includes('TRUTH-LAYER CHECK'))?.content ?? '';
+
+  try {
+    await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
+      await post(base, 'run the-task', 'lab:peh');
+      assert.match(truthMsg(), /TRUTH-LAYER CHECK: run the-task/, 'truth advisory folded into the turn');
+    });
+  } finally {
+    delete process.env.LAB_TRUTH;
+    delete process.env.TRUTH_FIREWALL_ROOT;
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+    rmSync(tfRoot, { recursive: true, force: true });
   }
 });
 
