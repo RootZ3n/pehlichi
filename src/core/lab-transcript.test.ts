@@ -11,6 +11,7 @@ import {
   appendTurn,
   recentSharedContext,
   recallConversation,
+  ambientProfileForRole,
 } from './lab-transcript.js';
 
 function freshDir(): string {
@@ -120,4 +121,29 @@ test('recallConversation reports an unknown face selector', () => {
 test('recallConversation on an empty lab says so', () => {
   freshDir();
   assert.match(recallConversation(), /No shared lab conversation recorded yet/);
+});
+
+test('role-aware: the hub (coordinator) sees broadly; a specialist gets a tight, scoped slice', () => {
+  const hub = ambientProfileForRole('coordinator', 'peh');
+  assert.equal(hub.includeFaces, undefined); // all faces
+  assert.ok((hub.maxTurns ?? 0) >= 12);
+
+  const spec = ambientProfileForRole('creative', 'luna');
+  assert.deepEqual(spec.includeFaces, ['peh', 'luna']); // hub + self only
+  assert.ok((spec.maxTurns ?? 99) <= 8); // tighter
+});
+
+test('role-aware scoping: a specialist does NOT see the other specialist chatter', () => {
+  freshDir();
+  appendTurn({ face: 'peh', agent: 'Peh', room: CANONICAL_ROOMS.peh, role: 'assistant', text: 'peh-routing-note', ts: 1 });
+  appendTurn({ face: 'luna', agent: 'Luna', room: CANONICAL_ROOMS.luna, role: 'assistant', text: 'luna-creative-chatter', ts: 2 });
+
+  // Ptah, scoped as a specialist, sees Peh (hub) but not Luna (other specialist).
+  const ptahView = recentSharedContext('ptah', CANONICAL_ROOMS.ptah, ambientProfileForRole('repairman', 'ptah'));
+  assert.match(ptahView, /peh-routing-note/);
+  assert.doesNotMatch(ptahView, /luna-creative-chatter/);
+
+  // Peh (hub) sees everything.
+  const pehView = recentSharedContext('peh', CANONICAL_ROOMS.peh, ambientProfileForRole('coordinator', 'peh'));
+  assert.match(pehView, /luna-creative-chatter/);
 });

@@ -146,6 +146,8 @@ function listLogFiles(dir: string): string[] {
 interface CollectFilter {
   /** Keep only this face slug. */
   readonly onlyFace?: string;
+  /** Keep only these face slugs (role-aware scoping). */
+  readonly includeFaces?: readonly string[];
   /** Drop turns from this exact (face, room) — the caller's own live thread. */
   readonly excludeFace?: string;
   readonly excludeRoom?: string;
@@ -162,6 +164,7 @@ function collect(filter: CollectFilter): TranscriptTurn[] {
   for (const file of listLogFiles(dir)) {
     for (const t of readTail(file, perFile)) {
       if (filter.onlyFace && t.face !== filter.onlyFace) continue;
+      if (filter.includeFaces && !filter.includeFaces.includes(t.face)) continue;
       if (filter.excludeFace && t.face === filter.excludeFace && t.room === filter.excludeRoom) continue;
       turns.push(t);
     }
@@ -182,6 +185,24 @@ export interface AmbientOptions {
   readonly maxTurns?: number;
   /** Per-turn char cap before truncation (default 600). */
   readonly maxCharsPerTurn?: number;
+  /** Restrict recall to these faces (role-aware scoping); default = all faces. */
+  readonly includeFaces?: readonly string[];
+}
+
+/**
+ * Role-aware ambient tuning. The trio is ONE agent split into focused faces to spread
+ * responsibility (see the origin rationale) — so the hub sees broadly to route, while
+ * specialists get a TIGHT, relevant slice and stay heads-down (never re-overloaded).
+ *
+ * - coordinator (Peh, the hub/router): broad — all faces, more turns.
+ * - specialist  (Ptah/Luna): tight — only the hub (Peh) + this face's own other surfaces;
+ *   NOT the other specialist's chatter.
+ */
+export function ambientProfileForRole(role: string, selfFace: string): AmbientOptions {
+  if (role === 'coordinator') {
+    return { maxTurns: 16, maxCharsPerTurn: 700 };
+  }
+  return { maxTurns: 6, maxCharsPerTurn: 400, includeFaces: ['peh', selfFace] };
 }
 
 /**
@@ -194,7 +215,11 @@ export function recentSharedContext(selfFace: string, selfRoom: string, opts: Am
   const maxTurns = opts.maxTurns ?? 12;
   const maxChars = opts.maxCharsPerTurn ?? 600;
   try {
-    const turns = collect({ excludeFace: selfFace, excludeRoom: selfRoom }).slice(-maxTurns);
+    const turns = collect({
+      excludeFace: selfFace,
+      excludeRoom: selfRoom,
+      ...(opts.includeFaces ? { includeFaces: opts.includeFaces } : {}),
+    }).slice(-maxTurns);
     if (turns.length === 0) return '';
     return [
       'SHARED LAB MEMORY (you are one agent with three faces — Peh, Ptah, Luna — across many surfaces; this is what was recently said elsewhere, so you can pick up where it left off):',
