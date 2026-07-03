@@ -35,7 +35,7 @@ import {
 } from '../../src/core/index.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
-import { pehProfile } from '../../src/profile.js';
+import { agentProfile } from '../../src/profile.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
@@ -354,7 +354,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         })
       : extraTools;
     return new KernelChatSession({
-      profile: pehProfile,
+      profile: agentProfile,
       driver,
       workspaceRoot: effectiveWorkspace,
       labStoreRoot: effectiveLabStore,

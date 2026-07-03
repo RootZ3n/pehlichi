@@ -14,7 +14,7 @@ import {
   buildSystemPrompt,
 } from "./core/index.js";
 import { createLabStore } from "./core/scenario.js";
-import { pehProfile } from "./profile.js";
+import { agentProfile } from "./profile.js";
 
 function capture(): { events: AgentEvent[]; sink: (e: AgentEvent) => void } {
   const events: AgentEvent[] = [];
@@ -33,13 +33,13 @@ const DONE: DriverAction = {
   summary: { rootCause: "r", changes: ["c"], verification: ["v"] },
 };
 
-test("peh profile: VOICE ONLY — identity/voice; no procedure, done-criteria, or roster in the persona", () => {
-  assert.equal(pehProfile.name, "Pehlichi");
-  assert.equal(pehProfile.role, "coordinator");
-  assert.match(pehProfile.personaPreamble, /coordinator/i);
-  assert.doesNotMatch(pehProfile.personaPreamble, /supersede|duplicate|route to|do not do the work|durable/i);
-  assert.deepEqual(pehProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika", "security"]);
-  assert.ok(!("verificationPolicy" in pehProfile));
+test("agent profile: VOICE ONLY — identity/voice; no procedure, done-criteria, or roster in the persona", () => {
+  assert.ok(typeof agentProfile.name === "string" && agentProfile.name.length > 0);
+  assert.ok(typeof agentProfile.role === "string" && agentProfile.role.length > 0);
+  assert.match(agentProfile.personaPreamble, new RegExp(agentProfile.role, "i"));
+  assert.doesNotMatch(agentProfile.personaPreamble, /supersede|duplicate|route to|do not do the work|durable/i);
+  assert.ok(Array.isArray(agentProfile.skillTags) && agentProfile.skillTags.length > 0);
+  assert.ok(!("verificationPolicy" in agentProfile));
 });
 
 test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", async () => {
@@ -53,7 +53,7 @@ test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", as
   ];
   try {
     await runAgent({
-      profile: pehProfile,
+      profile: agentProfile,
       task: "t",
       workspaceRoot: workspace,
       labStoreRoot: labStore,
@@ -90,17 +90,17 @@ test("skillpack slot: an active skillpack injects its structured fields; the ker
     doneCriteria: ["DONE-LINE-A"],
     evidenceRequirements: ["EVIDENCE-LINE-A"],
     reportFormat: ["REPORT-LINE-A"],
-    routingRoster: ["ops -> the Mechanic"],
+    routingRoster: ["ops -> Ptah"],
   };
 
-  const withPack = buildSystemPrompt(pehProfile, [pack], tools, pack);
+  const withPack = buildSystemPrompt(agentProfile, [pack], tools, pack);
   assert.match(withPack, /ACTIVE SKILLPACK — demo-pack/);
-  for (const needle of ["CONTRACT-LINE-A", "DONE-LINE-A", "EVIDENCE-LINE-A", "REPORT-LINE-A", "ops -> the Mechanic"]) {
+  for (const needle of ["CONTRACT-LINE-A", "DONE-LINE-A", "EVIDENCE-LINE-A", "REPORT-LINE-A", "ops -> Ptah"]) {
     assert.match(withPack, new RegExp(needle));
   }
   assert.match(withPack, /NARRATE → ACT → NARRATE/);
   assert.match(withPack, /correspond to a tool call you actually executed/i);
-  const kernelOnly = buildSystemPrompt(pehProfile, [], tools);
+  const kernelOnly = buildSystemPrompt(agentProfile, [], tools);
   assert.doesNotMatch(kernelOnly, /rebuild-discipline|verify-dont-assume|review the diff|before fixing/i);
   assert.doesNotMatch(kernelOnly, /ACTIVE SKILLPACK|DONE for this task/);
 });
@@ -115,7 +115,7 @@ test("skillpack slot: a plain skill (no structured fields) injects nothing — b
     tags: ["x"],
     path: "skills/plain-skill.md",
   };
-  const p = buildSystemPrompt(pehProfile, [plain], tools, plain);
+  const p = buildSystemPrompt(agentProfile, [plain], tools, plain);
   assert.doesNotMatch(p, /ACTIVE SKILLPACK/);
   assert.doesNotMatch(p, /DONE for this task means/);
 });
@@ -135,7 +135,7 @@ test("primarySkill: the loop loads the active skillpack from the store and injec
   });
   try {
     await runAgent({
-      profile: pehProfile,
+      profile: agentProfile,
       task: "t",
       workspaceRoot: workspace,
       labStoreRoot: labStore,
@@ -145,7 +145,7 @@ test("primarySkill: the loop loads the active skillpack from the store and injec
     // primarySkill not in the store fails loud
     await assert.rejects(
       runAgent({
-        profile: pehProfile,
+        profile: agentProfile,
         task: "t",
         workspaceRoot: workspace,
         labStoreRoot: labStore,

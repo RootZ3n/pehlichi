@@ -27,65 +27,7 @@
  */
 import type { AgentProfile } from "../core/profile.js";
 
-/**
- * Pehlichi's tool permissions — a run-level allowlist.
- *
- * He is the coordinator. He reads, judges, records, and routes.
- * He has full builder tools because he's a genius — he just happens
- * to have paws. He blames the paws for everything.
- */
-export const coordinatorToolNames: readonly string[] = Object.freeze([
-  // Read + search
-  "read_file",
-  "search_files",
-  "web_search",
-  "web_extract",
-  "vision_analyze",
-  // Browser
-  "browser_navigate",
-  "browser_snapshot",
-  "browser_click",
-  "browser_type",
-  "browser_vision",
-  "browser_get_images",
-  "browser_back",
-  "browser_scroll",
-  "browser_press",
-  "browser_console",
-  // Builder tools
-  "write_file",
-  "patch",
-  "terminal",
-  "process",
-  // Memory (persistent curated memory)
-  "memory",
-  // Lab-wide memory (labmem): recall shared/own/project memory; record own
-  "labmem_recall",
-  "labmem_remember",
-  // Self-improvement
-  "skills_list",
-  "skill_view",
-  "skill_manage",
-  // Coordination
-  "todo",
-  "clarify",
-  // Delegation (coordinator MUST be able to delegate)
-  "delegate_task",
-  "cronjob",
-  "execute_code",
-  // Ikbi build engine (Phase 10.3 — submit build/fix tasks, poll status)
-  "ikbi_build",
-  "ikbi_fix",
-  "ikbi_status",
-  // Bridge (inter-agent communication via HTTP)
-  "bridge.health",
-  "bridge.list",
-  "bridge.request",
-  // Lab-status digest (proactive ecosystem health)
-  "lab_status_digest",
-]);
-
-export const pehProfile: AgentProfile = {
+export const agentProfile: AgentProfile = {
   name: "Pehlichi",
   role: "coordinator",
   personaPreamble:
@@ -149,3 +91,62 @@ export const pehProfile: AgentProfile = {
     "security",
   ],
 };
+
+/**
+ * CANONICAL LAB-AGENT TOOL ALLOWLIST — trio parity.
+ *
+ * The trio (Peh, Ptah, Luna) are swappable: identical runtime, identical
+ * tools. This list is the UNION superset and MUST stay byte-identical across
+ * all three — only personality (persona, skills, branding) may differ.
+ * Approval gates (not the allowlist) govern write/execute risk at runtime.
+ */
+export const agentToolNames: readonly string[] = Object.freeze([
+  // Read + search
+  "read_file",
+  "search_files",
+  "web_search",
+  "web_extract",
+  "vision_analyze",
+  // Browser
+  "browser_navigate",
+  "browser_snapshot",
+  "browser_click",
+  "browser_type",
+  "browser_vision",
+  "browser_get_images",
+  "browser_back",
+  "browser_scroll",
+  "browser_press",
+  "browser_console",
+  // Builder tools
+  "write_file",
+  "patch",
+  "terminal",
+  "process",
+  // Memory (persistent curated memory)
+  "memory",
+  // Lab-wide memory (labmem): recall shared/own/project memory; record own
+  "labmem_recall",
+  "labmem_remember",
+  // Self-improvement
+  "skills_list",
+  "skill_view",
+  "skill_manage",
+  // Coordination
+  "todo",
+  "clarify",
+  // Delegation (coordinator MUST be able to delegate)
+  "delegate_task",
+  "cronjob",
+  "execute_code",
+  // Ikbi build engine (Phase 10.3 — submit build/fix tasks, poll status)
+  "ikbi_build",
+  "ikbi_fix",
+  "ikbi_status",
+  // Bridge (inter-agent communication via HTTP)
+  "bridge.health",
+  "bridge.list",
+  "bridge.request",
+  // Lab-status digest (proactive ecosystem health)
+  "lab_status_digest",
+]);

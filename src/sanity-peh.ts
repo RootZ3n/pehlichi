@@ -34,7 +34,7 @@ import { createStore } from "lab-store";
 
 import { MimoDriver, runAgent, createStdoutSink, type AgentEvent } from "./core/index.js";
 import { createLabStore, seedSkillpacks } from "./core/scenario.js";
-import { coordinatorToolNames, pehProfile } from "./profile.js";
+import { agentToolNames, agentProfile } from "./profile.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const FIXTURE = join(REPO_ROOT, "fixtures", "peh-coordinate", "status-note.md");
@@ -73,7 +73,7 @@ console.log(`  base url: ${driver.baseUrl}`);
 console.log(`  auth:     ${driver.keyed ? "api-key header (MIMO_API_KEY)" : "keyless"}`);
 console.log(`  project:  ${PROJECT}`);
 console.log(`  fixture:  ${FIXTURE}`);
-console.log(`  toolset:  ${coordinatorToolNames.join(", ")}`);
+console.log(`  toolset:  ${agentToolNames.join(", ")}`);
 console.log("=".repeat(72));
 
 // Disposable workspace (the note Peh reads) + disposable lab-memory (git repo)
@@ -114,13 +114,13 @@ const task =
 
 try {
   await runAgent({
-    profile: pehProfile,
+    profile: agentProfile,
     primarySkill: SKILLPACK, // injects the coordinator contract/done/roster from the skillpack
     task,
     workspaceRoot: workspace,
     labStoreRoot: labStore,
     memoryStoreRoot: memoryRoot,
-    toolNames: coordinatorToolNames,
+    toolNames: agentToolNames,
     driver,
     sinks: [sink],
   });

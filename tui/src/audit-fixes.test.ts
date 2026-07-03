@@ -22,7 +22,7 @@ import {
   type TokenUsage,
 } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
-import { pehProfile } from '../../src/profile.js';
+import { agentProfile } from '../../src/profile.js';
 import { KernelChatSession } from './lib/kernel-session.js';
 import { createPehServer, type PehServerOptions } from './server.js';
 
@@ -50,7 +50,7 @@ test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the
   const ws = createWorkspace();
   const store = createLabStore();
   const checkpointDir = mkdtempSync(join(tmpdir(), 'c4-cp-'));
-  const base = { profile: pehProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir };
+  const base = { profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir };
   try {
     // Turn 1 writes a checkpoint.
     const s1 = new KernelChatSession(base);
@@ -138,7 +138,7 @@ test('H4. token usage from the driver is recorded in the session TokenMonitor (n
 
   try {
     const session = new KernelChatSession({
-      profile: pehProfile,
+      profile: agentProfile,
       driver: new UsageDriver(),
       workspaceRoot: ws,
       labStoreRoot: store,
