@@ -36,6 +36,7 @@ import {
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { agentProfile } from '../../src/profile.js';
+import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
@@ -417,6 +418,25 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // It is NEVER evicted (it is the long-lived embedder/test handle).
   const session = sessionFor('default');
 
+  // ── SHARED LAB MEMORY (lab-cohesion) ──────────────────────────────────────────
+  // The trio is ONE agent with three faces; substantive (kernel) turns are recorded to a
+  // shared log so the conversation follows the user across faces and surfaces. Recall is
+  // ROLE-AWARE (hub sees broadly; specialists stay heads-down). Small-talk on the converse
+  // lane is intentionally NOT recorded — it would only add noise to recall.
+  //
+  // Gated on LAB_TRANSCRIPT_DIR: the lab sets it (memory ON) → cohesion; tests and released
+  // standalone builds leave it unset (inert, behavior-preserving, no shared store touched).
+  // This folds into the unified labMode gate later.
+  const LAB_MEMORY_ON = !!process.env.LAB_TRANSCRIPT_DIR;
+  const SELF_FACE = faceSlug(agentProfile.name);
+  const selfAmbientProfile = ambientProfileForRole(agentProfile.role, SELF_FACE);
+  const sharedAmbient = (roomKey: string): string | undefined =>
+    LAB_MEMORY_ON ? (recentSharedContext(SELF_FACE, roomKey, selfAmbientProfile) || undefined) : undefined;
+  const recordTurn = (roomKey: string, role: 'user' | 'assistant', text: string, receiptId?: string): void => {
+    if (!LAB_MEMORY_ON) return;
+    appendTurn({ face: SELF_FACE, agent: agentProfile.name, room: roomKey, role, text, ts: now(), ...(receiptId ? { receiptId } : {}) });
+  };
+
   /**
    * BLOCKER-1: evict every idle session older than the TTL (never 'default'). Called before
    * each request AND on a periodic timer, so the map can't grow unbounded over weeks of
@@ -712,7 +732,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (overrideWorkspace) console.log(`[chat] workspace override: ${overrideWorkspace}`);
 
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
+      const chatRoomKey = roomKeyOf(body);
+      const roomSession = sessionFor(chatRoomKey, overrideWorkspace);
+
+      // SHARED LAB MEMORY: record the user turn and gather role-aware ambient recall of
+      // what was said on OTHER faces/surfaces (the live session already holds this thread).
+      recordTurn(chatRoomKey, 'user', message);
+      const chatAmbient = sharedAmbient(chatRoomKey);
 
       // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
       // request can be traced; a missing id is stamped (and logged as anonymous) rather
@@ -735,7 +761,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         const timeout = new Promise<'timeout'>((resolve) => {
           timer = setTimeout(() => resolve('timeout'), chatTimeoutMs);
         });
-        const work = roomSession.send(message);
+        const work = roomSession.send(message, undefined, chatAmbient);
         const raced = await Promise.race([work.then((r) => ({ r })), timeout]);
         if (timer) clearTimeout(timer);
 
@@ -766,7 +792,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         const receipt = receiptStore.record({
           agent: skin.branding.agent_name,
           taskId: taskId ?? undefined,
-          roomKey: roomKeyOf(body),
+          roomKey: chatRoomKey,
           workspaceId: overrideWorkspace ?? undefined,
           model: MODEL,
           status: response.injectionDetected ? 'injection_blocked'
@@ -777,6 +803,8 @@ export function createPehServer(opts: PehServerOptions = {}): {
           partial: response.partial,
           contentSummary: response.content?.slice(0, 200),
         });
+        // SHARED LAB MEMORY: record the assistant turn (substantive kernel reply).
+        recordTurn(chatRoomKey, 'assistant', response.content ?? '', receipt.id);
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
@@ -828,7 +856,12 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (overrideWorkspace) console.log(`[chat/stream] workspace override: ${overrideWorkspace}`);
 
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
+      const streamRoomKey = roomKeyOf(body);
+      const roomSession = sessionFor(streamRoomKey, overrideWorkspace);
+
+      // SHARED LAB MEMORY: record the user turn + gather role-aware ambient recall.
+      recordTurn(streamRoomKey, 'user', message);
+      const streamAmbient = sharedAmbient(streamRoomKey);
 
       // BLOCKER-2 (callee): track the streamed task too so it is pollable on timeout.
       const streamCaller = (req.headers['x-agent-id'] as string) || 'anonymous';
@@ -843,11 +876,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
         // flushed the instant it is emitted (stream() does not buffer).
         const response = await roomSession.stream(message, (e: AgentEvent) => {
           res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
-        });
+        }, streamAmbient);
         if (streamTaskId) {
           const rec = tasks.get(streamTaskId);
           if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
         }
+        // SHARED LAB MEMORY: record the assistant turn.
+        recordTurn(streamRoomKey, 'assistant', response.content ?? '');
         res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
       } catch (err) {
         if (streamTaskId) {
