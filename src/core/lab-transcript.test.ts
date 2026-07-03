@@ -6,9 +6,10 @@ import { join } from 'node:path';
 
 import {
   CANONICAL_ROOMS,
-  isCanonicalRoom,
+  FACE_SLUGS,
+  faceSlug,
   appendTurn,
-  recentCrossAgentContext,
+  recentSharedContext,
   recallConversation,
 } from './lab-transcript.js';
 
@@ -18,99 +19,102 @@ function freshDir(): string {
   return d;
 }
 
-test('isCanonicalRoom recognizes exactly the three canonical rooms', () => {
-  assert.equal(isCanonicalRoom(CANONICAL_ROOMS.peh), true);
-  assert.equal(isCanonicalRoom(CANONICAL_ROOMS.ptah), true);
-  assert.equal(isCanonicalRoom(CANONICAL_ROOMS.luna), true);
-  assert.equal(isCanonicalRoom('lab:random'), false);
-  assert.equal(isCanonicalRoom('!matrixroom:server'), false);
-  assert.equal(isCanonicalRoom(undefined), false);
+const turn = (face: string, agent: string, room: string, role: 'user' | 'assistant', text: string, ts: number) =>
+  ({ face, agent, room, role, text, ts });
+
+test('faceSlug maps names/selectors to the three faces', () => {
+  assert.equal(faceSlug('Pehlichi'), 'peh');
+  assert.equal(faceSlug('peh'), 'peh');
+  assert.equal(faceSlug('Ptah'), 'ptah');
+  assert.equal(faceSlug('Luna'), 'luna');
+  assert.deepEqual([...FACE_SLUGS].sort(), ['luna', 'peh', 'ptah']);
 });
 
-test('a turn appended in one room is visible to the OTHER agents, not to itself', () => {
+test('memory follows the user across surfaces: a Matrix turn is recalled from the direct thread', () => {
   freshDir();
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'user', text: 'deploy the thing', ts: 1000 });
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'assistant', text: 'on it', ts: 1001 });
+  // Talked to Peh in a Matrix room…
+  appendTurn(turn('peh', 'Peh', '!room:matrix', 'user', 'ship the trailer by friday', 100));
+  appendTurn(turn('peh', 'Peh', '!room:matrix', 'assistant', 'on it, friday', 101));
 
-  // Ptah (a different room) sees Peh's turns.
-  const ptahView = recentCrossAgentContext(CANONICAL_ROOMS.ptah);
-  assert.match(ptahView, /deploy the thing/);
-  assert.match(ptahView, /Peh ← user/);
-  assert.match(ptahView, /Peh →: on it/);
-
-  // Peh does NOT see its own room in the cross-agent block.
-  const pehView = recentCrossAgentContext(CANONICAL_ROOMS.peh);
-  assert.doesNotMatch(pehView, /deploy the thing/);
+  // …now switch to Peh's direct/canonical thread: ambient recall surfaces the Matrix chat.
+  const ambient = recentSharedContext('peh', CANONICAL_ROOMS.peh);
+  assert.match(ambient, /ship the trailer by friday/);
+  assert.match(ambient, /Peh →: on it, friday/);
 });
 
-test('non-canonical rooms never write to the shared log (H2 isolation preserved)', () => {
+test('the current live thread is excluded from ambient (the session already holds it)', () => {
   freshDir();
-  appendTurn({ room: '!secret:matrix', agent: 'X', role: 'user', text: 'private secret', ts: 5 });
-  // No canonical room should surface it.
-  for (const room of Object.values(CANONICAL_ROOMS)) {
-    assert.doesNotMatch(recentCrossAgentContext(room), /private secret/);
-  }
+  appendTurn(turn('peh', 'Peh', CANONICAL_ROOMS.peh, 'user', 'in-thread message', 1));
+  // From that same (face, room), ambient must NOT echo it back.
+  assert.doesNotMatch(recentSharedContext('peh', CANONICAL_ROOMS.peh), /in-thread message/);
+  // But a DIFFERENT face/surface does see it.
+  assert.match(recentSharedContext('ptah', CANONICAL_ROOMS.ptah), /in-thread message/);
 });
 
-test('cross-agent context merges the two other rooms, ordered by timestamp, capped', () => {
+test('the three faces share one memory (one agent, three faces)', () => {
   freshDir();
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'assistant', text: 'first', ts: 10 });
-  appendTurn({ room: CANONICAL_ROOMS.luna, agent: 'Luna', role: 'assistant', text: 'second', ts: 20 });
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'assistant', text: 'third', ts: 30 });
+  appendTurn(turn('peh', 'Peh', CANONICAL_ROOMS.peh, 'assistant', 'peh-decided-X', 10));
+  appendTurn(turn('luna', 'Luna', CANONICAL_ROOMS.luna, 'assistant', 'luna-made-Y', 20));
+  const ptahView = recentSharedContext('ptah', CANONICAL_ROOMS.ptah);
+  assert.match(ptahView, /peh-decided-X/);
+  assert.match(ptahView, /luna-made-Y/);
+});
 
-  const view = recentCrossAgentContext(CANONICAL_ROOMS.ptah, { maxTurns: 2 });
-  const lines = view.split('\n').slice(1); // drop the header
+test('ambient is ordered by time and capped', () => {
+  freshDir();
+  appendTurn(turn('peh', 'Peh', 'r1', 'assistant', 'first', 10));
+  appendTurn(turn('luna', 'Luna', 'r2', 'assistant', 'second', 20));
+  appendTurn(turn('peh', 'Peh', 'r1', 'assistant', 'third', 30));
+  const lines = recentSharedContext('ptah', CANONICAL_ROOMS.ptah, { maxTurns: 2 }).split('\n').slice(1);
   assert.equal(lines.length, 2);
-  // Most-recent two, in chronological order.
   assert.match(lines[0]!, /second/);
   assert.match(lines[1]!, /third/);
 });
 
-test('empty / absent shared dir yields no cross-agent context (release-safe standalone)', () => {
+test('empty / absent store yields no ambient recall (release-safe standalone)', () => {
   freshDir();
-  assert.equal(recentCrossAgentContext(CANONICAL_ROOMS.peh), '');
+  assert.equal(recentSharedContext('peh', CANONICAL_ROOMS.peh), '');
 });
 
 test('a torn trailing JSON line is tolerated', () => {
   const d = freshDir();
-  mkdirSync(d, { recursive: true });
+  mkdirSync(join(d, 'peh'), { recursive: true });
   writeFileSync(
-    join(d, 'lab:peh.jsonl'),
-    `${JSON.stringify({ room: 'lab:peh', agent: 'Peh', role: 'assistant', text: 'good line', ts: 1 })}\n{"room":"lab:peh","agent":"Peh","role":"assist`,
+    join(d, 'peh', 'lab:peh.jsonl'),
+    `${JSON.stringify(turn('peh', 'Peh', 'lab:peh', 'assistant', 'good line', 1))}\n{"face":"peh","room":"lab:peh","role":"assist`,
   );
-  const view = recentCrossAgentContext(CANONICAL_ROOMS.ptah);
-  assert.match(view, /good line/);
+  assert.match(recentSharedContext('ptah', CANONICAL_ROOMS.ptah), /good line/);
 });
 
 test('long turn text is truncated to the per-turn cap', () => {
   freshDir();
-  appendTurn({ room: CANONICAL_ROOMS.luna, agent: 'Luna', role: 'assistant', text: 'x'.repeat(2000), ts: 1 });
-  const view = recentCrossAgentContext(CANONICAL_ROOMS.peh, { maxCharsPerTurn: 50 });
+  appendTurn(turn('luna', 'Luna', CANONICAL_ROOMS.luna, 'assistant', 'x'.repeat(2000), 1));
+  const view = recentSharedContext('peh', CANONICAL_ROOMS.peh, { maxCharsPerTurn: 50 });
   assert.match(view, /…/);
   assert.ok(view.length < 400);
 });
 
-test('recallConversation with no filter spans all rooms INCLUDING the caller (deep lookback)', () => {
+test('recallConversation spans all faces and surfaces including the caller', () => {
   freshDir();
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'user', text: 'peh-said', ts: 1 });
-  appendTurn({ room: CANONICAL_ROOMS.ptah, agent: 'Ptah', role: 'assistant', text: 'ptah-said', ts: 2 });
+  appendTurn(turn('peh', 'Peh', '!m:x', 'user', 'peh-matrix-said', 1));
+  appendTurn(turn('ptah', 'Ptah', CANONICAL_ROOMS.ptah, 'assistant', 'ptah-said', 2));
   const out = recallConversation();
-  assert.match(out, /peh-said/);
+  assert.match(out, /peh-matrix-said/);
   assert.match(out, /ptah-said/);
 });
 
-test('recallConversation filters to one agent by selector', () => {
+test('recallConversation filters to one face', () => {
   freshDir();
-  appendTurn({ room: CANONICAL_ROOMS.peh, agent: 'Peh', role: 'assistant', text: 'from-peh', ts: 1 });
-  appendTurn({ room: CANONICAL_ROOMS.luna, agent: 'Luna', role: 'assistant', text: 'from-luna', ts: 2 });
-  const out = recallConversation({ agent: 'luna' });
+  appendTurn(turn('peh', 'Peh', CANONICAL_ROOMS.peh, 'assistant', 'from-peh', 1));
+  appendTurn(turn('luna', 'Luna', CANONICAL_ROOMS.luna, 'assistant', 'from-luna', 2));
+  const out = recallConversation({ face: 'luna' });
   assert.match(out, /from-luna/);
   assert.doesNotMatch(out, /from-peh/);
 });
 
-test('recallConversation reports an unknown agent selector', () => {
+test('recallConversation reports an unknown face selector', () => {
   freshDir();
-  assert.match(recallConversation({ agent: 'nobody' }), /Unknown agent/);
+  assert.match(recallConversation({ face: 'nobody' }), /Unknown face/);
 });
 
 test('recallConversation on an empty lab says so', () => {

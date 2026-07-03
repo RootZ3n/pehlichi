@@ -34,11 +34,11 @@ export const labConversationToolSpecs: ToolSpec[] = [
 ];
 
 const recallHandler: ToolHandler = async (args) => {
-  const agent = typeof args.agent === 'string' ? args.agent : undefined;
+  const face = typeof args.agent === 'string' ? args.agent : undefined;
   const limit = typeof args.limit === 'number' && Number.isFinite(args.limit)
     ? Math.max(1, Math.min(200, Math.floor(args.limit)))
     : undefined;
-  const output = recallConversation({ ...(agent ? { agent } : {}), ...(limit ? { limit } : {}) });
+  const output = recallConversation({ ...(face ? { face } : {}), ...(limit ? { limit } : {}) });
   return { ok: true, output };
 };
 

@@ -86,18 +86,31 @@ outbound → velum(scan response)    → atoni.tap(out) → append turn to share
   frontends resolve to it, so "talking to Peh in ittunaha == talking to Peh directly."
   Agent remains the conversation source-of-truth; ittunaha is a view. No agent→ittunaha dep.
 
-## 4. Shared memory model (full transcripts + distilled facts)
+## 4. Shared memory model — one agent, three faces (Zen, 2026-07-03)
 
-- **Shared transcript store** (lab-gated): each turn appended as
-  `{ room, agent, role, text, ts, receiptId }` to a shared lab location (under lab-memory /
-  lab-store). All three agents + ittunaha read it.
-- **Cross-agent context pull**: on each turn, an agent loads the recent cross-trio history
-  for the canonical room set (recency/token-budgeted, reusing the existing
-  context-compaction) into its prompt. → Ptah knows verbatim what you told Peh.
-- **Distillation**: after a turn, salient facts are written to `labmem` (existing
-  `labmem_remember`; global/shared writes stay dry-run proposals per current governance).
-- **Release**: transcript store = local dir, cross-agent pull = empty → standalone; the
-  "lab" concept never leaks into the shipped product.
+The trio is **ONE agent wearing three faces** (Peh / Ptah / Luna); Peh is the primary face
+(the human talks to Peh far more than the others). Two distinct layers:
+
+- **Live session = isolated per room.** Each room keeps its own `KernelChatSession` /
+  active context window. A Matrix room's live thread never bleeds into another's — the H2
+  guarantee is preserved for the *active context*.
+- **Durable memory = shared across every face AND every surface.** EVERY turn, on EVERY
+  surface (direct, ittunaha, browser UI, REPL, and each Matrix room), is appended to the
+  shared transcript. So switching Matrix → direct → ittunaha, the agent recalls the
+  conversation and picks up where it left off.
+
+Store layout: `<dir>/<face>/<room>.jsonl` — one file per (face, room). A room is served by
+exactly one process (the API service owns direct/ittunaha/UI rooms; the Matrix bridge owns
+Matrix rooms), so every file has a **single writer** → appends never tear.
+
+- **Ambient recall** (every turn): pull recent turns from everything EXCEPT the current
+  live thread `(face, room)` — because the session already holds that. This surfaces "what
+  was said on my other surfaces and by my other faces," tightly capped.
+- **On-demand recall**: `lab_recall_conversation` for deeper lookback, filterable by face.
+- **Distillation**: salient facts also flow to `labmem` (existing governance: shared writes
+  stay dry-run proposals).
+- **Release**: shared dir absent → empty recall → standalone; the "lab"/other-faces concept
+  never leaks into a shipped product.
 
 ## 5. What already respects the boundary (no change needed)
 
