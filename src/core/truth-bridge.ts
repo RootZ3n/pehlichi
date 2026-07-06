@@ -27,7 +27,7 @@ function resolveLabmemRoot(): string {
   if (process.env['LABMEM_ROOT']) return process.env['LABMEM_ROOT'];
   let d = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(d, 'lab-memory', 'labmem');
+    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem');
     const parent = dirname(d);
     if (parent === d) break;
     d = parent;

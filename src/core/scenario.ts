@@ -11,13 +11,12 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { DriverAction } from "./driver.js";
 
 /** The sibling lab-store repo (single source of truth for skillpack content). */
-const REAL_LAB_STORE = join(dirname(dirname(fileURLToPath(import.meta.url))), "..", "lab-store");
+const REAL_LAB_STORE = process.env.LAB_STORE_ROOT ?? "/pehverse/repos/lab-utilities/lab-store";
 
 /**
  * Copy named modules (skillpacks/conventions) from the REAL lab-store into a

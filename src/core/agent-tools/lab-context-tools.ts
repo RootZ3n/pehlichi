@@ -27,7 +27,7 @@ let _storeRoot: string | null = null;
 function getStoreRoot(): string {
   return process.env['LAB_MEMORY_ROOT']
     ?? process.env['MEMORY_STORE_ROOT']
-    ?? '/pehverse/repos/ecosystem/lab-memory';
+    ?? '/pehverse/repos/lab-utilities/lab-memory';
 }
 
 async function getStore() {

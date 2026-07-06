@@ -101,8 +101,8 @@ test("putPage pipes content to stdin and uses `gbrain put <slug>`", () => {
 test("syncMemory imports the tree then embeds --all, returning both transcripts", () => {
   const { calls, restore } = recorder(["imported 12 pages\n", "embedded 12 pages\n"]);
   try {
-    const out = syncMemory("/pehverse/repos/ecosystem/lab-memory");
-    assert.deepEqual(calls[0]!.args, ["import", "/pehverse/repos/ecosystem/lab-memory"]);
+    const out = syncMemory("/pehverse/repos/lab-utilities/lab-memory");
+    assert.deepEqual(calls[0]!.args, ["import", "/pehverse/repos/lab-utilities/lab-memory"]);
     assert.deepEqual(calls[1]!.args, ["embed", "--all"]);
     assert.deepEqual(out, { import: "imported 12 pages", embed: "embedded 12 pages" });
   } finally {

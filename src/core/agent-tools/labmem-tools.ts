@@ -29,16 +29,16 @@ import { sanitizeMessage } from './input-sanitization.js';
 const AGENT = process.env.AGENT_ID ?? 'lab-agent';
 
 /**
- * Portable default labmem root: the in-ecosystem vendored labmem, resolved by
- * walking up to the `ecosystem/` directory so the code ships no absolute lab
- * path. The vendored copy ships CODE only — set LABMEM_ROOT to point at the real
+ * Portable default labmem root: the lab's labmem in the sibling lab-utilities/lab-memory, resolved by
+ * walking up to `ecosystem/` and crossing into its sibling so the code ships no absolute lab
+ * path. That tree ships CODE only — set LABMEM_ROOT to point at the real
  * mutable memory DATA (the home lab sets it via .env; public installs set it to
  * their own store).
  */
 function defaultLabmemRoot(): string {
   let d = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(d, 'lab-memory', 'labmem');
+    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem');
     const parent = dirname(d);
     if (parent === d) break;
     d = parent;

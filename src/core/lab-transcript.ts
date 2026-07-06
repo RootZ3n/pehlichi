@@ -62,7 +62,7 @@ export interface TranscriptTurn {
 function defaultTranscriptDir(): string {
   let d = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(d, 'lab-store', '.lab-transcripts');
+    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-store', '.lab-transcripts');
     const parent = dirname(d);
     if (parent === d) break;
     d = parent;

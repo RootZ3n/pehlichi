@@ -22,8 +22,8 @@
     "sanity:peh-coordinate": "node --import tsx src/sanity-peh.ts"
   },
   "dependencies": {
-    "lab-memory": "file:../lab-memory",
-    "lab-store": "file:../lab-store",
+    "lab-memory": "file:../../lab-utilities/lab-memory",
+    "lab-store": "file:../../lab-utilities/lab-store",
     "playwright": "^1.60.0"
   },
   "devDependencies": {

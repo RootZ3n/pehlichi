@@ -29,7 +29,7 @@ const AGENT = process.env.AGENT_ID ?? 'lab-agent';
 // Portable: the in-ecosystem vendored labmem (CODE) — override with LABMEM_REAL.
 const REAL_LABMEM = process.env['LABMEM_REAL'] ?? (() => {
   let d = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) { if (basename(d) === 'ecosystem') return join(d, 'lab-memory', 'labmem'); const p = dirname(d); if (p === d) break; d = p; }
+  for (let i = 0; i < 12; i++) { if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem'); const p = dirname(d); if (p === d) break; d = p; }
   return join(process.cwd(), 'lab-memory', 'labmem');
 })();
 

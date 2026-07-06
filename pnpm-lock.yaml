@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       lab-memory:
-        specifier: file:../lab-memory
-        version: file:../lab-memory
+        specifier: file:../../lab-utilities/lab-memory
+        version: file:../../lab-utilities/lab-memory
       lab-store:
-        specifier: file:../lab-store
-        version: file:../lab-store
+        specifier: file:../../lab-utilities/lab-store
+        version: file:../../lab-utilities/lab-store
       playwright:
         specifier: ^1.60.0
         version: 1.60.0
@@ -204,12 +204,12 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  lab-memory@file:../lab-memory:
-    resolution: {directory: ../lab-memory, type: directory}
+  lab-memory@file:../../lab-utilities/lab-memory:
+    resolution: {directory: ../../lab-utilities/lab-memory, type: directory}
     engines: {node: '>=22'}
 
-  lab-store@file:../lab-store:
-    resolution: {directory: ../lab-store, type: directory}
+  lab-store@file:../../lab-utilities/lab-store:
+    resolution: {directory: ../../lab-utilities/lab-store, type: directory}
     engines: {node: '>=22'}
 
   playwright-core@1.60.0:
@@ -354,9 +354,9 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  lab-memory@file:../lab-memory: {}
+  lab-memory@file:../../lab-utilities/lab-memory: {}
 
-  lab-store@file:../lab-store: {}
+  lab-store@file:../../lab-utilities/lab-store: {}
 
   playwright-core@1.60.0: {}
 
