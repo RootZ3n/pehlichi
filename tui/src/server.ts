@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Ptah HTTP Server — the lab task runner.
+ * the Mechanic HTTP Server — the lab task runner.
  *
  * Blocker 1: production now runs on the HARDENED KERNEL. Every /chat request drives
  * the kernel's `runAgent()` (via KernelChatSession) instead of an ad-hoc fetch loop:
@@ -28,13 +28,16 @@ import {
   MimoDriver,
   ScriptedDriver,
   createToolRegistry,
+  runtimeCapabilities,
   type Driver,
   type DriverAction,
   type AgentEvent,
 } from '../../src/core/index.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
-import { pehProfile } from '../../src/profile.js';
+import { agentProfile } from '../../src/profile.js';
+import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
+import { truthCognition, reviewProposals } from '../../src/core/truth-bridge.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
@@ -59,6 +62,33 @@ function resolveApiKey(): string | undefined {
     if (match) return match[0].trim();
   } catch {}
   return undefined;
+}
+
+// ── Intent routing (fast-path) ───────────────────────────────────────────────
+// The kernel /chat loop runs a multi-iteration tool cycle per message — far too heavy
+// (and slow) for small-talk like "hi", which makes the model grind tools until its
+// budget is exhausted. A message that carries NO task keyword is treated as casual chat
+// and routed to the tool-free /converse lane instead, so greetings get an instant reply
+// and never touch the tool budget. A message WITH a task keyword uses the kernel+tools
+// path as before.
+const TASK_KEYWORDS = [
+  'build', 'fix', 'run', 'deploy', 'create', 'add', 'write', 'modify', 'test', 'commit',
+  'install', 'remove', 'delete', 'update', 'change', 'implement', 'refactor',
+  'debug', 'diagnose', 'repair', 'generate',
+] as const;
+const TASK_KEYWORD_RE = new RegExp(`\\b(?:${TASK_KEYWORDS.join('|')})\\b`, 'i');
+
+/** True when the message contains at least one task keyword (case-insensitive, word boundary). */
+export function hasTaskKeyword(message: string): boolean {
+  return TASK_KEYWORD_RE.test(message);
+}
+
+/** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this. */
+const CHAT_TIMEOUT_MS = parseInt(process.env.CHAT_TIMEOUT_MS || '60000', 10);
+
+/** The minimal converse lane the fast-path needs — a single tool-free model turn. */
+export interface ConverseLike {
+  send(message: string): Promise<{ content: string }>;
 }
 
 // ── Static web UI (served directly from this port) ───────────────────────────
@@ -159,6 +189,13 @@ export interface PehServerOptions {
   /** Allow write/destructive tools without gating (default false — writes require approval). */
   readonly allowWrites?: boolean;
   /**
+   * EVIDENCE GATE (P0.1): require a `done` that claims changes/verification to be backed by
+   * tools that actually ran this session (see RunAgentOptions.requireEvidence). Defaults ON
+   * for the production path and OFF under an injected test driver (scripted-driver tests
+   * assert success without running real tools). Tests that want the gate pass `true`.
+   */
+  readonly requireEvidence?: boolean;
+  /**
    * CHECKPOINTING (H6): directory for crash-safe conversation checkpoints. When unset,
    * production defaults it under the lab store (so a restart resumes); tests that inject
    * a driver leave it off, so no checkpoint files are written during a test run.
@@ -184,10 +221,19 @@ export interface PehServerOptions {
   readonly cleanupIntervalMs?: number;
   /** Injectable clock (ms). Tests advance it to drive TTL eviction deterministically. Default Date.now. */
   readonly now?: () => number;
+  /**
+   * CONVERSE LANE (intent routing): factory for the tool-free converse session used by the
+   * fast-path (a keyword-free /chat message is answered here, not by the kernel). Defaults to
+   * a real `ChatSession` (one model call, no tools). Tests inject a stub so the fast-path is
+   * exercised without network — mirroring how `driver` injects the kernel's model.
+   */
+  readonly makeConverse?: () => ConverseLike;
+  /** Overall wall-clock budget for a single /chat turn (ms). Default $CHAT_TIMEOUT_MS or 60s. */
+  readonly chatTimeoutMs?: number;
 }
 
 /**
- * Build the Ptah HTTP server WITHOUT listening. Exposes the kernel session and tool
+ * Build the the Mechanic HTTP server WITHOUT listening. Exposes the kernel session and tool
  * names so tests can drive the real request path with an injected driver.
  */
 export function createPehServer(opts: PehServerOptions = {}): {
@@ -201,7 +247,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
 } {
   const skin = loadSkin();
   const personality = loadPersonality();
-  const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/pehlichi';
+  const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/ecosystem/pehlichi';
   const labStoreRoot = opts.labStoreRoot ?? process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store');
   const apiKey = resolveApiKey();
 
@@ -221,11 +267,17 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // Without it the converse lane (no tools) answered "my mind" / "I don't know" / "nothing
   // between conversations". Just names + a plain-English summary — not the 29 full tool
   // descriptions. The personality prompt still owns his squirrel voice; this is only facts.
+  // TRUTHFUL (P0.4): only claim WRITE ability when writes are actually enabled this run.
+  // With writes off (the P0.3 safe default), claiming "you can write files" is an over-claim.
+  const writesEnabledForSummary = opts.allowWrites === true;
   const capabilitiesSummary =
     `YOUR CAPABILITIES (real tools you have — talk about them in your own voice):\n` +
     `You have ${toolNames.length} tools available: ${toolNames.join(', ')}.\n` +
-    `You can: read files, write files, edit files (patch), search code, run terminal commands, ` +
-    `browse the web, and manage processes.\n` +
+    (writesEnabledForSummary
+      ? `You can: read files, write files, edit files (patch), search code, run terminal commands, ` +
+        `browse the web, and manage processes. Any file change you make can be undone via /undo.\n`
+      : `You can: read files, search code, run read-only commands, browse the web, and inspect processes. ` +
+        `File writes/edits are currently DISABLED (operator has not enabled writes) — do NOT claim you wrote or changed a file.\n`) +
     `You have persistent memory across conversations via the memory tool — you do NOT forget everything between chats.\n` +
     `You have a /tools endpoint that lists your tools, and a /info endpoint with your identity.`;
   // The converse lane runs WITHOUT tools, so Peh must be told he still has them elsewhere.
@@ -260,6 +312,23 @@ export function createPehServer(opts: PehServerOptions = {}): {
     console.warn('[auth] IKBI_CHAT_TOKEN is unset — /chat endpoints are OPEN (no auth required).');
   }
 
+  // TRUTHFUL CAPABILITIES (P0.4): derive what this run can ACTUALLY do from the real wiring,
+  // so /capabilities and the model's self-description never claim a capability that is off.
+  // As P1 wires compaction/schema-repair/provider-switch, flip the inputs here and the report
+  // follows — no hand-maintained feature list to drift out of sync with reality.
+  const requireEvidenceEffective = opts.requireEvidence ?? !isInjected;
+  const caps = runtimeCapabilities({
+    allowWrites: allowWritesEffective,
+    requireEvidence: requireEvidenceEffective,
+    // P1.1: KernelChatSession wires a context window by default ⇒ compaction is active.
+    // (Mirrors KernelChatSession's DEFAULT_CONTEXT_WINDOW; the value only drives the flag here.)
+    contextWindow: 128_000,
+    schemaRepair: true, // P1.2: the live MiMo driver now repairs near-JSON tool-call args.
+    providerSwitch: false, // single hardcoded driver; no runtime switch (P2).
+    memoryWired: toolNames.includes('memory') || toolNames.includes('labmem_recall'),
+    toolCount: toolNames.length,
+  });
+
   // H2 (cross-room bleed): every Matrix room (and DM) gets its OWN KernelChatSession so
   // one room's transcript is NEVER visible in another's context. Sessions are created on
   // demand and keyed by room id; a request without a room id uses the 'default' session
@@ -287,7 +356,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         })
       : extraTools;
     return new KernelChatSession({
-      profile: pehProfile,
+      profile: agentProfile,
       driver,
       workspaceRoot: effectiveWorkspace,
       labStoreRoot: effectiveLabStore,
@@ -296,6 +365,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
       taskId: `pehlichi-${roomKey}${overrideWorkspace ? `@${basename(overrideWorkspace)}` : ''}`,
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
       approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
+      // P0.1: prove-don't-assert. ON in production; OFF under an injected test driver unless
+      // the test explicitly opts in (scripted drivers finish without running real tools).
+      requireEvidence: opts.requireEvidence ?? !isInjected,
       ...(checkpointDir !== undefined ? { checkpointDir: join(checkpointDir, sanitizeRoomKey(roomKey)) } : {}),
     });
   };
@@ -316,12 +388,15 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // /converse drives the model ONCE via ChatSession (personality prompt, no tools), so
   // greetings and casual chat get an instant reply and never touch the tool budget. Keyed
   // per room, evicted on the same TTL as the kernel sessions.
-  interface ConverseEntry { cs: ChatSession; lastAccessedAt: number; }
+  interface ConverseEntry { cs: ConverseLike; lastAccessedAt: number; }
   const converseSessions = new Map<string, ConverseEntry>();
-  const converseFor = (roomKey: string): ChatSession => {
+  const chatTimeoutMs = opts.chatTimeoutMs ?? CHAT_TIMEOUT_MS;
+  const makeConverse = opts.makeConverse
+    ?? ((): ConverseLike => new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL, capabilities: converseCapabilities }));
+  const converseFor = (roomKey: string): ConverseLike => {
     let entry = converseSessions.get(roomKey);
     if (entry === undefined) {
-      entry = { cs: new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL, capabilities: converseCapabilities }), lastAccessedAt: now() };
+      entry = { cs: makeConverse(), lastAccessedAt: now() };
       converseSessions.set(roomKey, entry);
     } else {
       entry.lastAccessedAt = now();
@@ -343,6 +418,50 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // The 'default' session backs requests with no room id and is the one returned below.
   // It is NEVER evicted (it is the long-lived embedder/test handle).
   const session = sessionFor('default');
+
+  // ── SHARED LAB MEMORY (lab-cohesion) ──────────────────────────────────────────
+  // The trio is ONE agent with three faces; substantive (kernel) turns are recorded to a
+  // shared log so the conversation follows the user across faces and surfaces. Recall is
+  // ROLE-AWARE (hub sees broadly; specialists stay heads-down). Small-talk on the converse
+  // lane is intentionally NOT recorded — it would only add noise to recall.
+  //
+  // Gated on LAB_TRANSCRIPT_DIR: the lab sets it (memory ON) → cohesion; tests and released
+  // standalone builds leave it unset (inert, behavior-preserving, no shared store touched).
+  // This folds into the unified labMode gate later.
+  const LAB_MEMORY_ON = !!process.env.LAB_TRANSCRIPT_DIR;
+  const SELF_FACE = faceSlug(agentProfile.name);
+  const selfAmbientProfile = ambientProfileForRole(agentProfile.role, SELF_FACE);
+  const sharedAmbient = (roomKey: string): string | undefined =>
+    LAB_MEMORY_ON ? (recentSharedContext(SELF_FACE, roomKey, selfAmbientProfile) || undefined) : undefined;
+  const recordTurn = (roomKey: string, role: 'user' | 'assistant', text: string, receiptId?: string): void => {
+    if (!LAB_MEMORY_ON) return;
+    appendTurn({ face: SELF_FACE, agent: agentProfile.name, room: roomKey, role, text, ts: now(), ...(receiptId ? { receiptId } : {}) });
+  };
+
+  // TRUTH LAYER (lab overlay): fold an advisory memory-truth read into the turn alongside the
+  // shared-memory ambient. Gated on LAB_TRUTH / TRUTH_FIREWALL_ROOT; dynamic-imported and
+  // absent-safe (release builds get nothing). Both legs ride the one extraContext param.
+  const LAB_TRUTH_ON = process.env.LAB_TRUTH === '1' || !!process.env.TRUTH_FIREWALL_ROOT;
+  const buildExtraContext = async (roomKey: string, task: string): Promise<string | undefined> => {
+    const parts: string[] = [];
+    const ambient = sharedAmbient(roomKey);
+    if (ambient) parts.push(ambient);
+    if (LAB_TRUTH_ON) {
+      const truth = await truthCognition({ task });
+      if (truth) parts.push(truth);
+    }
+    return parts.length ? parts.join('\n\n') : undefined;
+  };
+
+  // TF-3: when a turn wrote durable/global memory, kick truth-firewall's ADVISORY review of
+  // the proposal inboxes (fire-and-forget; verdicts persist to the firewall store, surfaced
+  // later in ittunaha). Idempotent, so re-running over the inbox is safe.
+  const MEMORY_WRITE_TOOLS = new Set(['memory', 'labmem_remember', 'brain_put']);
+  const maybeReviewProposals = (toolCalls: ReadonlyArray<{ name: string }>): void => {
+    if (!LAB_TRUTH_ON) return;
+    if (!toolCalls.some((tc) => MEMORY_WRITE_TOOLS.has(tc.name))) return;
+    void reviewProposals();
+  };
 
   /**
    * BLOCKER-1: evict every idle session older than the TTL (never 'default'). Called before
@@ -416,8 +535,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
     // through to the JSON API routes below (so /health, /api/*, etc. are unaffected).
     if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
 
-    if (req.method === 'GET' && url.pathname === '/health') {
+    if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/local/health')) {
       // Lab Agent Contract §1.1: include `service` and `ok` for contract probe compatibility.
+      // /api/local/health is an alias for Howa adapter compatibility (public variant probes this path).
       return json(res, 200, {
         ok: true,
         service: skin.branding.agent_name,
@@ -496,7 +616,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
     }
 
     // Ecosystem agents Peh coordinates (Council Chamber / Training Grounds).
-    if (req.method === 'GET' && url.pathname === '/api/agents') {
+    if (req.method === 'GET' && (url.pathname === '/agents' || url.pathname === '/api/agents')) {
       const agents = bridgeRegistry.list().map((b) => ({
         id: b.name,
         name: b.name,
@@ -595,7 +715,8 @@ export function createPehServer(opts: PehServerOptions = {}): {
       }
     }
 
-    if (req.method === 'POST' && url.pathname === '/chat') {
+    if (req.method === 'POST' && (url.pathname === '/chat' || url.pathname === '/api/chat')) {
+      // /api/chat is an alias for Howa adapter compatibility (public variant probes this path).
       if (!chatAuthorized(req)) {
         return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
       }
@@ -605,6 +726,26 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const body = await parseBody(req);
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
+
+      // FAST-PATH (intent routing): a message with NO task keyword is small-talk — answer it
+      // on the tool-free converse lane so it returns instantly and never grinds the kernel's
+      // tool loop. This is what kept /chat from hanging on greetings like "hi, who are you?".
+      if (!hasTaskKeyword(message)) {
+        const cs = converseFor(roomKeyOf(body));
+        try {
+          const reply = await cs.send(message);
+          return json(res, 200, {
+            content: reply.content,
+            agent: skin.branding.agent_name,
+            ok: true,
+            partial: false,
+            mode: 'converse',
+            toolCalls: [],
+          });
+        } catch (err) {
+          return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+      }
 
       // N-WORKSPACE: when the caller supplies a workspace directory, Pehlichi's file
       // tools resolve paths against it instead of the server's default root.
@@ -617,7 +758,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (overrideWorkspace) console.log(`[chat] workspace override: ${overrideWorkspace}`);
 
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
+      const chatRoomKey = roomKeyOf(body);
+      const roomSession = sessionFor(chatRoomKey, overrideWorkspace);
+
+      // SHARED LAB MEMORY: record the user turn and gather role-aware ambient recall of
+      // what was said on OTHER faces/surfaces (the live session already holds this thread).
+      recordTurn(chatRoomKey, 'user', message);
+      const chatExtra = await buildExtraContext(chatRoomKey, message);
 
       // H8: attribute the caller. We log WHO drove the agent and a correlation id so a
       // request can be traced; a missing id is stamped (and logged as anonymous) rather
@@ -633,7 +780,36 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (taskId) tasks.set(taskId, { status: 'running', caller: callerId, correlationId, startedAt: now() });
 
       try {
-        const response = await roomSession.send(message);
+        // OVERALL TIMEOUT: never let /chat hang. Race the kernel turn against a wall-clock
+        // budget; if it wins, return a clear partial (the work may still finish in the
+        // background and update its task record, which a caller can poll via /task/:id/status).
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<'timeout'>((resolve) => {
+          timer = setTimeout(() => resolve('timeout'), chatTimeoutMs);
+        });
+        const work = roomSession.send(message, undefined, chatExtra);
+        const raced = await Promise.race([work.then((r) => ({ r })), timeout]);
+        if (timer) clearTimeout(timer);
+
+        if (raced === 'timeout') {
+          // Settle the orphaned run in the background: mark the task and swallow any late
+          // rejection so it never surfaces as an unhandled rejection.
+          void work.then(
+            (r) => { const rec = taskId ? tasks.get(taskId) : undefined; if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = r.partial; } },
+            () => { const rec = taskId ? tasks.get(taskId) : undefined; if (rec) { rec.status = 'failed'; rec.finishedAt = now(); } },
+          );
+          return json(res, 422, {
+            content: `This took longer than ${Math.round(chatTimeoutMs / 1000)}s and was returned as partial. The work may still be completing — narrow the task or, if you supplied X-Task-Id, poll /task/<id>/status.`,
+            agent: skin.branding.agent_name,
+            ok: false,
+            partial: true,
+            timedOut: true,
+            accomplished: [],
+            toolCalls: [],
+          });
+        }
+
+        const response = raced.r;
         if (taskId) {
           const rec = tasks.get(taskId);
           if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
@@ -642,7 +818,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         const receipt = receiptStore.record({
           agent: skin.branding.agent_name,
           taskId: taskId ?? undefined,
-          roomKey: roomKeyOf(body),
+          roomKey: chatRoomKey,
           workspaceId: overrideWorkspace ?? undefined,
           model: MODEL,
           status: response.injectionDetected ? 'injection_blocked'
@@ -653,6 +829,9 @@ export function createPehServer(opts: PehServerOptions = {}): {
           partial: response.partial,
           contentSummary: response.content?.slice(0, 200),
         });
+        // SHARED LAB MEMORY: record the assistant turn (substantive kernel reply).
+        recordTurn(chatRoomKey, 'assistant', response.content ?? '', receipt.id);
+        maybeReviewProposals(response.toolCalls);
         const payload = {
           content: response.content,
           agent: skin.branding.agent_name,
@@ -704,7 +883,12 @@ export function createPehServer(opts: PehServerOptions = {}): {
       if (overrideWorkspace) console.log(`[chat/stream] workspace override: ${overrideWorkspace}`);
 
       // H2: route to THIS room's session — no cross-room context bleed.
-      const roomSession = sessionFor(roomKeyOf(body), overrideWorkspace);
+      const streamRoomKey = roomKeyOf(body);
+      const roomSession = sessionFor(streamRoomKey, overrideWorkspace);
+
+      // SHARED LAB MEMORY: record the user turn + gather role-aware ambient recall.
+      recordTurn(streamRoomKey, 'user', message);
+      const streamExtra = await buildExtraContext(streamRoomKey, message);
 
       // BLOCKER-2 (callee): track the streamed task too so it is pollable on timeout.
       const streamCaller = (req.headers['x-agent-id'] as string) || 'anonymous';
@@ -715,14 +899,18 @@ export function createPehServer(opts: PehServerOptions = {}): {
 
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
       try {
-        // Blocker 5: stream EVERY kernel event (tool-call/result/receipt/summary) as SSE.
-        const response = await roomSession.send(message, (e: AgentEvent) => {
+        // Blocker 5: stream EVERY kernel event (tool-call/result/receipt/summary) as SSE,
+        // flushed the instant it is emitted (stream() does not buffer).
+        const response = await roomSession.stream(message, (e: AgentEvent) => {
           res.write(`data: ${JSON.stringify({ event: e })}\n\n`);
-        });
+        }, streamExtra);
         if (streamTaskId) {
           const rec = tasks.get(streamTaskId);
           if (rec) { rec.status = 'completed'; rec.finishedAt = now(); rec.partial = response.partial; }
         }
+        // SHARED LAB MEMORY: record the assistant turn.
+        recordTurn(streamRoomKey, 'assistant', response.content ?? '');
+        maybeReviewProposals(response.toolCalls);
         res.write(`data: ${JSON.stringify({ done: true, ok: response.ok, partial: response.partial, content: response.content, toolCalls: response.toolCalls.length })}\n\n`);
       } catch (err) {
         if (streamTaskId) {
@@ -751,6 +939,45 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
     }
 
+    // REVERSIBILITY (P0.3): list the file edits the room's session has made this session.
+    // Read-only, but auth-gated (it reveals workspace paths), like /chat.
+    if (req.method === 'POST' && url.pathname === '/session/changes') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
+      const body = await parseBody(req);
+      const changes = sessionFor(roomKeyOf(body)).changedFiles();
+      return json(res, 200, {
+        agent: skin.branding.agent_name,
+        count: changes.length,
+        changes: changes.map((c) => ({ path: c.path, created: c.before === null })),
+      });
+    }
+
+    // REVERSIBILITY (P0.3): undo the room session's edits — the last one, or ALL when
+    // { all: true }. Restores each file to its pre-edit content (or deletes a created file).
+    // Auth-gated (it mutates the workspace), like /chat writes.
+    if (req.method === 'POST' && url.pathname === '/undo') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
+      const body = await parseBody(req);
+      const session = sessionFor(roomKeyOf(body));
+      if (body['all'] === true) {
+        const r = session.revertAll();
+        return json(res, 200, { agent: skin.branding.agent_name, revertedAll: true, reverted: r.reverted, errors: r.errors });
+      }
+      const r = session.undo();
+      if (r.reverted === null && r.error === undefined) {
+        return json(res, 200, { agent: skin.branding.agent_name, reverted: null, note: 'nothing to undo' });
+      }
+      return json(res, r.error !== undefined ? 500 : 200, {
+        agent: skin.branding.agent_name,
+        reverted: r.reverted,
+        ...(r.error !== undefined ? { error: r.error } : {}),
+      });
+    }
+
     if (req.method === 'GET' && url.pathname === '/agent') {
       return json(res, 200, {
         id: skin.branding.agent_name.toLowerCase(),
@@ -767,9 +994,13 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, {
         agent: skin.branding.agent_name,
         tools: toolNames,
-        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
+        endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/undo', '/session/changes', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
         model: MODEL,
-        features: ['kernel_loop', 'tool_calling', 'streaming', 'conversation_memory', 'approval_gate', 'partial_on_exhaustion'],
+        // TRUTHFUL (P0.4): the ACTUAL wired capabilities of this run — a capability reads
+        // `true` only when it is actually active (writesEnabled/evidenceGate/contextCompaction/
+        // schemaRepair/providerSwitch reflect the real posture, not an aspiration).
+        capabilities: caps,
+        writePosture: allowWritesEffective ? 'writes-enabled' : 'read-only',
         conversations: {
           canSendMessage: true,
           canListConversations: false,
@@ -941,9 +1172,17 @@ const isMain = process.argv[1] !== undefined && import.meta.url === `file://${pr
 if (isMain) {
   const skin = loadSkin();
   const personality = loadPersonality();
-  // Allow writes by default. The auth gate (line 252-254) already forces read-only
-  // for unauthenticated callers (no IKBI_CHAT_TOKEN). Authenticated callers get full access.
-  const { server } = createPehServer({ allowWrites: process.env.AGENT_ALLOW_WRITES !== 'false' });
+  // WRITE SAFETY (P0.3): writes are OFF by default and require an EXPLICIT opt-in
+  // (AGENT_ALLOW_WRITES=true). Previously writes defaulted ON, so an authenticated caller
+  // could drive destructive tools against the real workspace with no deliberate enablement.
+  // Auth still gates the endpoint (no IKBI_CHAT_TOKEN => read-only regardless); this makes the
+  // WRITE posture a conscious operator decision. Any write the agent does make is reversible
+  // via /undo. To restore full write access, set AGENT_ALLOW_WRITES=true in the service env.
+  const allowWrites = process.env.AGENT_ALLOW_WRITES === 'true';
+  const { server } = createPehServer({ allowWrites });
+  if (!allowWrites) {
+    console.warn('[write-safety] writes are DISABLED (AGENT_ALLOW_WRITES!=="true"); mutating tools will be refused. Set AGENT_ALLOW_WRITES=true to enable.');
+  }
   server.listen(PORT, HOST, () => {
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  🐿  ${skin.branding.agent_name} — Agent Server (kernel)`);

@@ -1,14 +1,15 @@
 /**
- * pehlichi — Peh coordinator agent. Public API.
+ * Lab agent — public API.
  *
- * Peh is an independent agent with her OWN core runtime (src/core/).
- * She depends on shared DATA stores (lab-store, lab-memory), but NEVER
- * on another agent or a shared runtime package.
+ * Each agent is independent: it owns its core runtime (src/core/) and depends
+ * only on shared DATA stores (lab-store, lab-memory), never on another agent.
+ * The runtime is byte-identical across the trio; the per-agent overlay is
+ * personality + skills + branding (see src/profiles/agent.ts).
  */
 
 export * from "./core/index.js";
 
-export { pehProfile, coordinatorToolNames } from "./profile.js";
+export { agentProfile, agentToolNames } from "./profile.js";
 
 export {
   bridgeToolSpecs,

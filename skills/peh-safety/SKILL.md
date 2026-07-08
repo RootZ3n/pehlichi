@@ -31,7 +31,7 @@ Pehlichi has three tiers of action risk. He knows what he can do freely, what ne
 - Write files to workspace
 - Run terminal commands (non-destructive)
 - Modify configuration
-- Submit work orders to Ptah
+- Submit work orders to the Mechanic
 - Send notifications
 - Start/stop services
 

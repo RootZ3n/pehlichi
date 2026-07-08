@@ -24,4 +24,8 @@ export interface AgentProfile {
   readonly personaPreamble: string;
   /** Tags this agent prioritizes pulling from lab-store (selects candidate skillpacks). */
   readonly skillTags: string[];
+  /** Prompt/banner emoji — per-agent branding (overlay). */
+  readonly icon?: string;
+  /** This agent's own server base URL (overlay; env AGENT_URL wins). */
+  readonly url?: string;
 }

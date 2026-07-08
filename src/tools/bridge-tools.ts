@@ -4,9 +4,10 @@
  * These tools let agents interact with any ecosystem service via bridges.
  * Registered via the core's tool-registration seam (extraTools).
  *
- * Services: pehlichi, ptah, luna, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
+ * Services: pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync, existsSync } from "node:fs";
 import type { ToolSpec } from "../core/driver.js";
 import type { ToolHandler, ToolResult } from "../core/tools.js";
 
@@ -15,19 +16,68 @@ const obj = (
   required: string[],
 ): Record<string, unknown> => ({ type: "object", properties, required, additionalProperties: false });
 
-/** Service URL map — which port each service runs on. */
-const SERVICE_PORTS: Record<string, number> = {
+/**
+ * Behaviour-preserving fallback map — the ports Peh used before the canonical
+ * lab-registry existed. This is what keeps standalone / release-mode working
+ * when the shared registry file is absent: if nothing can be read, these exact
+ * values are used, so behaviour never regresses. Includes the legacy aliases
+ * (mechanic, artist) that existing skills and tests still call by name.
+ */
+const DEFAULT_SERVICE_PORTS: Record<string, number> = {
   pehlichi: 18830,
+  mechanic: 18810,
+  artist: 18792,
   ptah: 18810,
   luna: 18792,
   ikbi: 18796,
   toba: 18815,
   nusika: 18793,
   howa: 18799,
-  kokuli: 3000,
+  kokuli: 18800,
   luak: 18795,
   ittunaha: 18821,
 };
+
+/** Shape of one entry in the canonical lab-registry services.json (DATA, not a package). */
+interface RegistryService {
+  readonly id: string;
+  readonly port?: number | null;
+  readonly aliases?: readonly string[];
+}
+
+/**
+ * Overlay the canonical lab service registry onto the fallback map. The registry
+ * is the single source of truth in the lab; we read it as DATA (a JSON file),
+ * never as a cross-repo runtime import — so Peh keeps owning her own core. If the
+ * registry cannot be read (released standalone build, missing file, bad JSON) we
+ * silently keep the defaults. Resolved once at module load.
+ */
+function loadServicePortMap(): Record<string, number> {
+  const ports: Record<string, number> = { ...DEFAULT_SERVICE_PORTS };
+  const candidates = [
+    process.env.LAB_REGISTRY_PATH,
+    "/pehverse/repos/lab-utilities/lab-registry/services.json",
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
+  for (const path of candidates) {
+    try {
+      if (!existsSync(path)) continue;
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as { services?: readonly RegistryService[] };
+      for (const svc of parsed.services ?? []) {
+        if (typeof svc.port === "number" && svc.port > 0) {
+          ports[svc.id] = svc.port;
+          for (const alias of svc.aliases ?? []) ports[alias] = svc.port;
+        }
+      }
+      break; // first readable registry wins
+    } catch {
+      // Unreadable/invalid registry — fall back to defaults. Never throw here.
+    }
+  }
+  return ports;
+}
+
+/** Service URL map — canonical lab-registry overlaid on the built-in fallback. */
+const SERVICE_PORTS: Record<string, number> = loadServicePortMap();
 
 function getServiceUrl(service: string): string | undefined {
   const port = SERVICE_PORTS[service];
@@ -84,7 +134,7 @@ export const bridgeToolSpecs: ToolSpec[] = [
     name: "bridge.health",
     description: "Check if an ecosystem service is reachable and healthy. Read-only.",
     parameters: obj(
-      { service: { type: "string", description: "Service name (pehlichi, ptah, luna, ikbi, toba, nusika, howa, kokuli, luak, ittunaha)" } },
+      { service: { type: "string", description: "Service name (pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha)" } },
       ["service"],
     ),
   },
@@ -111,6 +161,11 @@ export const bridgeToolSpecs: ToolSpec[] = [
       },
       ["service", "method", "path"],
     ),
+  },
+  {
+    name: "lab_status_digest",
+    description: "Proactive lab-status digest — pings every registered service and returns up/down. Read-only.",
+    parameters: obj({}, []),
   },
 ];
 
@@ -241,6 +296,37 @@ export function createBridgeToolHandlers(config: BridgeToolConfig = {}): Map<str
       ok: false,
       output: "",
       error: `${service}${path} failed after ${maxAttempts} attempts: ${lastError}. The callee may still be working — poll ${service} /task/${taskId}/status to recover the result. (${trace})`,
+    };
+  });
+
+  // Lab-status digest: ping every known service and return up/down summary
+  handlers.set("lab_status_digest", async (): Promise<ToolResult> => {
+    const allServices = Object.entries(SERVICE_PORTS).map(([name, port]) => ({ name, port }));
+
+    const results = await Promise.allSettled(
+      allServices.map(async (svc) => {
+        const url = `http://localhost:${svc.port}/health`;
+        try {
+          const resp = await fetchImpl(url, { signal: AbortSignal.timeout(5000) });
+          return { name: svc.name, port: svc.port, up: resp.ok, status: resp.status };
+        } catch {
+          return { name: svc.name, port: svc.port, up: false, status: 0 };
+        }
+      }),
+    );
+
+    const digest = results.map((r) => (r.status === "fulfilled" ? r.value : { name: "unknown", port: 0, up: false, status: 0 }));
+    const up = digest.filter((d) => d.up);
+    const down = digest.filter((d) => !d.up);
+
+    return {
+      ok: true,
+      output: JSON.stringify({
+        summary: `${up.length} up, ${down.length} down`,
+        up: up.map((d) => `${d.name}:${d.port}`),
+        down: down.map((d) => `${d.name}:${d.port}`),
+        services: digest,
+      }, null, 2),
     };
   });
 

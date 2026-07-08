@@ -26,6 +26,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import type { MemoryGovernance, MemoryChangeRequest } from './memory-governance.js';
+import { sanitizeMemoryEvidence } from './memory-governance.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -80,6 +81,32 @@ Durable memory entries are injected into the system prompt and survive compactio
         content: { type: 'string', description: 'Entry content (for add/replace). Concise, factual statement.' },
         old_text: { type: 'string', description: 'Unique substring to find (for replace/remove)' },
         ephemeral: { type: 'boolean', description: 'If true, use session-only NON-DURABLE scratch memory (no proposal, no durable write).' },
+        evidence: {
+          type: 'array',
+          description:
+            'OPTIONAL reference-only evidence for add/replace (advisory provenance for a later reviewer — ' +
+            'it NEVER marks memory verified and never changes approval). Each item references an artifact; ' +
+            'pass NO file contents. Unsupported kinds (command_receipt/tool_receipt) are dropped.',
+          items: {
+            type: 'object',
+            properties: {
+              kind: {
+                type: 'string',
+                enum: ['file', 'commit', 'existing_memory', 'user_message', 'agent_report', 'manual_note'],
+                description: 'file/commit/existing_memory are verifiable; user_message/agent_report/manual_note are provenance only.',
+              },
+              path: { type: 'string', description: 'file: workspace-relative path' },
+              sha256: { type: 'string', description: 'file: optional sha256 to pin the exact bytes' },
+              lines: { type: 'string', description: 'file: optional line range, e.g. "10-42"' },
+              commit: { type: 'string', description: 'commit: git commit sha' },
+              repo: { type: 'string', description: 'commit: optional repo path hint' },
+              ref: { type: 'string', description: 'existing_memory: id/fqid of a current memory entry' },
+              description: { type: 'string', description: 'optional short provenance note (no blobs)' },
+            },
+            required: ['kind'],
+            additionalProperties: false,
+          },
+        },
       },
       ['action'],
     ),
@@ -219,7 +246,13 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
 
         // GOVERNANCE: a durable add becomes a proposal, not a direct write.
         if (governance) {
-          return proposeChange(governance, agentId, { action: 'add', target: target as 'memory' | 'user', content });
+          const evidence = sanitizeMemoryEvidence(args.evidence);
+          return proposeChange(governance, agentId, {
+            action: 'add',
+            target: target as 'memory' | 'user',
+            content,
+            ...(evidence.length > 0 ? { evidence } : {}),
+          });
         }
 
         const entries = loadEntries(target);
@@ -268,11 +301,13 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
 
         // GOVERNANCE: a durable replace becomes a proposal, not a direct write.
         if (governance) {
+          const evidence = sanitizeMemoryEvidence(args.evidence);
           return proposeChange(governance, agentId, {
             action: 'replace',
             target: target as 'memory' | 'user',
             content: newContent,
             oldText,
+            ...(evidence.length > 0 ? { evidence } : {}),
           });
         }
 
@@ -434,6 +469,9 @@ function proposeChange(
     `  risk:          ${p.risk_level} (${p.improvement_type})`,
     `  status:        ${p.status} — pending verification + ${p.requiresHumanApproval ? 'human approval' : 'approval'}`,
     `  installed:     no (durable memory is unchanged)`,
+    ...(p.evidence && p.evidence.length > 0
+      ? [`  evidence:      ${p.evidence.length} reference(s) attached (advisory — does NOT mark memory verified)`]
+      : []),
     ``,
     `Durable memory is governed: a human must verify and approve proposal ${p.id} before it is installed.`,
     `For session-only notes, call memory with ephemeral=true (non-durable scratch).`,

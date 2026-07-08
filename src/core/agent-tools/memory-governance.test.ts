@@ -19,6 +19,7 @@ import {
   classifyMemoryChange,
   createFileMemoryGovernance,
   createFileBrainGovernance,
+  sanitizeMemoryEvidence,
 } from './memory-governance.js';
 import type { ToolContext } from '../tools.js';
 
@@ -185,4 +186,147 @@ test('governed brain_put still blocks prompt injection before proposing', async 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── OPTIONAL evidence channel (writer-side, additive) ────────────────────────
+
+/** Read the single proposal written to a governed memory tool's inbox. */
+async function proposeAndRead(
+  args: Record<string, unknown>,
+): Promise<{ proposal: any; output: string; dir: string; cleanup: () => void }> {
+  const dir = tmp('mem-gov-ev-');
+  const governance = createFileMemoryGovernance({ proposalsDir: join(dir, '.proposals'), idGen: seqIdGen });
+  const memory = createMemoryToolHandlers({ memoryDir: dir, governance }).get('memory')!;
+  const res = await memory(args, ctx(dir));
+  const files = readdirSync(join(dir, '.proposals'));
+  const proposal = JSON.parse(readFileSync(join(dir, '.proposals', files[0]!), 'utf8'));
+  return { proposal, output: res.output, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('memory proposal WITHOUT evidence has no evidence field (unchanged shape)', async () => {
+  const { proposal, cleanup } = await proposeAndRead({ action: 'add', target: 'memory', content: 'plain fact' });
+  try {
+    assert.equal('evidence' in proposal, false, 'evidence key must be omitted when none supplied');
+  } finally {
+    cleanup();
+  }
+});
+
+test('memory add with file evidence persists a reference-only evidence array', async () => {
+  const { proposal, output, cleanup } = await proposeAndRead({
+    action: 'add',
+    target: 'memory',
+    content: 'CI runs nightly',
+    evidence: [{ kind: 'file', path: 'ci/config.yml', sha256: 'abc123', lines: '1-5', description: 'source note' }],
+  });
+  try {
+    assert.equal(proposal.evidence.length, 1);
+    assert.deepEqual(proposal.evidence[0], {
+      kind: 'file',
+      path: 'ci/config.yml',
+      sha256: 'abc123',
+      lines: '1-5',
+      description: 'source note',
+    });
+    assert.match(output, /evidence:\s+1 reference/);
+    // Risk/approval are unchanged by evidence; nothing is installed.
+    assert.equal(proposal.installed, false);
+    assert.equal(proposal.approval.status, 'pending');
+  } finally {
+    cleanup();
+  }
+});
+
+test('memory add with commit evidence persists', async () => {
+  const { proposal, cleanup } = await proposeAndRead({
+    action: 'add',
+    target: 'memory',
+    content: 'shipped in abc',
+    evidence: [{ kind: 'commit', commit: 'deadbeef', repo: '.' }],
+  });
+  try {
+    assert.equal(proposal.evidence[0].kind, 'commit');
+    assert.equal(proposal.evidence[0].commit, 'deadbeef');
+    assert.equal(proposal.evidence[0].repo, '.');
+  } finally {
+    cleanup();
+  }
+});
+
+test('memory replace with existing_memory evidence persists', async () => {
+  const { proposal, cleanup } = await proposeAndRead({
+    action: 'replace',
+    target: 'memory',
+    old_text: 'old',
+    content: 'new',
+    evidence: [{ kind: 'existing_memory', ref: 'repo:pehlichi:owner' }],
+  });
+  try {
+    assert.equal(proposal.action, 'replace');
+    assert.equal(proposal.evidence[0].kind, 'existing_memory');
+    assert.equal(proposal.evidence[0].ref, 'repo:pehlichi:owner');
+  } finally {
+    cleanup();
+  }
+});
+
+test('provenance-only evidence persists but carries no artifact reference', async () => {
+  const { proposal, cleanup } = await proposeAndRead({
+    action: 'add',
+    target: 'user',
+    content: 'user prefers terse',
+    evidence: [{ kind: 'user_message', description: 'user said so' }],
+  });
+  try {
+    assert.equal(proposal.evidence[0].kind, 'user_message');
+    assert.equal(proposal.evidence[0].description, 'user said so');
+    assert.equal('path' in proposal.evidence[0], false);
+    assert.equal('commit' in proposal.evidence[0], false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('unsupported receipt evidence is dropped; if all evidence is dropped, no evidence field', async () => {
+  const { proposal, cleanup } = await proposeAndRead({
+    action: 'add',
+    target: 'memory',
+    content: 'build passed',
+    evidence: [
+      { kind: 'command_receipt', ref: 'r-1' },
+      { kind: 'tool_receipt', ref: 'r-2' },
+      { kind: 'bogus', path: 'x' },
+    ],
+  });
+  try {
+    assert.equal('evidence' in proposal, false, 'all-dropped evidence ⇒ field omitted');
+  } finally {
+    cleanup();
+  }
+});
+
+test('sanitizeMemoryEvidence enforces per-kind required fields and drops garbage', () => {
+  const out = sanitizeMemoryEvidence([
+    { kind: 'file' }, // dropped: no path
+    { kind: 'file', path: 'a.ts' }, // kept
+    { kind: 'commit' }, // dropped: no commit
+    { kind: 'commit', commit: 'sha' }, // kept
+    { kind: 'existing_memory' }, // dropped: no ref
+    { kind: 'existing_memory', ref: 'id1' }, // kept
+    { kind: 'manual_note', description: 'note' }, // kept (provenance)
+    { kind: 'command_receipt', ref: 'r' }, // dropped: deferred
+    { kind: 'tool_receipt', ref: 'r' }, // dropped: deferred
+    'not-an-object', // dropped
+    { path: 'no-kind' }, // dropped: no kind
+  ]);
+  assert.deepEqual(out.map((e) => e.kind), ['file', 'commit', 'existing_memory', 'manual_note']);
+  // Reference-only: no blob `content` field is ever produced.
+  assert.ok(out.every((e) => !('content' in e)));
+});
+
+test('sanitizeMemoryEvidence tolerates non-array / empty input (back-compat)', () => {
+  assert.deepEqual(sanitizeMemoryEvidence(undefined), []);
+  assert.deepEqual(sanitizeMemoryEvidence(null), []);
+  assert.deepEqual(sanitizeMemoryEvidence('x'), []);
+  assert.deepEqual(sanitizeMemoryEvidence([]), []);
 });

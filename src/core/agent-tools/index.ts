@@ -38,6 +38,17 @@ import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js'
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
 import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
+import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
+import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context-tools.js';
+import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
+import { labConversationToolSpecs, createLabConversationToolHandlers } from './lab-conversation-tools.js';
+import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
+import { bridgeRegistry } from '../bridges/registry.js';
+// OPTIONAL tool modules (Phase C): present in the SHARED registry, enabled per-agent via
+// AgentToolConfig flags so this file is identical across every agent. Default OFF.
+import { teachingToolSpecs, createTeachingToolHandlers } from './teaching-tools.js';
+import { workOrderToolSpecs, createWorkOrderToolHandlers } from '../../tools/work-order-tools.js';
+import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -91,6 +102,17 @@ export interface AgentToolConfig {
    * the default runs a REAL agent loop in a disposable shadow workspace.
    */
   cronExecute?: (prompt: string) => Promise<string>;
+  /**
+   * OPTIONAL TOOL MODULES (Phase C) — agent-specialization as config, not forked code. The
+   * shared registry contains every optional module; each agent enables only the ones its role
+   * uses, so `index.ts` is byte-identical across all agents. All default OFF.
+   */
+  /** pehlichi-pub teaching tools: teach_lesson / teach_hover / teach_challenge (lesson cards). */
+  enableTeaching?: boolean;
+  /** Ptah work-order tools: typed CRUD over the lab repair queue. */
+  enableWorkOrders?: boolean;
+  /** Ptah occasio bridge: file a detection as a work order + route it through the trio. */
+  enableOccasio?: boolean;
 }
 
 /**
@@ -198,6 +220,27 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // the base URL comes from IKBI_API_URL (default http://localhost:18796).
   const ikbiHandlers = createIkbiToolHandlers();
 
+  // MUSIC: MiniMax Music 2.6 API for song generation, lyrics, and covers.
+  // API key from MINIMAX_API_KEY env var.
+  const musicHandlers = createMusicToolHandlers();
+
+  // LAB CONTEXT: bridge agents to lab-memory (shared project state store).
+  const labContextHandlers = createLabContextToolHandlers();
+
+  // LABMEM: lab-wide memory system (recall shared/own/project memory; record own).
+  const labmemHandlers = createLabmemToolHandlers();
+
+  // LAB CONVERSATION: on-demand deep recall from the shared cross-agent transcript.
+  const labConversationHandlers = createLabConversationToolHandlers();
+
+  // BRIDGES: inter-agent communication via HTTP. getServiceUrl resolves service
+  // names to base URLs using the bridge registry (known ports).
+  const bridgeHandlers = createBridgeToolHandlers((name: string) => {
+    const info = bridgeRegistry.get(name);
+    if (!info || info.port === 0) return undefined;
+    return `http://localhost:${info.port}`;
+  });
+
   const tools: ToolDef[] = [];
 
   // Browser tools
@@ -282,6 +325,66 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   for (const spec of ikbiToolSpecs) {
     const handler = ikbiHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
+  }
+
+  // Music tools (MiniMax Music 2.6)
+  for (const spec of musicToolSpecs) {
+    const handler = musicHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Lab context tools (lab-memory read/write/query)
+  for (const spec of labContextToolSpecs) {
+    const handler = labContextHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Labmem tools (lab-wide memory recall/record)
+  for (const spec of labmemToolSpecs) {
+    const handler = labmemHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Lab conversation tools (on-demand shared cross-agent transcript recall)
+  for (const spec of labConversationToolSpecs) {
+    const handler = labConversationHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Bridge tools (inter-agent communication via HTTP)
+  // Bridge handlers use a simpler signature (args only); adapt to core ToolHandler (args, ctx).
+  for (const spec of bridgeToolSpecs) {
+    const bridgeHandler = bridgeHandlers.get(spec.name);
+    if (bridgeHandler) {
+      const handler = async (args: Record<string, unknown>, _ctx: any) => {
+        const result = await bridgeHandler(args);
+        return { ok: result.ok, output: result.output, ...(result.error !== undefined ? { error: result.error } : {}) };
+      };
+      tools.push({ spec, handler });
+    }
+  }
+
+  // OPTIONAL tool modules (Phase C): identical code in every agent; enabled per role via config.
+  if (config.enableTeaching) {
+    const teachingHandlers = createTeachingToolHandlers();
+    for (const spec of teachingToolSpecs) {
+      const handler = teachingHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
+    }
+  }
+  if (config.enableWorkOrders) {
+    const workOrderHandlers = createWorkOrderToolHandlers();
+    for (const spec of workOrderToolSpecs) {
+      const handler = workOrderHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
+    }
+  }
+  if (config.enableOccasio) {
+    const occasioHandlers = createOccasioToolHandlers();
+    for (const spec of occasioToolSpecs) {
+      const handler = occasioHandlers.get(spec.name);
+      if (handler) tools.push({ spec, handler });
+    }
   }
 
   return tools;

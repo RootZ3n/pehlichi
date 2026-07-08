@@ -5,7 +5,7 @@
  * audit. They auto-expire after a configurable TTL (default 1 hour) so they
  * don't fill up memory on long-running processes.
  *
- * Shared across Pehlichi, Ptah, Luna — identical file in each repo.
+ * Shared across the trio (Peh, Ptah, Luna) — identical file in each repo.
  */
 
 export interface Receipt {
@@ -117,7 +117,11 @@ export class ReceiptStore {
       }
     }
     if (swept > 0) {
-      console.log(`[receipts] swept ${swept} expired receipt(s); ${this.receipts.size} remaining`);
+      // Operational log → structured record on stderr. stdout is reserved for
+      // protocol/user output; background sweeps must never pollute it.
+      process.stderr.write(
+        `${JSON.stringify({ level: 'info', component: 'receipts', msg: 'swept expired receipts', swept, remaining: this.receipts.size })}\n`,
+      );
     }
   }
 

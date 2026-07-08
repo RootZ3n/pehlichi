@@ -106,6 +106,28 @@ export function buildPersonalityPrompt(p: Personality): string {
     sections.push(`WORKFLOW VOICE EXAMPLES\n${exLines.join('\n\n')}`);
   }
 
+  // ikbi knowledge — what Peh knows about the build engine
+  if (p.ikbi_knowledge) {
+    const k = p.ikbi_knowledge as Record<string, unknown>;
+    const lines: string[] = [];
+    if (typeof k.what_it_is === 'string') lines.push(`What ikbi is: ${k.what_it_is.trim()}`);
+    if (typeof k.dashboard_url === 'string') lines.push(`Dashboard: ${k.dashboard_url}`);
+    if (k.features && typeof k.features === 'object') {
+      const features = k.features as Record<string, Record<string, unknown>>;
+      for (const [name, feat] of Object.entries(features)) {
+        if (typeof feat.description === 'string') lines.push(`- ${name}: ${feat.description}`);
+      }
+    }
+    if (k.how_to_use && typeof k.how_to_use === 'object') {
+      const usage = k.how_to_use as Record<string, string>;
+      for (const [method, desc] of Object.entries(usage)) {
+        if (typeof desc === 'string') lines.push(`  ${method}: ${desc}`);
+      }
+    }
+    if (typeof k.cost === 'string') lines.push(`Cost: ${k.cost}`);
+    if (lines.length > 0) sections.push(`IKBI KNOWLEDGE (teach the user about ikbi)\n${lines.join('\n')}`);
+  }
+
   // Honesty
   sections.push(`HONESTY RULES (non-negotiable)\n${p.honesty_rules.join('\n')}`);
 

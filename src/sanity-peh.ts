@@ -11,8 +11,8 @@
  * the fixture's known-correct answer, across six dimensions:
  *   1 MEMORY TRUE   durable facts recorded, noise NOT recorded
  *   2 SUPERSEDE     the seeded prior was UPDATED (superseded), not duplicated
- *   3 ROUTING       each concern routed to the right agent (ops→Ptah,
- *                   creative→Luna, engine→ikbi)
+ *   3 ROUTING       each concern routed to the right agent (ops→the Mechanic,
+ *                   creative→the Artist, engine→ikbi)
  *   4 IN LANE       Peh did NONE of the work itself (no builder side effects)
  *   5 GROUNDED      every recorded fact traces to the note (nothing invented)
  *   6 CHAIN HEALTH  no stranded chains; the expected currents
@@ -34,7 +34,7 @@ import { createStore } from "lab-store";
 
 import { MimoDriver, runAgent, createStdoutSink, type AgentEvent } from "./core/index.js";
 import { createLabStore, seedSkillpacks } from "./core/scenario.js";
-import { coordinatorToolNames, pehProfile } from "./profile.js";
+import { agentToolNames, agentProfile } from "./profile.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const FIXTURE = join(REPO_ROOT, "fixtures", "peh-coordinate", "status-note.md");
@@ -73,7 +73,7 @@ console.log(`  base url: ${driver.baseUrl}`);
 console.log(`  auth:     ${driver.keyed ? "api-key header (MIMO_API_KEY)" : "keyless"}`);
 console.log(`  project:  ${PROJECT}`);
 console.log(`  fixture:  ${FIXTURE}`);
-console.log(`  toolset:  ${coordinatorToolNames.join(", ")}`);
+console.log(`  toolset:  ${agentToolNames.join(", ")}`);
 console.log("=".repeat(72));
 
 // Disposable workspace (the note Peh reads) + disposable lab-memory (git repo)
@@ -114,13 +114,13 @@ const task =
 
 try {
   await runAgent({
-    profile: pehProfile,
+    profile: agentProfile,
     primarySkill: SKILLPACK, // injects the coordinator contract/done/roster from the skillpack
     task,
     workspaceRoot: workspace,
     labStoreRoot: labStore,
     memoryStoreRoot: memoryRoot,
-    toolNames: coordinatorToolNames,
+    toolNames: agentToolNames,
     driver,
     sinks: [sink],
   });
@@ -304,7 +304,7 @@ function parseRoutes(changes: readonly string[]): Array<{ concern: string; agent
   return out;
 }
 
-/** Parse the skillpack routingRoster ("ops / build / repair -> Ptah") into category->agent. */
+/** Parse the skillpack routingRoster ("ops / build / repair -> the Mechanic") into category->agent. */
 function parseRoster(lines: readonly string[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const line of lines) {

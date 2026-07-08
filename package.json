@@ -18,12 +18,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/core/drivers/mimo.test.ts src/core/drivers/llamacpp.test.ts src/core/drivers/ollama.test.ts src/core/loop.test.ts src/core/memory-tools.test.ts src/core/gbrain-bridge.test.ts src/core/shadow.test.ts src/core/agent-tools/agent-tools.test.ts src/core/agent-tools/audit-fixes.test.ts src/core/agent-tools/memory-governance.test.ts src/core/agent-tools/tool-governor.test.ts src/core/agent-tools/budget-tier.test.ts src/core/agent-tools/unattended.test.ts src/core/agent-tools/ikbi-tools.test.ts src/profile.test.ts src/tools/bridge-tools.test.ts tui/src/server.test.ts tui/src/audit-fixes.test.ts tui/src/workspace-override.test.ts",
+    "test": "node --import tsx --test src/core/drivers/mimo.test.ts src/core/drivers/llamacpp.test.ts src/core/drivers/ollama.test.ts src/core/loop.test.ts src/core/evidence-gate.test.ts src/core/runtime-capabilities.test.ts src/core/context-compaction.test.ts src/core/agent-tools/tool-arg-repair.test.ts src/core/memory-tools.test.ts src/core/gbrain-bridge.test.ts src/core/shadow.test.ts src/core/agent-tools/agent-tools.test.ts src/core/agent-tools/audit-fixes.test.ts src/core/agent-tools/memory-governance.test.ts src/core/agent-tools/tool-governor.test.ts src/core/agent-tools/budget-tier.test.ts src/core/agent-tools/unattended.test.ts src/core/agent-tools/ikbi-tools.test.ts src/core/agent-tools/labmem-tools.test.ts src/profile.test.ts src/tools/work-order-store.test.ts src/core/report-store.test.ts src/core/occasio-bridge.test.ts src/core/agent-tools/velum-scan.test.ts src/profiles/agent.test.ts src/tools/bridge-tools.test.ts tui/src/server.test.ts tui/src/audit-fixes.test.ts tui/src/workspace-override.test.ts tui/src/write-safety.test.ts src/core/lab-transcript.test.ts tui/src/lab-cohesion.test.ts src/core/truth-bridge.test.ts",
     "sanity:peh-coordinate": "node --import tsx src/sanity-peh.ts"
   },
   "dependencies": {
-    "lab-memory": "file:../lab-memory",
-    "lab-store": "file:../lab-store",
+    "lab-memory": "file:../../lab-utilities/lab-memory",
+    "lab-store": "file:../../lab-utilities/lab-store",
     "playwright": "^1.60.0"
   },
   "devDependencies": {

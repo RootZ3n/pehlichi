@@ -2,6 +2,25 @@
 // Maintains conversation history, loads personality, calls MiMo
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+/**
+ * Fallback API-key resolution for the TUI chat path. The interactive app builds
+ * `new ChatSession()` with no key, and env MIMO_API_KEY is usually unset (the real key
+ * lives in ~/bok). Mirror server.ts/harness.ts: read the `mimo direct` key (sk-sl4…) from
+ * ~/bok so the TUI isn't keyless — being keyless surfaced as a 401 "invalid API key".
+ */
+function readMimoKeyFromBok(): string | undefined {
+  try {
+    const bok = readFileSync(join(homedir(), 'bok'), 'utf-8');
+    const match = bok.match(/sk-sl4\S+/);
+    return match ? match[0].trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -47,7 +66,7 @@ export class ChatSession {
     if (opts?.capabilities) {
       this.systemPrompt += `\n\n---\n\n${opts.capabilities}`;
     }
-    this.apiKey = opts?.apiKey ?? process.env.MIMO_API_KEY;
+    this.apiKey = opts?.apiKey ?? process.env.AGENT_API_KEY ?? process.env.MIMO_API_KEY ?? readMimoKeyFromBok();
     this.baseUrl = opts?.baseUrl ?? 'https://api.xiaomimimo.com/v1';
     this.model = opts?.model ?? 'mimo-v2.5';
 

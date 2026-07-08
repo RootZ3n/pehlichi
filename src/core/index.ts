@@ -1,8 +1,9 @@
 /**
- * loony-luna — core runtime re-exports.
+ * Lab agent — core runtime re-exports.
  *
- * This is luna's OWN copy of the agent runtime (same code as mad-ptah/src/core/
- * and peh-agent/src/core/). Each agent owns its core — no shared package.
+ * Each agent ships its OWN byte-identical copy of this runtime; the only
+ * per-agent differences live in the personality overlay (profile, skills,
+ * branding). Never import another agent's runtime.
  */
 
 export {
@@ -69,6 +70,55 @@ export { ShadowWorkspace } from "./shadow.js";
 
 export { type AgentProfile } from "./profile.js";
 export { buildSystemPrompt } from "./prompt.js";
+
+// Runtime capabilities (P0.4): truthful, derived report of what the run can actually do.
+export {
+  runtimeCapabilities,
+  activeCapabilityList,
+  type RuntimeCapabilities,
+  type RuntimeCapabilityInput,
+} from "./runtime-capabilities.js";
+
+// Reasonix infrastructure re-exports
+export { ContextCompressor, type CompressResult, type ContextCompressorOptions } from "./context-compressor.js";
+export { ReceiptStore, type Receipt, type ReceiptStoreOptions } from "./receipt-store.js";
+export {
+  CircuitBreaker,
+  getCircuit,
+  allCircuits,
+  RetryPolicy,
+  withRetry,
+  isRetryable,
+  sleep,
+  IterationBudget,
+  TokenMonitor,
+  type CircuitConfig,
+  type CircuitState,
+  type CircuitStatus,
+  type RetryConfig,
+  type BudgetStatus,
+  type TokenMonitorConfig,
+  type UsageRecord,
+  type TokenSummary,
+} from "./agent-tools/infrastructure.js";
+
+// Bridge infrastructure re-exports
+export { HttpBridge, BridgeError, type BridgeConfig, type BridgeReceipt } from "./bridges/http-bridge.js";
+export { BridgeRegistry, bridgeRegistry, type BridgeInfo, type BridgeHealth } from "./bridges/registry.js";
+
+// Unattended policy re-exports
+export {
+  unattendedToolDenyReason,
+  isToolAllowedUnattended,
+  assertUnattendedStartup,
+  delegationDepthDenyReason,
+  verifyUnattendedSuccess,
+  SharedBudget,
+  UNATTENDED_ALLOWED_TOOLS,
+  type UnattendedToolContext,
+  type GovernedExecRequest,
+  type UnattendedResult,
+} from "./agent-tools/unattended.js";
 
 export {
   runAgent,

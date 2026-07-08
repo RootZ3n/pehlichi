@@ -111,10 +111,19 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
     const filePath = resolvePath(workspaceRoot, args.path as string);
     const content = args.content as string;
 
+    // PRE-WRITE SYNTAX GATE (P1.3): reject a write that would leave a file syntactically
+    // broken, before it touches disk. Currently gates JSON (JSON.parse); other languages
+    // pass through (a real parser is a follow-up — we never FAKE a check we cannot perform).
+    const badWrite = preWriteSyntaxCheck(filePath, content);
+    if (badWrite !== null) return { ok: false, output: '', error: badWrite };
+
     try {
+      // REVERSIBILITY (P0.3): capture the pre-write state so the loop can emit a diff
+      // event and the session can journal an undo entry. `before` is null for a new file.
+      const before = existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
       writeFileSync(filePath, content, 'utf8');
       const bytes = Buffer.byteLength(content, 'utf8');
-      return { ok: true, output: `Wrote ${bytes} bytes to ${filePath}` };
+      return { ok: true, output: `Wrote ${bytes} bytes to ${filePath}`, diff: { path: filePath, before, after: content } };
     } catch (err) {
       return { ok: false, output: '', error: `Write failed: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -213,10 +222,16 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
           };
         }
         const newContent = content.replace(oldString, newString);
+        // PRE-WRITE SYNTAX GATE (P1.3): a patch that would corrupt e.g. a JSON file is refused
+        // (no change made) so the model gets a clean error instead of a broken file.
+        const badPatch = preWriteSyntaxCheck(filePath, newContent);
+        if (badPatch !== null) return { ok: false, output: '', error: badPatch };
         writeFileSync(filePath, newContent, 'utf8');
         return {
           ok: true,
           output: `Patched ${filePath} (${oldString.length} chars → ${newString.length} chars)`,
+          // REVERSIBILITY (P0.3): `content` is the exact pre-patch text — journal it for undo.
+          diff: { path: filePath, before: content, after: newContent },
         };
       }
 
@@ -237,6 +252,26 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
   });
 
   return handlers;
+}
+
+/**
+ * PRE-WRITE SYNTAX GATE (P1.3): return a rejection message when `content` would leave the
+ * file at `filePath` syntactically invalid, or null when it is fine (or not a gated type).
+ * Scope is deliberately HONEST: JSON is validated with the real parser; JS/TS/other languages
+ * are NOT gated here (a robust check needs a real grammar/parser, which is a follow-up) — we
+ * never claim a check we cannot actually perform. Empty content is always allowed (a
+ * legitimate "truncate the file" write).
+ */
+function preWriteSyntaxCheck(filePath: string, content: string): string | null {
+  if (content.trim() === '') return null;
+  if (filePath.endsWith('.json')) {
+    try {
+      JSON.parse(content);
+    } catch (err) {
+      return `refusing to write invalid JSON to ${filePath} (no change made): ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+  return null;
 }
 
 /**

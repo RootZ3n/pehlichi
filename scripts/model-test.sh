@@ -4,13 +4,13 @@
 #
 # Usage:
 #   ./model-test.sh "fix the greeting export in src/greeting.ts"
-#   ./model-test.sh --model-luna llamacpp --model-ptah mimo-v2.5 "implement add function"
+#   ./model-test.sh --model-artist llamacpp --model-mechanic mimo-v2.5 "implement add function"
 #
 # Environment variables (can also be set per-agent in .env files):
 #   AGENT_MODEL      — default model for all agents
 #   AGENT_BASE_URL   — default base URL for all agents
-#   LUNA_MODEL       — override model for Luna only
-#   PTAH_MODEL       — override model for Ptah only
+#   ARTIST_MODEL       — override model for the Artist only
+#   MECHANIC_MODEL       — override model for the Mechanic only
 #   PEHLICHI_MODEL   — override model for Pehlichi only
 
 set -euo pipefail
@@ -20,8 +20,8 @@ RESULTS_DIR="/tmp/model-test-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
 PEHLICHI_URL="http://127.0.0.1:18830"
-PTAH_URL="http://127.0.0.1:18810"
-LUNA_URL="http://127.0.0.1:18792"
+MECHANIC_URL="http://127.0.0.1:18810"
+ARTIST_URL="http://127.0.0.1:18792"
 
 echo "═══════════════════════════════════════════════════════"
 echo "  MODEL TESTING HARNESS"
@@ -55,8 +55,8 @@ send_task() {
 # Send to all three in parallel
 echo "Sending task to all three agents..."
 send_task "Pehlichi" "$PEHLICHI_URL" "$RESULTS_DIR/pehlichi.json" &
-send_task "Ptah" "$PTAH_URL" "$RESULTS_DIR/ptah.json" &
-send_task "Luna" "$LUNA_URL" "$RESULTS_DIR/luna.json" &
+send_task "the Mechanic" "$MECHANIC_URL" "$RESULTS_DIR/mechanic.json" &
+send_task "the Artist" "$ARTIST_URL" "$RESULTS_DIR/artist.json" &
 wait
 echo ""
 
@@ -65,7 +65,7 @@ echo "════════════════════════�
 echo "  RESULTS"
 echo "═══════════════════════════════════════════════════════"
 
-for agent in pehlichi ptah luna; do
+for agent in pehlichi mechanic artist; do
   echo ""
   echo "--- ${agent^^} ---"
   echo "  Time: $(cat "$RESULTS_DIR/${agent}.json.time" 2>/dev/null || echo '?')ms"

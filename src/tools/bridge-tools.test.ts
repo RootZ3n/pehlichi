@@ -39,7 +39,7 @@ test('B2. bridge.request RETRIES on timeout (transient) then succeeds', async ()
   }) as unknown as typeof fetch;
 
   const handlers = createBridgeToolHandlers({ agentId: 'peh', fetchImpl, sleep: noSleep, retryBackoffMs: [1, 1] });
-  const res = await handlers.get('bridge.request')!({ service: 'ptah', method: 'POST', path: '/chat', body: { message: 'hi' } }, {} as never);
+  const res = await handlers.get('bridge.request')!({ service: 'mechanic', method: 'POST', path: '/chat', body: { message: 'hi' } }, {} as never);
 
   assert.equal(n, 3, 'first attempt + 2 retries');
   assert.equal(res.ok, true);
@@ -51,7 +51,7 @@ test('B2. bridge.request does NOT retry on a 4xx (permanent client error)', asyn
   const fetchImpl = (async () => { n++; return errResponse(404); }) as unknown as typeof fetch;
 
   const handlers = createBridgeToolHandlers({ agentId: 'peh', fetchImpl, sleep: noSleep, retryBackoffMs: [1, 1] });
-  const res = await handlers.get('bridge.request')!({ service: 'ptah', method: 'GET', path: '/missing' }, {} as never);
+  const res = await handlers.get('bridge.request')!({ service: 'mechanic', method: 'GET', path: '/missing' }, {} as never);
 
   assert.equal(n, 1, '4xx is permanent — exactly one attempt');
   assert.equal(res.ok, false);
@@ -67,7 +67,7 @@ test('B2. bridge.request RETRIES on a 5xx (transient server error)', async () =>
   }) as unknown as typeof fetch;
 
   const handlers = createBridgeToolHandlers({ agentId: 'peh', fetchImpl, sleep: noSleep, retryBackoffMs: [1, 1] });
-  const res = await handlers.get('bridge.request')!({ service: 'ptah', method: 'GET', path: '/flaky' }, {} as never);
+  const res = await handlers.get('bridge.request')!({ service: 'mechanic', method: 'GET', path: '/flaky' }, {} as never);
 
   assert.equal(n, 2);
   assert.equal(res.ok, true);
@@ -79,7 +79,7 @@ test('B2. bridge.request EXHAUSTS retries and surfaces the taskId for polling', 
   const fetchImpl = (async () => { n++; throw abortError(); }) as unknown as typeof fetch;
 
   const handlers = createBridgeToolHandlers({ agentId: 'peh', fetchImpl, sleep: noSleep, retryBackoffMs: [1, 1] });
-  const res = await handlers.get('bridge.request')!({ service: 'ptah', method: 'POST', path: '/chat', body: { message: 'x' } }, {} as never);
+  const res = await handlers.get('bridge.request')!({ service: 'mechanic', method: 'POST', path: '/chat', body: { message: 'x' } }, {} as never);
 
   assert.equal(n, 3, 'first attempt + 2 retries, then give up');
   assert.equal(res.ok, false);
@@ -100,7 +100,7 @@ test('B2. the SAME X-Task-Id is stamped across every retry of one logical call',
   }) as unknown as typeof fetch;
 
   const handlers = createBridgeToolHandlers({ agentId: 'peh', fetchImpl, sleep: noSleep, retryBackoffMs: [1, 1] });
-  await handlers.get('bridge.request')!({ service: 'ptah', method: 'POST', path: '/chat', body: { message: 'x' } }, {} as never);
+  await handlers.get('bridge.request')!({ service: 'mechanic', method: 'POST', path: '/chat', body: { message: 'x' } }, {} as never);
 
   assert.equal(taskIds.length, 3);
   assert.ok(taskIds[0] && /[0-9a-f-]{36}/.test(taskIds[0]), 'a UUID task id is present');

@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 
 import { ScriptedDriver, type Driver, type DriverAction } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
-import { createPehServer, type PehServerOptions } from './server.js';
+import { createPehServer, hasTaskKeyword, type PehServerOptions } from './server.js';
 
 /** A driver that NEVER finishes — every turn narrates, so the budget always exhausts. */
 const neverDoneDriver: Driver = {
@@ -95,7 +95,7 @@ test('B1. validateSummary fires on done: an invalid summary fails the run (HTTP 
         const res = await fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: 'finish without verifying' }),
+          body: JSON.stringify({ message: 'run without verifying' }),
         });
         assert.equal(res.status, 500);
         const body = await res.json() as any;
@@ -158,7 +158,7 @@ test('B2. exhausting the iteration budget returns a non-200 partial — and neve
           return { status: res.status, body: await res.json() as any };
         };
 
-        const first = await send('do a long task');
+        const first = await send('run a long task');
         assert.notEqual(first.status, 200, 'budget-exhausted must NOT be a blind 200');
         assert.equal(first.status, 422);
         assert.equal(first.body.partial, true);
@@ -166,7 +166,7 @@ test('B2. exhausting the iteration budget returns a non-200 partial — and neve
 
         // A SECOND request must NOT return the first response verbatim (the stale-replay
         // bug). It is independently evaluated and again reports exhaustion clearly.
-        const second = await send('a different question entirely');
+        const second = await send('run a different question entirely');
         assert.equal(second.status, 422);
         assert.equal(second.body.partial, true);
         // Not a stale 200 with the old assistant text.
@@ -197,11 +197,24 @@ test('contract: /health, /tools, /capabilities, /reset still respond with the ex
         assert.ok(tools.tools.includes('terminal'), 'kernel terminal tool is advertised');
 
         const caps = await (await fetch(`${base}/capabilities`)).json() as any;
-        assert.ok(caps.features.includes('kernel_loop'));
-        assert.deepEqual(
-          caps.endpoints,
-          ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/api/agents', '/api/bridge', '/receipts'],
-        );
+        // P0.4: /capabilities now reports a TRUTHFUL derived capability object (not a static
+        // `features` list). The always-on kernel guarantees read true.
+        assert.equal(caps.capabilities.kernelLoop, true);
+        assert.equal(caps.capabilities.undo, true);
+        // Forward-compatible endpoint contract: REQUIRE the core routes every agent
+        // server must expose; WARN (don't fail) on any extra routes, so adding a new
+        // endpoint never breaks this contract test.
+        const REQUIRED_ENDPOINTS = [
+          '/health', '/tools', '/info', '/chat', '/chat/stream',
+          '/reset', '/agent', '/capabilities', '/task/:id/status', '/receipts',
+        ];
+        assert.ok(Array.isArray(caps.endpoints), 'capabilities.endpoints is an array');
+        const missingEndpoints = REQUIRED_ENDPOINTS.filter((e) => !caps.endpoints.includes(e));
+        assert.deepEqual(missingEndpoints, [], `core endpoints must all be advertised (missing: ${missingEndpoints.join(', ')})`);
+        const extraEndpoints = caps.endpoints.filter((e: string) => !REQUIRED_ENDPOINTS.includes(e));
+        if (extraEndpoints.length > 0) {
+          console.warn(`[contract] extra endpoints advertised (ok, forward-compatible): ${extraEndpoints.join(', ')}`);
+        }
 
         const reset = await fetch(`${base}/reset`, { method: 'POST' });
         assert.equal(reset.status, 200);
@@ -263,7 +276,7 @@ test('B1. idle sessions are evicted past the TTL; /health reports the count', as
         const chat = (roomId: string) => fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: 'hi', context: { roomId } }),
+          body: JSON.stringify({ message: 'run it', context: { roomId } }),
         });
         const health = async () => (await fetch(`${base}/health`)).json() as any;
 
@@ -321,7 +334,7 @@ test('B2. /task/:id/status reports completed for a finished task and 404 for an 
         const res = await fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-done' },
-          body: JSON.stringify({ message: 'do it' }),
+          body: JSON.stringify({ message: 'run it' }),
         });
         assert.equal(res.status, 200);
 
@@ -356,7 +369,7 @@ test('B2. /task/:id/status reports failed when the run errors', async () => {
         const res = await fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-fail' },
-          body: JSON.stringify({ message: 'finish badly' }),
+          body: JSON.stringify({ message: 'fix badly' }),
         });
         assert.equal(res.status, 500);
         const status = await (await fetch(`${base}/task/task-fail/status`)).json() as any;
@@ -387,7 +400,7 @@ test('B2. /task/:id/status reports running while the task is in flight', async (
         const inflight = fetch(`${base}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Task-Id': 'task-run' },
-          body: JSON.stringify({ message: 'long task' }),
+          body: JSON.stringify({ message: 'run long task' }),
         });
         // Give the server a moment to register the task before the driver blocks.
         await new Promise((r) => setTimeout(r, 100));
@@ -398,6 +411,114 @@ test('B2. /task/:id/status reports running while the task is in flight', async (
         await inflight;
         const done = await (await fetch(`${base}/task/task-run/status`)).json() as any;
         assert.equal(done.status, 'completed');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+// ── Intent routing + overall timeout (nuclear streaming fix) ──────────────────
+
+test('intent: hasTaskKeyword detects task verbs (word-boundary, case-insensitive) and ignores small-talk', () => {
+  for (const m of ['build the app', 'Fix this bug', 'please RUN the tests', 'create a file', 'commit it']) {
+    assert.equal(hasTaskKeyword(m), true, `"${m}" should be a task`);
+  }
+  for (const m of ['hello, who are you?', 'hi there', 'thanks!', 'what is your name', 'good morning']) {
+    assert.equal(hasTaskKeyword(m), false, `"${m}" should be small-talk`);
+  }
+  // Word boundary: a task verb embedded in a larger word is NOT a match.
+  assert.equal(hasTaskKeyword('I am running late'), false, 'substring "run" inside "running" is not a keyword');
+});
+
+test('fast-path: a keyword-free /chat message routes to converse — the kernel driver is NEVER touched', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  // A driver that EXPLODES if the kernel ever runs — proves the greeting never hit it.
+  const explodingDriver: Driver = {
+    async next(): Promise<DriverAction> { throw new Error('kernel must not run for small-talk'); },
+  };
+  try {
+    await withServer(
+      {
+        driver: explodingDriver, workspaceRoot: ws, labStoreRoot: store,
+        makeConverse: () => ({ async send(m: string) { return { content: `converse:${m}` }; } }),
+      },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'hello, who are you?' }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json() as any;
+        assert.equal(body.mode, 'converse', 'small-talk is answered on the converse lane');
+        assert.equal(body.content, 'converse:hello, who are you?');
+        assert.deepEqual(body.toolCalls, []);
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('fast-path: a /chat message WITH a task keyword still drives the kernel+tools loop', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  const actions: DriverAction[] = [
+    { kind: 'tool', tool: 'terminal', args: { command: 'echo task-ran' } },
+    { kind: 'done', summary: { rootCause: 'did it', changes: ['ran echo'], verification: ['ok'] } },
+  ];
+  try {
+    await withServer(
+      {
+        driver: new ScriptedDriver(actions), workspaceRoot: ws, labStoreRoot: store, allowWrites: true,
+        // If routing wrongly sent this to converse, the canned reply would surface instead.
+        makeConverse: () => ({ async send() { return { content: 'WRONG: routed to converse' }; } }),
+      },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'run echo' }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json() as any;
+        assert.notEqual(body.mode, 'converse', 'a task keyword uses the kernel, not converse');
+        assert.ok(body.toolCalls.some((tc: any) => tc.name === 'terminal'), 'the kernel tool loop ran');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('timeout: /chat returns a 422 partial (never hangs) when the kernel exceeds the budget', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  // A driver that blocks far longer than the (tiny) test budget.
+  const slowDriver: Driver = {
+    async next(): Promise<DriverAction> {
+      await new Promise((r) => setTimeout(r, 2_000));
+      return { kind: 'done', summary: { rootCause: 'r', changes: ['c'], verification: ['v'] } };
+    },
+  };
+  try {
+    await withServer(
+      { driver: slowDriver, workspaceRoot: ws, labStoreRoot: store, chatTimeoutMs: 100 },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'run a very slow task' }),
+        });
+        assert.equal(res.status, 422, 'the overall timeout returns a non-200 partial');
+        const body = await res.json() as any;
+        assert.equal(body.partial, true);
+        assert.equal(body.timedOut, true);
       },
     );
   } finally {
