@@ -60,10 +60,17 @@ export interface FileEdit {
 }
 import { withRetry } from '../../../src/core/agent-tools/retry.js';
 
-// Eight is enough for real chat-driven work; the operator can re-submit for more. Twenty
-// made "hi" grind the tool loop until the budget was exhausted (the dead-/chat bug). A caller
+// Long-horizon autonomy: MiMo sustains long tool loops in production (Hermes runs MiMo with
+// max_iterations / max_tool_calls of 50), so the trio's original cap of 8 throttled real
+// multi-step work. Default 50 to match what MiMo is proven to do; override via
+// AGENT_MAX_ITERATIONS (0 or negative = effectively unbounded — the no-progress governor and
+// the chat wall-clock become the real brakes, not a step count). Casual "hi" messages never
+// reach here: the server routes keyword-free turns to the tool-free converse lane. A caller
 // may still override per-session via KernelChatSessionOptions.maxIterations.
-const DEFAULT_MAX_ITERATIONS = 8;
+const DEFAULT_MAX_ITERATIONS = (() => {
+  const n = parseInt(process.env.AGENT_MAX_ITERATIONS ?? '', 10);
+  return Number.isFinite(n) ? (n <= 0 ? 100_000 : n) : 50;
+})();
 
 /**
  * CONTEXT COMPACTION (P1.1): the context window the kernel compresses toward. mimo-v2.5 is

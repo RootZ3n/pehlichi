@@ -64,6 +64,22 @@ function resolveApiKey(): string | undefined {
   return undefined;
 }
 
+/**
+ * Wire the MiniMax generation key (image/video/music) from ~/bok into process.env so BOTH
+ * the music tool (reads process.env.MINIMAX_API_KEY) AND skill-driven generation — which
+ * curls `Authorization: Bearer $MINIMAX_API_KEY` from execute_code/terminal subprocesses that
+ * inherit this env — can authenticate. The MiniMax key in ~/bok is the unique `sk-api-…`
+ * entry. Env always wins; unset ~/bok or missing file is a silent no-op (stays unset).
+ */
+function ensureMinimaxKeyFromBok(): void {
+  if (process.env.MINIMAX_API_KEY?.trim()) return;
+  try {
+    const bok = readFileSync(join(homedir(), 'bok'), 'utf-8');
+    const match = bok.match(/sk-api-\S+/);
+    if (match) process.env.MINIMAX_API_KEY = match[0].trim();
+  } catch {}
+}
+
 // ── Intent routing (fast-path) ───────────────────────────────────────────────
 // The kernel /chat loop runs a multi-iteration tool cycle per message — far too heavy
 // (and slow) for small-talk like "hi", which makes the model grind tools until its
@@ -83,8 +99,11 @@ export function hasTaskKeyword(message: string): boolean {
   return TASK_KEYWORD_RE.test(message);
 }
 
-/** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this. */
-const CHAT_TIMEOUT_MS = parseInt(process.env.CHAT_TIMEOUT_MS || '60000', 10);
+/** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this.
+ * Default 10 min (600000ms) to match Hermes' MiMo child_timeout (600s) for long-horizon tasks;
+ * override via CHAT_TIMEOUT_MS. This wall-clock (plus the no-progress governor) is the real brake
+ * now that the step cap is raised — not a tiny iteration count. */
+const CHAT_TIMEOUT_MS = parseInt(process.env.CHAT_TIMEOUT_MS || '600000', 10);
 
 /** The minimal converse lane the fast-path needs — a single tool-free model turn. */
 export interface ConverseLike {
@@ -249,6 +268,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const personality = loadPersonality();
   const workspaceRoot = opts.workspaceRoot ?? process.env.PEHLICHI_WORKSPACE ?? '/pehverse/repos/ecosystem/pehlichi';
   const labStoreRoot = opts.labStoreRoot ?? process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store');
+  ensureMinimaxKeyFromBok(); // make the MiniMax gen key (from ~/bok) available to tools + subprocesses
   const apiKey = resolveApiKey();
 
   // The kernel's tool source: the full agent tool suite (Blocker 1).
@@ -786,6 +806,10 @@ export function createPehServer(opts: PehServerOptions = {}): {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<'timeout'>((resolve) => {
           timer = setTimeout(() => resolve('timeout'), chatTimeoutMs);
+          // Never let the wall-clock timer alone keep the process alive: a live request has
+          // its own handles (socket + pending work); when idle, this internal timer must not
+          // pin the event loop (mattered little at 60s, but a 10-min ceiling would hang exit).
+          timer.unref?.();
         });
         const work = roomSession.send(message, undefined, chatExtra);
         const raced = await Promise.race([work.then((r) => ({ r })), timeout]);

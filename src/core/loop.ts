@@ -34,12 +34,15 @@ import {
   type UnattendedToolContext,
 } from "./agent-tools/unattended.js";
 
-// Runaway guard default. Deliberately MODEST: a direct/library run never silently grinds through
-// dozens of iterations. Eight is enough for real work; a trusted operator can raise it explicitly
-// via opts.maxIterations (e.g. the server assigns a higher budget for an escalated mutation/delegation
-// task), or re-submit if more is genuinely needed. Twenty iterations on a "hi" message is absurd —
-// the model just grinds tools until its budget is exhausted.
-const DEFAULT_MAX_ITERATIONS = 8;
+// Runaway guard default. Long-horizon autonomy: MiMo sustains long tool loops in production
+// (Hermes runs MiMo with max_iterations / max_tool_calls of 50), so a cap of 8 throttled real
+// work. Default 50 to match what MiMo is proven to do; override via AGENT_MAX_ITERATIONS
+// (0 or negative = effectively unbounded — the no-progress governor + a caller-side wall-clock
+// are the real brakes). A caller may still pass an explicit opts.maxIterations to override.
+const DEFAULT_MAX_ITERATIONS = (() => {
+  const n = parseInt(process.env.AGENT_MAX_ITERATIONS ?? '', 10);
+  return Number.isFinite(n) ? (n <= 0 ? 100_000 : n) : 50;
+})();
 
 /**
  * Default approval when NO approvalCallback is wired (direct/library use). It auto-approves only
