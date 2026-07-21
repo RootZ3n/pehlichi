@@ -18,7 +18,7 @@
  * count so an operator can tell the two apart and see which one owns which schedules.
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync, statSync, realpathSync } from 'node:fs';
+import { readFileSync, statSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join, extname, sep, basename } from 'node:path';
@@ -45,6 +45,7 @@ import {
   initialActive,
   resolveTargetRequest,
   buildDriverForTarget,
+  estimateCostUsd,
   type ModelTarget,
 } from './lib/model-switch.js';
 import { loadSkin } from './lib/skin.js';
@@ -140,7 +141,7 @@ const CHAT_TIMEOUT_MS = parseInt(process.env.CHAT_TIMEOUT_MS || '600000', 10);
 
 /** The minimal converse lane the fast-path needs — a single tool-free model turn. */
 export interface ConverseLike {
-  send(message: string): Promise<{ content: string }>;
+  send(message: string): Promise<{ content: string; usage?: { in: number; out: number } }>;
 }
 
 // ── Static web UI (served directly from this port) ───────────────────────────
@@ -183,6 +184,58 @@ function serveStatic(res: ServerResponse, pathname: string): boolean {
   });
   res.end(readFileSync(filePath));
   return true;
+}
+
+/** Derive a safe upload filename (keeps the extension; falls back to the MIME subtype). */
+function sanitizeUploadName(name: string | undefined, mime: string, i: number): string {
+  const base = (name ?? '').replace(/[^A-Za-z0-9._-]/g, '_').replace(/^_+/, '').slice(-60);
+  if (base && /\.[A-Za-z0-9]{1,8}$/.test(base)) return `${Date.now()}-${i}-${base}`;
+  const ext = (mime.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'bin';
+  return `${Date.now()}-${i}.${ext}`;
+}
+
+/**
+ * Persist chat attachments (images/docs) into <workspace>/uploads and return a STEERING suffix
+ * that tells the kernel how to inspect each (vision_analyze for images, read_file for text/docs).
+ * Absolute paths so vision/read work regardless of the session's workspace root. Best-effort.
+ */
+function saveAttachments(list: unknown, workspaceRoot: string): { steer: string; count: number } {
+  if (!Array.isArray(list) || list.length === 0) return { steer: '', count: 0 };
+  const dir = join(workspaceRoot, 'uploads');
+  try { mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
+  const lines: string[] = [];
+  let count = 0;
+  for (const item of list) {
+    if (typeof item !== 'object' || item === null) continue;
+    const a = item as { name?: string; type?: string; data?: string };
+    const raw = typeof a.data === 'string' ? a.data : '';
+    if (raw === '') continue;
+    const m = /^data:([^;]*);base64,([\s\S]*)$/.exec(raw);
+    const b64 = m ? m[2]! : raw;
+    const mime = (m ? m[1]! : a.type) || 'application/octet-stream';
+    const abs = join(dir, sanitizeUploadName(a.name, mime, count));
+    try { writeFileSync(abs, Buffer.from(b64, 'base64')); } catch { continue; }
+    count += 1;
+    lines.push(mime.startsWith('image/')
+      ? `- ${abs} (image) — call vision_analyze with image_url="${abs}" to see it`
+      : `- ${abs} (${mime}) — call read_file to read it`);
+  }
+  if (count === 0) return { steer: '', count: 0 };
+  return { steer: `\n\n[The user attached ${count} file(s). Inspect each before answering:\n${lines.join('\n')}\n]`, count };
+}
+
+/** Turn a session's token usage (TokenSummary {inputTokens,outputTokens} or {in,out}) into a
+ * compact {in,out,usd} for the UI's per-message cost line. Reads defensively so either shape works. */
+function usageCost(model: string, u: unknown): { in: number; out: number; usd?: number } | undefined {
+  if (u === null || typeof u !== 'object') return undefined;
+  const o = u as Record<string, unknown>;
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  // Accept both the converse shape {in,out} and the kernel TokenSummary shape {totalInput,totalOutput}.
+  const inTok = num(o.in) || num(o.inputTokens) || num(o.totalInput);
+  const outTok = num(o.out) || num(o.outputTokens) || num(o.totalOutput);
+  if (inTok === 0 && outTok === 0) return undefined;
+  const usd = estimateCostUsd(model, inTok, outTok);
+  return { in: inTok, out: outTok, ...(usd !== undefined ? { usd } : {}) };
 }
 
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -792,6 +845,11 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
 
+      // ATTACHMENTS: persist any uploaded images/docs and steer the turn to inspect them. Their
+      // presence FORCES the kernel path (the converse lane is tool-free and can't see files).
+      const att = saveAttachments(body['attachments'], workspaceRoot);
+      const effectiveMessage = att.count > 0 ? message + att.steer : message;
+
       // FAST-PATH (intent routing): a message with NO task keyword is small-talk — answer it
       // on the tool-free converse lane so it returns instantly and never grinds the kernel's
       // tool loop. This is what kept /chat from hanging on greetings like "hi, who are you?".
@@ -799,12 +857,12 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // all-day casual conversation is durably captured (and syncable), not lost like RAM.
       // AGENT_FORCE_KERNEL=true disables the fast-path entirely (every message goes through the
       // kernel — tools + checkpoints — at the cost of small-talk speed).
-      if (!hasTaskKeyword(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
+      if (att.count === 0 && !hasTaskKeyword(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
         const fpRoomKey = roomKeyOf(body);
         recordTurn(fpRoomKey, 'user', message);
         const cs = converseFor(fpRoomKey);
         try {
-          const reply = await cs.send(message);
+          const reply = await cs.send(effectiveMessage);
           recordTurn(fpRoomKey, 'assistant', reply.content);
           return json(res, 200, {
             content: reply.content,
@@ -813,6 +871,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
             partial: false,
             mode: 'converse',
             toolCalls: [],
+            usage: usageCost(currentModel(), reply.usage),
           });
         } catch (err) {
           return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -863,7 +922,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
           // pin the event loop (mattered little at 60s, but a 10-min ceiling would hang exit).
           timer.unref?.();
         });
-        const work = roomSession.send(message, undefined, chatExtra);
+        const work = roomSession.send(effectiveMessage, undefined, chatExtra);
         const raced = await Promise.race([work.then((r) => ({ r })), timeout]);
         if (timer) clearTimeout(timer);
 
@@ -916,6 +975,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
           receiptId: receipt.id,
           accomplished: response.accomplished,
           thinkingVerb: response.thinkingVerb,
+          usage: usageCost(currentModel(), response.tokenUsage),
           injectionDetected: response.injectionDetected,
           // Blocker 5: structured tool calls WITH receipts — nothing is stripped.
           toolCalls: response.toolCalls.map((tc) => ({

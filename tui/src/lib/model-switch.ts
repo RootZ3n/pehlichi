@@ -158,6 +158,24 @@ export function resolveTargetRequest(
  * Build a fresh resilient Driver for a target (its own circuit breaker). `apiKey` is the key the
  * server resolved for this target's keyKind; MimoDriver routes it to the right auth header by URL.
  */
+/**
+ * Per-model USD pricing (dollars per MILLION tokens), from the operator's roster. Used to turn
+ * token usage into an estimated in/out cost shown under each reply. Unknown model ⇒ no estimate.
+ */
+export const MODEL_PRICING: Record<string, { in: number; out: number }> = {
+  'mimo-v2.5': { in: 0.3, out: 0.9 },
+  'mimo-v2.5-pro': { in: 0.6, out: 1.8 },
+  'deepseek-v4-flash': { in: 0.14, out: 0.28 },
+  'deepseek-v4-pro': { in: 0.27, out: 1.1 },
+};
+
+/** Estimated USD cost for a turn's token usage on a given model. Undefined if the model is unpriced. */
+export function estimateCostUsd(modelId: string, inTokens: number, outTokens: number): number | undefined {
+  const p = MODEL_PRICING[modelId];
+  if (p === undefined) return undefined;
+  return (inTokens / 1_000_000) * p.in + (outTokens / 1_000_000) * p.out;
+}
+
 export function buildDriverForTarget(target: ModelTarget, apiKey: string | undefined): Driver {
   const breaker = new CircuitBreaker(`${target.keyKind}:${target.model}`, {
     failureThreshold: 5,

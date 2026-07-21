@@ -19,10 +19,9 @@
     display:flex; flex-direction:column; height:100dvh; overflow:hidden;
     -webkit-font-smoothing:antialiased;
   }
-  /* ── header ── */
   header{
     display:flex; align-items:center; gap:10px;
-    padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+    padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;
     background:var(--panel); border-bottom:1px solid var(--line); flex:0 0 auto;
   }
   .avatar{
@@ -34,15 +33,19 @@
   .who .name{font-weight:650;font-size:16px;line-height:1.1}
   .who .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .who .sub .dot{color:var(--accent)}
+  .hbtn{
+    flex:0 0 auto;background:var(--panel-2);color:var(--muted);border:1px solid var(--line);
+    border-radius:999px;width:36px;height:36px;font-size:15px;cursor:pointer;display:grid;place-items:center;
+  }
+  .hbtn:active{color:var(--accent)}
   .modelwrap{position:relative;flex:0 0 auto}
   #model{
     appearance:none;-webkit-appearance:none;
     background:var(--panel-2); color:var(--text); border:1px solid var(--line);
-    border-radius:999px; padding:8px 30px 8px 12px; font-size:13px; font-family:inherit;
-    max-width:46vw; text-overflow:ellipsis;
+    border-radius:999px; padding:8px 28px 8px 12px; font-size:13px; font-family:inherit;
+    max-width:40vw; text-overflow:ellipsis;
   }
   .modelwrap::after{content:"▾";position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;font-size:11px}
-  /* ── messages ── */
   #log{
     flex:1 1 auto; overflow-y:auto; padding:16px 12px 8px;
     display:flex; flex-direction:column; gap:10px; scroll-behavior:smooth;
@@ -52,7 +55,7 @@
   .bubble{
     max-width:82%; padding:9px 13px; border-radius:var(--radius);
     line-height:1.45; font-size:15px; word-wrap:break-word; white-space:pre-wrap;
-    border:1px solid var(--line);
+    border:1px solid var(--line); position:relative;
   }
   .row.peh .bubble{background:var(--peh); border-bottom-left-radius:5px}
   .row.me .bubble{background:var(--me); border-bottom-right-radius:5px}
@@ -61,33 +64,45 @@
   .bubble em{color:var(--muted);font-style:italic}
   .bubble code{background:#0c1310;border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:13px}
   .bubble strong{color:#fff}
-  .bubble .ts{display:block;font-size:10px;color:var(--muted);margin-top:4px;opacity:.7}
-  .sys{align-self:center;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:5px 12px;border-radius:999px}
+  .bubble .thumbs{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 6px}
+  .bubble .thumbs img{max-width:120px;max-height:120px;border-radius:8px;border:1px solid var(--line)}
+  .bubble .filechip{display:inline-flex;align-items:center;gap:5px;background:#0c1310;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:12px;color:var(--muted);margin:0 4px 4px 0}
+  .meta{display:flex;align-items:center;gap:8px;margin-top:5px;font-size:10px;color:var(--muted)}
+  .meta .cost{background:#0c1310;border:1px solid var(--line);border-radius:999px;padding:1px 7px;letter-spacing:.2px}
+  .meta .copy{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 4px;line-height:1}
+  .meta .copy:active{color:var(--accent)}
+  .sys{align-self:center;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:5px 12px;border-radius:999px;text-align:center}
   .err .bubble{border-color:var(--danger);color:#ffd9d1}
-  /* typing */
   .typing{display:flex;gap:4px;padding:12px 14px}
   .typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bl 1.2s infinite}
   .typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
   @keyframes bl{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
-  /* ── composer ── */
+  #tray{display:none;gap:8px;flex-wrap:wrap;padding:8px 12px 0;background:var(--panel)}
+  #tray.on{display:flex}
+  .tchip{display:flex;align-items:center;gap:6px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:4px 6px 4px 4px;font-size:12px;max-width:48%}
+  .tchip img{width:34px;height:34px;object-fit:cover;border-radius:6px}
+  .tchip .nm{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .tchip .x{cursor:pointer;color:var(--muted);font-size:16px;padding:0 3px}
   form{
     flex:0 0 auto; display:flex; gap:8px; align-items:flex-end;
     padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);
     background:var(--panel); border-top:1px solid var(--line);
   }
+  .iconbtn{
+    flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);cursor:pointer;
+    background:var(--panel-2);color:var(--muted);font-size:19px;display:grid;place-items:center;
+  }
+  .iconbtn:active{color:var(--accent)}
   #msg{
     flex:1 1 auto; resize:none; max-height:140px; min-height:44px;
     background:var(--panel-2); color:var(--text); border:1px solid var(--line);
     border-radius:22px; padding:11px 15px; font-size:15px; font-family:inherit; line-height:1.35;
   }
   #msg:focus{outline:none;border-color:var(--accent)}
-  #send{
-    flex:0 0 auto; width:44px;height:44px;border-radius:50%;border:none;cursor:pointer;
-    background:var(--accent); color:var(--accent-ink); font-size:20px; display:grid;place-items:center;
-  }
-  #send:disabled{opacity:.5;cursor:default}
+  #send{background:var(--accent);color:var(--accent-ink);border:none;font-size:20px}
+  #send:disabled{opacity:.5}
   .toast{
-    position:fixed;left:50%;bottom:76px;transform:translateX(-50%);
+    position:fixed;left:50%;bottom:80px;transform:translateX(-50%);
     background:var(--panel-2);border:1px solid var(--accent);color:var(--text);
     padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9;
   }
@@ -101,15 +116,19 @@
       <span class="name" id="agentName">Peh</span>
       <span class="sub"><span class="dot">●</span> <span id="status">connecting…</span></span>
     </div>
+    <button class="hbtn" id="copyAll" title="Copy whole conversation">⧉</button>
     <div class="modelwrap"><select id="model" title="Switch model"></select></div>
   </header>
 
   <div id="log"></div>
   <div class="toast" id="toast"></div>
+  <div id="tray"></div>
 
   <form id="composer">
+    <input type="file" id="file" multiple accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.log,.xml,.yaml,.yml,.html,.js,.ts,.py" hidden />
+    <button class="iconbtn" id="attach" type="button" title="Attach image or document">＋</button>
     <textarea id="msg" placeholder="Message Peh…" rows="1" autocomplete="off"></textarea>
-    <button id="send" type="submit" title="Send">➤</button>
+    <button class="iconbtn" id="send" type="submit" title="Send">➤</button>
   </form>
 
 <script>
@@ -118,117 +137,158 @@
   var API = location.origin;
   var TOKEN = localStorage.getItem("peh-token") || (window.PEH_TOKEN || "");
   var ROOM = localStorage.getItem("peh-room") || "daily";
-  var log = document.getElementById("log");
-  var form = document.getElementById("composer");
-  var input = document.getElementById("msg");
-  var sendBtn = document.getElementById("send");
-  var modelSel = document.getElementById("model");
-  var statusEl = document.getElementById("status");
-  var agentNameEl = document.getElementById("agentName");
-  var avaEl = document.getElementById("ava");
-  var toastEl = document.getElementById("toast");
-  var AGENT = "Peh";
+  var $ = function(id){return document.getElementById(id);};
+  var log=$("log"), form=$("composer"), input=$("msg"), sendBtn=$("send"),
+      modelSel=$("model"), statusEl=$("status"), agentNameEl=$("agentName"),
+      avaEl=$("ava"), toastEl=$("toast"), fileInput=$("file"), tray=$("tray");
+  var AGENT="Peh";
+  var pending=[];        // {name,type,dataUrl}
+  var convo=[];          // {who,text} for copy-all
 
-  function headers(){
-    var h = {"content-type":"application/json"};
-    if (TOKEN) h["authorization"] = "Bearer " + TOKEN;
-    return h;
-  }
+  function headers(){var h={"content-type":"application/json"};if(TOKEN)h["authorization"]="Bearer "+TOKEN;return h;}
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
-  // lightweight markdown: **bold**, *italic/action*, `code`, links, newlines
   function fmt(s){
-    var t = esc(s);
-    t = t.replace(/`([^`]+)`/g,"<code>$1</code>");
-    t = t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
-    t = t.replace(/\*([^*\n]+)\*/g,"<em>$1</em>");
-    t = t.replace(/\bhttps?:\/\/[^\s<]+/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener" style="color:var(--accent)">'+u+'</a>';});
+    var t=esc(s);
+    t=t.replace(/`([^`]+)`/g,"<code>$1</code>");
+    t=t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+    t=t.replace(/\*([^*\n]+)\*/g,"<em>$1</em>");
+    t=t.replace(/\bhttps?:\/\/[^\s<]+/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener" style="color:var(--accent)">'+u+'</a>';});
     return t;
   }
-  function nowTs(){var d=new Date();return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});}
-  function atBottom(){return log.scrollHeight - log.scrollTop - log.clientHeight < 120;}
-  function scroll(force){ if(force||atBottom()) log.scrollTop = log.scrollHeight; }
-
-  function addSys(text){
-    var d=document.createElement("div"); d.className="sys"; d.textContent=text;
-    log.appendChild(d); scroll(true);
+  function nowTs(){return new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}
+  function atBottom(){return log.scrollHeight-log.scrollTop-log.clientHeight<120;}
+  function scroll(f){if(f||atBottom())log.scrollTop=log.scrollHeight;}
+  function toast(m){toastEl.textContent=m;toastEl.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(function(){toastEl.classList.remove("show");},2200);}
+  function kfmt(n){return n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":String(n);}
+  function usd(n){return n>=0.01?"$"+n.toFixed(3):"$"+n.toFixed(5).replace(/0+$/,"");}
+  function copyText(t){
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast("Copied");},function(){fallbackCopy(t);});}
+    else fallbackCopy(t);
   }
-  function addMsg(who, text, opts){
-    opts = opts||{};
+  function fallbackCopy(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");toast("Copied");}catch(e){toast("Copy failed");}a.remove();}
+
+  function addSys(text){var d=document.createElement("div");d.className="sys";d.textContent=text;log.appendChild(d);scroll(true);}
+
+  function addMsg(who,text,opts){
+    opts=opts||{};
+    convo.push({who:who,text:text});
     var row=document.createElement("div");
     row.className="row "+(who==="me"?"me":"peh")+(opts.err?" err":"");
     var b=document.createElement("div"); b.className="bubble";
-    var html = (who!=="me"?'<span class="nm">'+esc(AGENT)+'</span>':'') + fmt(text) + '<span class="ts">'+nowTs()+'</span>';
-    b.innerHTML = html;
-    row.appendChild(b); log.appendChild(row); scroll(who==="me"||true);
+    var html=(who!=="me"?'<span class="nm">'+esc(AGENT)+'</span>':'');
+    if(opts.atts&&opts.atts.length){
+      var imgs=opts.atts.filter(function(a){return /^image\//.test(a.type);});
+      var docs=opts.atts.filter(function(a){return !/^image\//.test(a.type);});
+      if(imgs.length){html+='<div class="thumbs">'+imgs.map(function(a){return '<img src="'+a.dataUrl+'" alt="">';}).join('')+'</div>';}
+      html+=docs.map(function(a){return '<span class="filechip">📄 '+esc(a.name)+'</span>';}).join('');
+    }
+    html+=fmt(text);
+    var cost="";
+    if(opts.usage){var u=opts.usage;var c="↑"+kfmt(u.in)+" ↓"+kfmt(u.out)+(typeof u.usd==="number"?" · ~"+usd(u.usd):"");cost='<span class="cost">'+c+'</span>';}
+    html+='<div class="meta"><span class="ts">'+nowTs()+'</span>'+cost+'<button class="copy" title="Copy message">⧉</button></div>';
+    b.innerHTML=html;
+    b.querySelector(".copy").addEventListener("click",function(){copyText(text);});
+    row.appendChild(b); log.appendChild(row); scroll(true);
     return b;
   }
   var typingRow=null;
   function showTyping(on){
-    if(on){
-      if(typingRow) return;
-      typingRow=document.createElement("div"); typingRow.className="row peh";
+    if(on){if(typingRow)return;typingRow=document.createElement("div");typingRow.className="row peh";
       typingRow.innerHTML='<div class="bubble" style="padding:0"><div class="typing"><span></span><span></span><span></span></div></div>';
-      log.appendChild(typingRow); scroll(true);
-    } else if(typingRow){ typingRow.remove(); typingRow=null; }
+      log.appendChild(typingRow);scroll(true);}
+    else if(typingRow){typingRow.remove();typingRow=null;}
   }
-  function toast(msg){
-    toastEl.textContent=msg; toastEl.classList.add("show");
-    clearTimeout(toast._t); toast._t=setTimeout(function(){toastEl.classList.remove("show");},2200);
+
+  // ── attachments ──
+  function downscale(file){
+    return new Promise(function(res){
+      if(!/^image\//.test(file.type)){ var r=new FileReader(); r.onload=function(){res(r.result);}; r.readAsDataURL(file); return; }
+      var r=new FileReader();
+      r.onload=function(){
+        var img=new Image();
+        img.onload=function(){
+          var max=1568, w=img.width, h=img.height;
+          if(w>max||h>max){var s=Math.min(max/w,max/h);w=Math.round(w*s);h=Math.round(h*s);}
+          var cv=document.createElement("canvas");cv.width=w;cv.height=h;
+          cv.getContext("2d").drawImage(img,0,0,w,h);
+          res(cv.toDataURL("image/jpeg",0.85));
+        };
+        img.onerror=function(){res(r.result);};
+        img.src=r.result;
+      };
+      r.readAsDataURL(file);
+    });
   }
+  function renderTray(){
+    tray.innerHTML="";
+    pending.forEach(function(a,i){
+      var chip=document.createElement("div");chip.className="tchip";
+      var inner=/^image\//.test(a.type)?'<img src="'+a.dataUrl+'">':'<span style="font-size:20px">📄</span>';
+      chip.innerHTML=inner+'<span class="nm">'+esc(a.name)+'</span><span class="x" data-i="'+i+'">×</span>';
+      chip.querySelector(".x").addEventListener("click",function(){pending.splice(i,1);renderTray();});
+      tray.appendChild(chip);
+    });
+    tray.classList.toggle("on",pending.length>0);
+  }
+  $("attach").addEventListener("click",function(){fileInput.click();});
+  fileInput.addEventListener("change",function(){
+    var files=Array.prototype.slice.call(fileInput.files||[]);
+    fileInput.value="";
+    Promise.all(files.map(function(f){return downscale(f).then(function(url){return {name:f.name,type:f.type||"application/octet-stream",dataUrl:url};});}))
+      .then(function(atts){ pending=pending.concat(atts); renderTray(); });
+  });
 
   // ── model switcher ──
   function loadModels(){
     fetch(API+"/models",{headers:headers()}).then(function(r){return r.json();}).then(function(d){
       modelSel.innerHTML="";
-      (d.available||[]).forEach(function(t){
-        var o=document.createElement("option"); o.value=t.id; o.textContent=t.label||t.id;
-        if(d.active && t.id===d.active.id) o.selected=true;
-        modelSel.appendChild(o);
-      });
-    }).catch(function(){/* leave empty */});
+      (d.available||[]).forEach(function(t){var o=document.createElement("option");o.value=t.id;o.textContent=t.label||t.id;if(d.active&&t.id===d.active.id)o.selected=true;modelSel.appendChild(o);});
+    }).catch(function(){});
   }
   modelSel.addEventListener("change",function(){
     var id=modelSel.value;
-    fetch(API+"/model",{method:"POST",headers:headers(),body:JSON.stringify({id:id})})
-      .then(function(r){return r.json();})
-      .then(function(d){
-        if(d && d.ok){ toast("Switched to "+(d.active&&d.active.model||id)); refreshStatus(); if(d.keyed===false) toast("⚠ no API key for "+(d.active&&d.active.key_kind)); }
-        else toast("Switch failed"+(d&&d.error?": "+d.error:""));
-      }).catch(function(){toast("Switch failed");});
+    fetch(API+"/model",{method:"POST",headers:headers(),body:JSON.stringify({id:id})}).then(function(r){return r.json();})
+      .then(function(d){ if(d&&d.ok){toast("Switched to "+(d.active&&d.active.model||id));refreshStatus();if(d.keyed===false)toast("⚠ no API key for "+(d.active&&d.active.key_kind));} else toast("Switch failed"+(d&&d.error?": "+d.error:"")); })
+      .catch(function(){toast("Switch failed");});
   });
 
-  // ── status/identity ──
   function refreshStatus(){
     fetch(API+"/health",{headers:headers()}).then(function(r){return r.json();}).then(function(d){
-      if(d.agent){ AGENT=d.agent; agentNameEl.textContent=d.agent; avaEl.textContent=d.agent[0]||"P"; document.title=d.agent+" — chat"; }
-      statusEl.textContent = (d.model||"online");
-    }).catch(function(){ statusEl.textContent="offline"; });
+      if(d.agent){AGENT=d.agent;agentNameEl.textContent=d.agent;avaEl.textContent=d.agent[0]||"P";document.title=d.agent+" — chat";}
+      statusEl.textContent=(d.model||"online");
+    }).catch(function(){statusEl.textContent="offline";});
   }
+
+  // ── copy whole conversation ──
+  $("copyAll").addEventListener("click",function(){
+    if(!convo.length){toast("Nothing to copy");return;}
+    var text=convo.map(function(m){return (m.who==="me"?"You":AGENT)+": "+m.text;}).join("\n\n");
+    copyText(text);
+  });
 
   // ── send ──
   function send(text){
-    if(!text.trim()) return;
-    addMsg("me", text);
-    input.value=""; autosize(); sendBtn.disabled=true; showTyping(true);
-    fetch(API+"/chat",{method:"POST",headers:headers(),body:JSON.stringify({message:text,context:{roomId:ROOM}})})
+    var atts=pending.slice();
+    if(!text.trim() && !atts.length) return;
+    addMsg("me", text||"(sent "+atts.length+" attachment"+(atts.length>1?"s":"")+")", {atts:atts});
+    input.value=""; autosize(); pending=[]; renderTray(); sendBtn.disabled=true; showTyping(true);
+    var body={message:text||"Please look at the attached file(s).",context:{roomId:ROOM}};
+    if(atts.length)body.attachments=atts.map(function(a){return {name:a.name,type:a.type,data:a.dataUrl};});
+    fetch(API+"/chat",{method:"POST",headers:headers(),body:JSON.stringify(body)})
       .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
       .then(function(res){
         showTyping(false);
-        if(!res.ok || res.j.error){ addMsg("peh", res.j.error||"Something went wrong.", {err:true}); }
-        else { addMsg("peh", res.j.content||"…"); }
+        if(!res.ok && !res.j.content){ addMsg("peh", res.j.error||"Something went wrong.", {err:true}); }
+        else { addMsg("peh", res.j.content||"…", {usage:res.j.usage}); }
       })
       .catch(function(e){ showTyping(false); addMsg("peh","Network error: "+e.message,{err:true}); })
       .finally(function(){ sendBtn.disabled=false; input.focus(); });
   }
-
-  function autosize(){ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,140)+"px"; }
+  function autosize(){input.style.height="auto";input.style.height=Math.min(input.scrollHeight,140)+"px";}
   input.addEventListener("input",autosize);
-  input.addEventListener("keydown",function(e){
-    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); form.requestSubmit(); }
-  });
-  form.addEventListener("submit",function(e){ e.preventDefault(); send(input.value); });
+  input.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
+  form.addEventListener("submit",function(e){e.preventDefault();send(input.value);});
 
-  // ── boot ──
   refreshStatus(); loadModels();
   addSys("You're chatting with "+AGENT+" · room “"+ROOM+"” · history syncs to your lab");
   setInterval(refreshStatus, 30000);

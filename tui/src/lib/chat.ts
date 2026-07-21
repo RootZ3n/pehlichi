@@ -31,6 +31,8 @@ export interface ChatMessage {
 export interface ChatResponse {
   content: string;
   thinkingVerb?: string;
+  /** Real token usage from the provider (non-streaming responses expose it), for cost display. */
+  usage?: { in: number; out: number };
 }
 
 export type StreamCallback = (chunk: string) => void;
@@ -146,6 +148,7 @@ export class ChatSession {
       }
 
       let content = '';
+      let usage: { in: number; out: number } | undefined;
 
       if (onStream && response.body) {
         // Streaming response
@@ -182,8 +185,10 @@ export class ChatSession {
         // Non-streaming response
         const data = await response.json() as {
           choices?: Array<{ message?: { content?: string } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
         };
         content = data.choices?.[0]?.message?.content ?? '';
+        if (data.usage) usage = { in: data.usage.prompt_tokens ?? 0, out: data.usage.completion_tokens ?? 0 };
       }
 
       // Add assistant message to history
@@ -193,7 +198,7 @@ export class ChatSession {
         timestamp: Date.now(),
       });
 
-      return { content, thinkingVerb };
+      return { content, thinkingVerb, ...(usage ? { usage } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Chat failed: ${message}`);
