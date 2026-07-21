@@ -118,6 +118,13 @@ Operator will likely switch to the phone mid-build; the work continues across de
     env added. Undeclared dep `js-yaml` installed on-device (TODO: declare it in package.json for the trio).
   - **PROVEN on-device:** /health ok, /models lists 4, chat works (Mimo), casual chat persists (transcript
     grows), REAL phone_battery ("92%, discharging, GOOD, 30.2°C, 153 cycles"), model swap to deepseek keyed:true.
-- NEXT: Phase 4 UI picker (web model dropdown → POST /model, verify on served surface) — ×3 repos; Phase 3
-  Syncthing on `~/peh-data/{transcripts,memories,agent-sync}` ↔ lab. Operator: open phone browser to
-  http://localhost:18830 (Add to Home Screen) + arm Termux:Boot.
+- 2026-07-21: **Phase 3 SYNCTHING DONE — bidirectional `~/peh-data` phone↔PC over Tailscale, PROVEN both ways.**
+  Syncthing v2.1.2 both ends. Device IDs: PC(pehverse)=IJQW47T-UNGXCTL-R4LOO6F-T4VIBI7-DLNCXG2-6EG376U-3UG3GYT-3VVCOQQ,
+  phone(zenpix)=5BVYYDY-IUDUCCB-Q2ZUUTX-KEBAO3W-SXERTHI-LE2QDAK-TKU3WLL-XJEZ6QR. Folder id `peh-data` (phone
+  `~/peh-data` ↔ PC `/home/zen/peh-data`), each device addr = Tailscale IP:22000. PC keep-alive = systemd
+  `--user` service `syncthing.service` (linger on); phone = in `~/.termux/boot/start-peh.sh`. PC binary =
+  static in `~/.local/bin/syncthing` (no sudo). Configured via `syncthing cli --home <dir> config devices/folders`.
+  NOTE: chat on ONE device at a time (concurrent JSONL appends → .sync-conflict copies). To make the PC's Peh
+  SEE phone chats, point its LAB_TRANSCRIPT_DIR/memory envs at `/home/zen/peh-data/...` (not yet wired).
+- NEXT: Phase 4 UI — a mobile, Element/Matrix-style CHAT UI for Peh (separate lightweight page, not the themed
+  world-map SPA) with an inline model switcher → POST /model. ×3 repos, verify on served surface.
