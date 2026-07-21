@@ -276,3 +276,67 @@ test("IKBI_API_URL overrides the base URL", async () => {
     else process.env["IKBI_API_URL"] = prev;
   }
 });
+
+// ── fallback routing (lab → on-device) ────────────────────────────────────────
+/** Run `fn` with primary+fallback ikbi endpoints set, restoring the env afterward. */
+async function withEndpoints(
+  env: { primary: string; fallback?: string; token?: string; fallbackToken?: string },
+  fn: () => Promise<void>,
+): Promise<void> {
+  const keys = ["IKBI_API_URL", "IKBI_API_URL_FALLBACK", "IKBI_API_TOKEN", "IKBI_API_TOKEN_FALLBACK"] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env["IKBI_API_URL"] = env.primary;
+  if (env.fallback !== undefined) process.env["IKBI_API_URL_FALLBACK"] = env.fallback; else delete process.env["IKBI_API_URL_FALLBACK"];
+  if (env.token !== undefined) process.env["IKBI_API_TOKEN"] = env.token; else delete process.env["IKBI_API_TOKEN"];
+  if (env.fallbackToken !== undefined) process.env["IKBI_API_TOKEN_FALLBACK"] = env.fallbackToken; else delete process.env["IKBI_API_TOKEN_FALLBACK"];
+  try { await fn(); } finally {
+    for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]!; }
+  }
+}
+
+test("falls back to the on-device ikbi when the lab endpoint is UNREACHABLE", async () => {
+  await withEndpoints({ primary: "http://lab:18796", fallback: "http://127.0.0.1:18796", fallbackToken: "local-tok" }, async () => {
+    await withFetch(
+      (url) => {
+        if (url.startsWith("http://lab:18796")) throw new Error("ECONNREFUSED"); // lab down
+        return jsonResponse(200, { tasks: [], total: 0 });
+      },
+      async (calls) => {
+        const res = await handlers.get("ikbi_status")!({}, ctx);
+        assert.equal(res.ok, true, "status succeeds via fallback");
+        assert.equal(calls.length, 2, "tried lab then fell back to local");
+        assert.ok(calls[0]!.url.startsWith("http://lab:18796"));
+        assert.ok(calls[1]!.url.startsWith("http://127.0.0.1:18796"));
+        // The fallback endpoint's own token is used, not the primary's.
+        assert.equal((calls[1]!.init?.headers as Record<string, string>)["authorization"], "Bearer local-tok");
+      },
+    );
+  });
+});
+
+test("does NOT fall back when the lab RESPONDS with an HTTP error (a real result, not a connectivity gap)", async () => {
+  await withEndpoints({ primary: "http://lab:18796", fallback: "http://127.0.0.1:18796" }, async () => {
+    await withFetch(
+      (url) => (url.startsWith("http://lab:18796") ? jsonResponse(500, { error: "boom" }) : jsonResponse(200, { tasks: [] })),
+      async (calls) => {
+        const res = await handlers.get("ikbi_status")!({}, ctx);
+        assert.equal(res.ok, false);
+        assert.equal(calls.length, 1, "the reachable lab error is returned; no fallback");
+      },
+    );
+  });
+});
+
+test("no fallback endpoint configured ⇒ a single attempt, unreachable surfaces clearly", async () => {
+  await withEndpoints({ primary: "http://lab:18796" }, async () => {
+    await withFetch(
+      () => { throw new Error("ECONNREFUSED"); },
+      async (calls) => {
+        const res = await handlers.get("ikbi_status")!({}, ctx);
+        assert.equal(res.ok, false);
+        assert.equal(calls.length, 1);
+        assert.match(res.error ?? "", /cannot reach ikbi/);
+      },
+    );
+  });
+});

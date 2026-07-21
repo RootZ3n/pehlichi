@@ -26,32 +26,40 @@ const DEFAULT_IKBI_API_URL = "http://localhost:18796";
 /** Hard timeout for any single ikbi request — a hung service can't stall a turn. */
 const IKBI_REQUEST_TIMEOUT_MS = 30_000;
 
-/** Resolve the ikbi API base URL, trimming any trailing slash. */
-function ikbiBaseUrl(): string {
-  const raw = process.env["IKBI_API_URL"]?.trim();
-  return (raw && raw.length > 0 ? raw : DEFAULT_IKBI_API_URL).replace(/\/+$/, "");
+interface IkbiEndpoint {
+  readonly url: string;
+  readonly token: string | undefined;
+  readonly label: string;
 }
 
 /**
- * The optional bearer token for a protected ikbi (HIGH 3). When IKBI_API_TOKEN is set, every
- * request carries `Authorization: Bearer <token>`; when unset, no auth header is sent (open mode).
+ * The ordered ikbi endpoints to try: the PRIMARY (IKBI_API_URL — e.g. the lab ikbi over Tailscale),
+ * then an optional FALLBACK (IKBI_API_URL_FALLBACK — e.g. an on-device ikbi). A request only falls
+ * through to the next endpoint on a CONNECTIVITY failure (unreachable / timeout) — never on a valid
+ * HTTP error response — so if "the PC loses connection" Peh transparently uses the local ikbi. Each
+ * endpoint has its own bearer (IKBI_API_TOKEN / IKBI_API_TOKEN_FALLBACK); unset ⇒ no auth header.
  */
-function ikbiAuthToken(): string | undefined {
-  const t = process.env["IKBI_API_TOKEN"]?.trim();
-  return t !== undefined && t.length > 0 ? t : undefined;
+function ikbiEndpoints(): IkbiEndpoint[] {
+  const norm = (u: string): string => u.replace(/\/+$/, "");
+  const primary = process.env["IKBI_API_URL"]?.trim();
+  const eps: IkbiEndpoint[] = [{
+    url: norm(primary && primary.length > 0 ? primary : DEFAULT_IKBI_API_URL),
+    token: process.env["IKBI_API_TOKEN"]?.trim() || undefined,
+    label: "primary",
+  }];
+  const fb = process.env["IKBI_API_URL_FALLBACK"]?.trim();
+  if (fb && fb.length > 0) {
+    eps.push({ url: norm(fb), token: process.env["IKBI_API_TOKEN_FALLBACK"]?.trim() || undefined, label: "fallback" });
+  }
+  return eps;
 }
 
-/**
- * A credential-safe display form of the ikbi URL for ERROR MESSAGES (MEDIUM 7): strips any
- * userinfo (`user:pass@`) by keeping only the origin, optionally re-appending the request path.
- * Falls back to the raw base when it can't be parsed as a URL.
- */
-function safeDisplayUrl(path = ""): string {
-  const raw = ikbiBaseUrl();
+/** Credential-safe origin of a URL (strips any `user:pass@`) for error messages. */
+function originOf(url: string, path = ""): string {
   try {
-    return `${new URL(raw).origin}${path}`;
+    return `${new URL(url).origin}${path}`;
   } catch {
-    return `${raw}${path}`;
+    return `${url}${path}`;
   }
 }
 
@@ -116,53 +124,59 @@ async function ikbiRequest(
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const url = `${ikbiBaseUrl()}${path}`;
-  const token = ikbiAuthToken();
-  const headers: Record<string, string> = {};
-  if (body !== undefined) headers["content-type"] = "application/json";
-  if (token !== undefined) headers["authorization"] = `Bearer ${token}`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      signal: AbortSignal.timeout(IKBI_REQUEST_TIMEOUT_MS),
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-  } catch (err) {
-    // Connection refused, DNS failure, or AbortSignal timeout all land here. Error messages use a
-    // credential-safe URL (no userinfo) so a token embedded in IKBI_API_URL never leaks (MEDIUM 7).
-    if (err instanceof Error && err.name === "TimeoutError") {
-      return { ok: false, error: `${tool}: ikbi did not respond within ${IKBI_REQUEST_TIMEOUT_MS}ms (${safeDisplayUrl(path)})` };
-    }
-    const detail = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      error: `${tool}: cannot reach ikbi at ${safeDisplayUrl()} (${detail}). Is the ikbi service running?`,
-    };
-  }
+  const endpoints = ikbiEndpoints();
+  const connErrors: string[] = [];
 
-  const text = await response.text().catch(() => "");
-  let data: unknown = undefined;
-  if (text.length > 0) {
+  for (const ep of endpoints) {
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["content-type"] = "application/json";
+    if (ep.token !== undefined) headers["authorization"] = `Bearer ${ep.token}`;
+    let response: Response;
     try {
-      data = JSON.parse(text);
-    } catch {
-      data = text; // non-JSON body (e.g. an HTML error page) — keep it for context.
+      response = await fetch(`${ep.url}${path}`, {
+        method,
+        signal: AbortSignal.timeout(IKBI_REQUEST_TIMEOUT_MS),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (err) {
+      // CONNECTIVITY failure (connection refused / DNS / timeout): record it and try the NEXT
+      // endpoint (e.g. lab down → on-device ikbi). Credential-safe origin only (no userinfo leak).
+      const detail = err instanceof Error && err.name === "TimeoutError"
+        ? `no response within ${IKBI_REQUEST_TIMEOUT_MS}ms`
+        : err instanceof Error ? err.message : String(err);
+      connErrors.push(`${ep.label} ${originOf(ep.url)} (${detail})`);
+      continue;
     }
+
+    // A real HTTP response — parse and return it (success OR error). We do NOT fall back on a
+    // 4xx/5xx: a reachable ikbi that rejects the request is a genuine result, not a connectivity gap.
+    const text = await response.text().catch(() => "");
+    let data: unknown = undefined;
+    if (text.length > 0) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text; // non-JSON body (e.g. an HTML error page) — keep it for context.
+      }
+    }
+    if (!response.ok) {
+      const serverMsg =
+        data !== null && typeof data === "object" && "error" in (data as Record<string, unknown>)
+          ? String((data as Record<string, unknown>).error)
+          : typeof data === "string" && data.length > 0
+            ? data
+            : response.statusText;
+      return { ok: false, error: `${tool}: ikbi returned ${response.status} ${serverMsg}`.trim() };
+    }
+    return { ok: true, data };
   }
 
-  if (!response.ok) {
-    const serverMsg =
-      data !== null && typeof data === "object" && "error" in (data as Record<string, unknown>)
-        ? String((data as Record<string, unknown>).error)
-        : typeof data === "string" && data.length > 0
-          ? data
-          : response.statusText;
-    return { ok: false, error: `${tool}: ikbi returned ${response.status} ${serverMsg}`.trim() };
-  }
-
-  return { ok: true, data };
+  // Every endpoint was unreachable.
+  return {
+    ok: false,
+    error: `${tool}: cannot reach ikbi — tried ${connErrors.join("; ")}. Is an ikbi service running (lab or on-device)?`,
+  };
 }
 
 /** Pull a taskId out of an ikbi submit response, accepting a couple of shapes. */
