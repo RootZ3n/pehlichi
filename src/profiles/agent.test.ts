@@ -10,10 +10,14 @@ test("agent identity overlay", () => {
   assert.deepEqual(agentProfile.skillTags, ["coordination", "memory", "routing", "planning", "archivum", "career", "learning", "toba", "nusika", "security"]);
 });
 
-// Trio parity: the tool allowlist is the shared 38-tool union (swappable).
+// Trio parity: the tool allowlist is the shared union (swappable). 38 base tools
+// + 9 phone-body tools (Termux:API — camera/mic/sensors/GPS/battery/speech/torch/OCR).
 test("agent toolset is the canonical union", () => {
-  assert.equal(agentToolNames.length, 38);
+  assert.equal(agentToolNames.length, 47);
   for (const t of ["bridge.health", "bridge.list", "bridge.request", "lab_status_digest", "lab_recall_conversation"]) {
     assert.ok(agentToolNames.includes(t), `missing ${t}`);
+  }
+  for (const t of ["phone_take_photo", "phone_battery", "phone_read_text", "phone_speak", "phone_torch"]) {
+    assert.ok(agentToolNames.includes(t), `missing phone tool ${t}`);
   }
 });

@@ -153,4 +153,14 @@ export const agentToolNames: readonly string[] = Object.freeze([
   "bridge.request",
   // Lab-status digest (proactive ecosystem health)
   "lab_status_digest",
+  // Phone body (Termux:API) — Peh's camera, mic, sensors, GPS, battery, speech, torch, OCR
+  "phone_take_photo",
+  "phone_record_audio",
+  "phone_read_sensor",
+  "phone_read_text",
+  "phone_location",
+  "phone_battery",
+  "phone_speak",
+  "phone_notify",
+  "phone_torch",
 ]);

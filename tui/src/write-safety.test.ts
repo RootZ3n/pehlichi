@@ -260,7 +260,7 @@ test("HTTP: /capabilities reflects the real write posture, undo, and unwired fea
         assert.equal(caps.capabilities.reversibleWrites, true);
         assert.equal(caps.capabilities.contextCompaction, true, "P1.1: compaction is wired");
         assert.equal(caps.capabilities.schemaRepair, true, "P1.2: live-path arg repair is wired");
-        assert.equal(caps.capabilities.providerSwitch, false, "P2: still not wired");
+        assert.equal(caps.capabilities.providerSwitch, true, "P2: runtime model hot-swap is wired");
         assert.ok(caps.endpoints.includes("/undo"), "new endpoints are advertised");
       },
     );

@@ -49,6 +49,7 @@ import { bridgeRegistry } from '../bridges/registry.js';
 import { teachingToolSpecs, createTeachingToolHandlers } from './teaching-tools.js';
 import { workOrderToolSpecs, createWorkOrderToolHandlers } from '../../tools/work-order-tools.js';
 import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.js';
+import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -385,6 +386,13 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
       const handler = occasioHandlers.get(spec.name);
       if (handler) tools.push({ spec, handler });
     }
+  }
+
+  // Phone tools (Peh's Android body via Termux:API — inert off-device: termux-* not found).
+  const phoneHandlers = createPhoneToolHandlers();
+  for (const spec of phoneToolSpecs) {
+    const handler = phoneHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
   }
 
   return tools;

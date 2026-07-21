@@ -39,6 +39,14 @@ import { agentProfile } from '../../src/profile.js';
 import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
 import { truthCognition, reviewProposals } from '../../src/core/truth-bridge.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
+import {
+  SwappableDriver,
+  availableModelTargets,
+  initialActive,
+  resolveTargetRequest,
+  buildDriverForTarget,
+  type ModelTarget,
+} from './lib/model-switch.js';
 import { loadSkin } from './lib/skin.js';
 import { loadPersonality } from './lib/personality.js';
 import { ChatSession } from './lib/chat.js';
@@ -62,6 +70,31 @@ function resolveApiKey(): string | undefined {
     if (match) return match[0].trim();
   } catch {}
   return undefined;
+}
+
+/**
+ * Resolve the DeepSeek API key for a DeepSeek target (Bearer auth). Env wins; else read the
+ * "deepseek …" labeled line from ~/bok (mirrors resolveApiKey's ~/bok fallback). Undefined ⇒
+ * the switch still applies but calls will 401 until a key is provided — surfaced to the operator.
+ */
+function resolveDeepseekKey(): string | undefined {
+  if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY;
+  if (process.env.AGENT_DEEPSEEK_API_KEY) return process.env.AGENT_DEEPSEEK_API_KEY;
+  try {
+    const bok = readFileSync(join(homedir(), 'bok'), 'utf-8');
+    for (const line of bok.split('\n')) {
+      if (/deepseek/i.test(line)) {
+        const m = line.match(/sk-[A-Za-z0-9_-]+/);
+        if (m) return m[0].trim();
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
+/** The API key for a target, by its key kind (Mimo api-key vs DeepSeek Bearer). */
+function keyForTarget(t: ModelTarget): string | undefined {
+  return t.keyKind === 'deepseek' ? resolveDeepseekKey() : resolveApiKey();
 }
 
 /**
@@ -309,10 +342,18 @@ export function createPehServer(opts: PehServerOptions = {}): {
   // Production driver: a resilient MimoDriver (circuit breaker + retry). Tests inject
   // a ScriptedDriver so the whole kernel path runs with no network.
   const breaker = new CircuitBreaker(detectProviderId(BASE_URL), { failureThreshold: 5, cooldownMs: 30_000, successThreshold: 3 });
-  const driver = opts.driver ?? new ResilientDriver(
+  const baseDriver = opts.driver ?? new ResilientDriver(
     new MimoDriver({ baseUrl: BASE_URL, model: MODEL, ...(apiKey !== undefined ? { apiKey } : {}) }),
     breaker,
   );
+  // MODEL SWITCH (P2): wrap the shared driver so the active model can be HOT-SWAPPED at runtime
+  // without tearing down sessions (history preserved — every room holds this stable reference).
+  // Injected test drivers wrap too, reporting MODEL so test expectations are unchanged.
+  const startActive: ModelTarget = opts.driver !== undefined
+    ? { id: MODEL, label: MODEL, model: MODEL, baseUrl: BASE_URL, keyKind: 'mimo' }
+    : initialActive();
+  const driver = new SwappableDriver(baseDriver, startActive);
+  const currentModel = (): string => driver.active.model;
 
   // H6: checkpoint in production (no injected driver), stay off under test injection.
   const checkpointDir = opts.checkpointDir ?? (opts.driver ? undefined : join(labStoreRoot, '.checkpoints', 'pehlichi'));
@@ -344,7 +385,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
     // (Mirrors KernelChatSession's DEFAULT_CONTEXT_WINDOW; the value only drives the flag here.)
     contextWindow: 128_000,
     schemaRepair: true, // P1.2: the live MiMo driver now repairs near-JSON tool-call args.
-    providerSwitch: false, // single hardcoded driver; no runtime switch (P2).
+    providerSwitch: true, // P2: runtime model hot-swap wired (SwappableDriver + /model route).
     memoryWired: toolNames.includes('memory') || toolNames.includes('labmem_recall'),
     toolCount: toolNames.length,
   });
@@ -412,7 +453,11 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const converseSessions = new Map<string, ConverseEntry>();
   const chatTimeoutMs = opts.chatTimeoutMs ?? CHAT_TIMEOUT_MS;
   const makeConverse = opts.makeConverse
-    ?? ((): ConverseLike => new ChatSession({ apiKey: resolveApiKey(), baseUrl: BASE_URL, model: MODEL, capabilities: converseCapabilities }));
+    ?? ((): ConverseLike => {
+      // Follow the active target so casual chat uses the same brain as the tool loop.
+      const a = driver.active;
+      return new ChatSession({ apiKey: keyForTarget(a), baseUrl: a.baseUrl, model: a.model, capabilities: converseCapabilities });
+    });
   const converseFor = (roomKey: string): ConverseLike => {
     let entry = converseSessions.get(roomKey);
     if (entry === undefined) {
@@ -568,7 +613,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         // Legacy fields (backward compatible):
         agent: skin.branding.agent_name,
         instanceId,
-        model: MODEL,
+        model: currentModel(),
         commit: COMMIT,
         uptime: process.uptime(),
         historyLength: session.getHistory().length,
@@ -646,7 +691,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       }));
       return json(res, 200, {
         agent: skin.branding.agent_name,
-        self: { id: skin.branding.agent_name.toLowerCase(), name: skin.branding.agent_name, model: MODEL, tools: toolNames.length },
+        self: { id: skin.branding.agent_name.toLowerCase(), name: skin.branding.agent_name, model: currentModel(), tools: toolNames.length },
         count: agents.length,
         agents,
       });
@@ -844,7 +889,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
           taskId: taskId ?? undefined,
           roomKey: chatRoomKey,
           workspaceId: overrideWorkspace ?? undefined,
-          model: MODEL,
+          model: currentModel(),
           status: response.injectionDetected ? 'injection_blocked'
             : response.partial ? 'partial'
             : response.ok ? 'success' : 'failed',
@@ -963,6 +1008,34 @@ export function createPehServer(opts: PehServerOptions = {}): {
       return json(res, 200, { status: 'reset', agent: skin.branding.agent_name });
     }
 
+    // MODEL SWITCH: list the model presets + which one is active right now.
+    if (req.method === 'GET' && url.pathname === '/models') {
+      const view = (t: ModelTarget): Record<string, unknown> =>
+        ({ id: t.id, label: t.label, model: t.model, key_kind: t.keyKind, base_url: t.baseUrl });
+      return json(res, 200, { active: view(driver.active), available: availableModelTargets().map(view) });
+    }
+
+    // MODEL SWITCH: hot-swap the active model (whole-agent, context preserved). Body is either a
+    // preset { id } or a custom { model, base_url?, key_kind? }. Auth-gated like /chat (it mutates).
+    if (req.method === 'POST' && url.pathname === '/model') {
+      if (!chatAuthorized(req)) {
+        return json(res, 401, { error: 'unauthorized: a valid Bearer token is required' });
+      }
+      const body = await parseBody(req);
+      const target = resolveTargetRequest(body as Record<string, unknown>, availableModelTargets());
+      if ('error' in target) return json(res, 400, { error: target.error });
+      const key = keyForTarget(target);
+      driver.swap(buildDriverForTarget(target, key), target);
+      return json(res, 200, {
+        ok: true,
+        active: { id: target.id, model: target.model, label: target.label, key_kind: target.keyKind, base_url: target.baseUrl },
+        keyed: key !== undefined,
+        ...(key === undefined
+          ? { note: `no ${target.keyKind} API key found — set ${target.keyKind === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'MIMO_API_KEY'} (or add it to ~/bok); the switch applied but calls will 401 until then` }
+          : {}),
+      });
+    }
+
     // REVERSIBILITY (P0.3): list the file edits the room's session has made this session.
     // Read-only, but auth-gated (it reveals workspace paths), like /chat.
     if (req.method === 'POST' && url.pathname === '/session/changes') {
@@ -1007,7 +1080,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         id: skin.branding.agent_name.toLowerCase(),
         name: skin.branding.agent_name,
         personality: personality.name,
-        model: MODEL,
+        model: currentModel(),
         tools: toolNames.length,
         status: 'active',
         uptime: process.uptime(),
@@ -1019,7 +1092,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         agent: skin.branding.agent_name,
         tools: toolNames,
         endpoints: ['/health', '/tools', '/info', '/chat', '/chat/stream', '/reset', '/undo', '/session/changes', '/agent', '/capabilities', '/task/:id/status', '/api/sessions', '/api/memories', '/agents', '/api/agents', '/api/bridge', '/receipts'],
-        model: MODEL,
+        model: currentModel(),
         // TRUTHFUL (P0.4): the ACTUAL wired capabilities of this run — a capability reads
         // `true` only when it is actually active (writesEnabled/evidenceGate/contextCompaction/
         // schemaRepair/providerSwitch reflect the real posture, not an aspiration).
