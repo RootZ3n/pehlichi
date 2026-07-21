@@ -29,6 +29,10 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   // gbrain bridge — read-only recall. brain_put/brain_sync are writes and stay gated.
   "brain_search",
   "brain_think",
+  // git ops — read-only inspection. git_add/commit/push/clone are writes and stay gated.
+  "git_status",
+  "git_diff",
+  "git_log",
 ]);
 
 /**

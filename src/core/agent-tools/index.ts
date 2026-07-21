@@ -50,6 +50,7 @@ import { teachingToolSpecs, createTeachingToolHandlers } from './teaching-tools.
 import { workOrderToolSpecs, createWorkOrderToolHandlers } from '../../tools/work-order-tools.js';
 import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.js';
 import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
+import { gitOpsToolSpecs, createGitOpsToolHandlers } from './git-ops-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -392,6 +393,13 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const phoneHandlers = createPhoneToolHandlers();
   for (const spec of phoneToolSpecs) {
     const handler = phoneHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Git ops (narrow governed commit/push surface — workspace-confined, token-authed push).
+  const gitOpsHandlers = createGitOpsToolHandlers();
+  for (const spec of gitOpsToolSpecs) {
+    const handler = gitOpsHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

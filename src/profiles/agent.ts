@@ -163,4 +163,12 @@ export const agentToolNames: readonly string[] = Object.freeze([
   "phone_speak",
   "phone_notify",
   "phone_torch",
+  // Git ops (narrow, governed) — review/commit/push from the phone
+  "git_status",
+  "git_diff",
+  "git_log",
+  "git_add",
+  "git_commit",
+  "git_push",
+  "git_clone",
 ]);
