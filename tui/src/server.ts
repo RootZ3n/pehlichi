@@ -133,6 +133,27 @@ export function hasTaskKeyword(message: string): boolean {
   return TASK_KEYWORD_RE.test(message);
 }
 
+// WEB INTENT: phrasings that strongly imply the answer needs LIVE/current info. Without this the
+// fast-path answers "what's the latest on X" from stale memory (and can confabulate); matching it
+// routes the turn to the kernel so web_search/web_extract are available. Multi-word phrases first.
+const WEB_INTENT_PHRASES = [
+  'look up', 'search the web', 'search for', 'on the web', 'right now', 'up to date', 'these days',
+];
+const WEB_INTENT_WORDS = [
+  'search', 'google', 'browse', 'online', 'internet', 'website', 'url',
+  'latest', 'current', 'currently', 'news', 'headlines', 'today', 'tonight', 'recent', 'recently',
+  'weather', 'forecast', 'stock', 'price', 'score', 'released', 'announce', 'announced',
+];
+const WEB_INTENT_RE = new RegExp(
+  `(?:${WEB_INTENT_PHRASES.map((p) => p.replace(/ /g, '\\s+')).join('|')})|\\b(?:${WEB_INTENT_WORDS.join('|')})\\b`,
+  'i',
+);
+
+/** True when the message implies a live web lookup — routes to the kernel so web tools are available. */
+export function hasWebIntent(message: string): boolean {
+  return WEB_INTENT_RE.test(message);
+}
+
 /** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this.
  * Default 10 min (600000ms) to match Hermes' MiMo child_timeout (600s) for long-horizon tasks;
  * override via CHAT_TIMEOUT_MS. This wall-clock (plus the no-progress governor) is the real brake
@@ -857,7 +878,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // all-day casual conversation is durably captured (and syncable), not lost like RAM.
       // AGENT_FORCE_KERNEL=true disables the fast-path entirely (every message goes through the
       // kernel — tools + checkpoints — at the cost of small-talk speed).
-      if (att.count === 0 && !hasTaskKeyword(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
+      if (att.count === 0 && !hasTaskKeyword(message) && !hasWebIntent(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
         const fpRoomKey = roomKeyOf(body);
         recordTurn(fpRoomKey, 'user', message);
         const cs = converseFor(fpRoomKey);

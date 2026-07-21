@@ -13,7 +13,7 @@ const obj = (
 export const webToolSpecs: ToolSpec[] = [
   {
     name: 'web_search',
-    description: 'Search the web. Returns titles, URLs, and descriptions.',
+    description: 'Search the web for live, current information. Returns titles, URLs, and descriptions. ALWAYS cite the source URL(s) you relied on in your answer.',
     parameters: obj(
       {
         query: { type: 'string', description: 'Search query' },
@@ -156,7 +156,8 @@ export function createWebToolHandlers(): Map<string, ToolHandler> {
       if (results.length === 0) {
         return { ok: true, output: `No results for "${query}"` };
       }
-      const output = results.map((r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`).join('\n\n');
+      const output = results.map((r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`).join('\n\n')
+        + '\n\n(Cite the relevant source URL(s) above in your answer so the reader can verify.)';
       return { ok: true, output };
     } catch (err) {
       return { ok: false, output: '', error: `Search failed: ${err instanceof Error ? err.message : String(err)}` };
