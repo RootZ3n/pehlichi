@@ -795,10 +795,17 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // FAST-PATH (intent routing): a message with NO task keyword is small-talk — answer it
       // on the tool-free converse lane so it returns instantly and never grinds the kernel's
       // tool loop. This is what kept /chat from hanging on greetings like "hi, who are you?".
-      if (!hasTaskKeyword(message)) {
-        const cs = converseFor(roomKeyOf(body));
+      // PERSISTENCE: the converse lane still RECORDS the turn to the shared transcript so an
+      // all-day casual conversation is durably captured (and syncable), not lost like RAM.
+      // AGENT_FORCE_KERNEL=true disables the fast-path entirely (every message goes through the
+      // kernel — tools + checkpoints — at the cost of small-talk speed).
+      if (!hasTaskKeyword(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
+        const fpRoomKey = roomKeyOf(body);
+        recordTurn(fpRoomKey, 'user', message);
+        const cs = converseFor(fpRoomKey);
         try {
           const reply = await cs.send(message);
+          recordTurn(fpRoomKey, 'assistant', reply.content);
           return json(res, 200, {
             content: reply.content,
             agent: skin.branding.agent_name,

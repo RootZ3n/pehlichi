@@ -102,6 +102,22 @@ Operator will likely switch to the phone mid-build; the work continues across de
     `keyed:true` (DeepSeek key resolved from ~/bok), unauth POST → 401.
   - Mirrored to luna/ptah via `git apply -C1` of the server patch + verbatim lib copies. **pehlichi 327/327,
     luna 318/318 green; ptah +6 switch tests pass (4 pre-existing unrelated fails remain).**
-- NEXT: Phase 4 UI picker (web UI model dropdown → POST /model; verify on served surface) — ×3 repos;
-  then Phases 1+3 (deploy + Syncthing) — need the phone. NOTE: put DEEPSEEK_API_KEY in the phone .env
-  (or ~/bok) so DeepSeek presets are keyed on-device.
+- 2026-07-21: **Phase 1 DEPLOY DONE — Peh is LIVE on the Pixel 9 (zenpix, Tailscale).** Runs from source
+  via `tsx` at `~/pehlichi`, server on `127.0.0.1:18830`. Deploy method: rsync source (no node_modules),
+  `npm install` on-device (correct-arch tsx/esbuild), drop prebuilt `lab-memory`+`lab-store` dist into
+  `node_modules` (avoids the `file:` path; NOTE: a later `npm install` PRUNES them — re-drop after any
+  install). Locked `~/pehlichi/.env` (chmod 600): PEHLICHI_PORT=18830, MIMO_API_KEY + DEEPSEEK_API_KEY
+  (piped from ~/bok), AGENT_ALLOW_WRITES=true, memory-dir paths under `~/peh-data/`, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1.
+  Data/sync dirs: `~/peh-data/{transcripts,memories,labmem,lab-store,agent-sync,workspace}`.
+  Persistence: `~/.termux/boot/start-peh.sh` (wake-lock + sshd + supervised serve loop) + `~/pehlichi/run-peh.sh`.
+  **setsid+wake-lock survives ssh close** (proven). Arm via Termux:Boot (reboot) or run the boot script in an
+  OPEN Termux session.
+  - **Two deploy fixes (committed, trio-mirrored):** (1) `browser-manager.ts` lazy-loads Playwright (it threw
+    "Unsupported platform: android" at module init → crashed the whole server); (2) server fast-path (converse
+    lane) now RECORDS turns to the transcript so all-day CASUAL chat persists (was RAM-only). AGENT_FORCE_KERNEL
+    env added. Undeclared dep `js-yaml` installed on-device (TODO: declare it in package.json for the trio).
+  - **PROVEN on-device:** /health ok, /models lists 4, chat works (Mimo), casual chat persists (transcript
+    grows), REAL phone_battery ("92%, discharging, GOOD, 30.2°C, 153 cycles"), model swap to deepseek keyed:true.
+- NEXT: Phase 4 UI picker (web model dropdown → POST /model, verify on served surface) — ×3 repos; Phase 3
+  Syncthing on `~/peh-data/{transcripts,memories,agent-sync}` ↔ lab. Operator: open phone browser to
+  http://localhost:18830 (Add to Home Screen) + arm Termux:Boot.

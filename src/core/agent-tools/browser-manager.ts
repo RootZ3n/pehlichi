@@ -4,7 +4,11 @@
  * Manages a single browser instance with page lifecycle.
  * Used by browser_* tools for web interaction.
  */
-import { chromium, type Browser, type BrowserContext, type Page, type ConsoleMessage } from 'playwright';
+// Type-only import: erased at compile so it does NOT load Playwright. The `chromium` VALUE is
+// imported LAZILY in ensureBrowser() — Playwright throws "Unsupported platform" at module-init on
+// some hosts (e.g. Android/Termux), so importing it eagerly would crash the whole server at startup
+// even when no browser tool is ever used.
+import type { Browser, BrowserContext, Page, ConsoleMessage } from 'playwright';
 
 export interface BrowserState {
   browser: Browser | null;
@@ -33,6 +37,8 @@ const MAX_CONSOLE_LOGS = 500;
 export async function ensureBrowser(): Promise<Page> {
   if (state.page && !state.page.isClosed()) return state.page;
 
+  // Lazy load: pulling Playwright in here (not at module top) keeps server startup platform-agnostic.
+  const { chromium } = await import('playwright');
   state.browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
