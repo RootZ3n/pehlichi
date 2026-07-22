@@ -154,6 +154,18 @@ export function hasWebIntent(message: string): boolean {
   return WEB_INTENT_RE.test(message);
 }
 
+// TOOL INTENT: a message that NAMES a tool, or clearly asks to inspect a repo / the lab / a codebase,
+// must reach the kernel (the tool-free fast-path would answer from memory and confabulate results).
+// Explicit tool names + inspection verbs/nouns cover the daily tool-driven asks without dragging plain
+// small-talk onto the heavier kernel path.
+const TOOL_NAME_RE = /\b(?:lab_shell|git_(?:status|diff|log|add|commit|push|clone)|ikbi_(?:build|fix|status)|phone_[a-z_]+|web_(?:search|extract)|vision_analyze)\b/i;
+const TOOL_INTENT_RE = /\b(?:scan|inspect|examine|analy[sz]e|explore|clone|commit|push|repo|repos|repository|codebase|the lab|lab repo)\b/i;
+
+/** True when the message names a tool or asks to inspect lab/repo content — routes to the kernel. */
+export function hasToolIntent(message: string): boolean {
+  return TOOL_NAME_RE.test(message) || TOOL_INTENT_RE.test(message) || /\blook\s+at\b/i.test(message);
+}
+
 /** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this.
  * Default 10 min (600000ms) to match Hermes' MiMo child_timeout (600s) for long-horizon tasks;
  * override via CHAT_TIMEOUT_MS. This wall-clock (plus the no-progress governor) is the real brake
@@ -878,7 +890,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // all-day casual conversation is durably captured (and syncable), not lost like RAM.
       // AGENT_FORCE_KERNEL=true disables the fast-path entirely (every message goes through the
       // kernel — tools + checkpoints — at the cost of small-talk speed).
-      if (att.count === 0 && !hasTaskKeyword(message) && !hasWebIntent(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
+      if (att.count === 0 && !hasTaskKeyword(message) && !hasWebIntent(message) && !hasToolIntent(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
         const fpRoomKey = roomKeyOf(body);
         recordTurn(fpRoomKey, 'user', message);
         const cs = converseFor(fpRoomKey);

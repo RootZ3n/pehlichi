@@ -171,4 +171,6 @@ export const agentToolNames: readonly string[] = Object.freeze([
   "git_commit",
   "git_push",
   "git_clone",
+  // Lab shell (read-only SSH into the lab repos for context/brainstorming)
+  "lab_shell",
 ]);

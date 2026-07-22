@@ -51,6 +51,7 @@ import { workOrderToolSpecs, createWorkOrderToolHandlers } from '../../tools/wor
 import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.js';
 import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
 import { gitOpsToolSpecs, createGitOpsToolHandlers } from './git-ops-tools.js';
+import { labShellToolSpecs, createLabShellToolHandlers } from './lab-shell-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -400,6 +401,13 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const gitOpsHandlers = createGitOpsToolHandlers();
   for (const spec of gitOpsToolSpecs) {
     const handler = gitOpsHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Lab shell (read-only SSH window into the lab repos for context/brainstorming).
+  const labShellHandlers = createLabShellToolHandlers();
+  for (const spec of labShellToolSpecs) {
+    const handler = labShellHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 
