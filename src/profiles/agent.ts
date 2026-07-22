@@ -173,4 +173,13 @@ export const agentToolNames: readonly string[] = Object.freeze([
   "git_clone",
   // Lab shell (read-only SSH into the lab repos for context/brainstorming)
   "lab_shell",
+  // Luak (benchmark ground) — manage models/providers, run trials, read the leaderboard
+  "luak_registry",
+  "luak_add_model",
+  "luak_update_model",
+  "luak_remove_model",
+  "luak_add_provider",
+  "luak_test_provider",
+  "luak_run",
+  "luak_leaderboard",
 ]);

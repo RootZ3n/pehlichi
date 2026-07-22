@@ -53,6 +53,7 @@ import { occasioToolSpecs, createOccasioToolHandlers } from '../occasio-bridge.j
 import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
 import { gitOpsToolSpecs, createGitOpsToolHandlers } from './git-ops-tools.js';
 import { labShellToolSpecs, createLabShellToolHandlers } from './lab-shell-tools.js';
+import { luakToolSpecs, createLuakToolHandlers } from './luak-tools.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -409,6 +410,13 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const labShellHandlers = createLabShellToolHandlers();
   for (const spec of labShellToolSpecs) {
     const handler = labShellHandlers.get(spec.name);
+    if (handler) tools.push({ spec, handler });
+  }
+
+  // Luak (benchmark ground) — model/provider registry management, trials, leaderboard.
+  const luakHandlers = createLuakToolHandlers();
+  for (const spec of luakToolSpecs) {
+    const handler = luakHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
   }
 

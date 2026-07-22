@@ -158,8 +158,8 @@ export function hasWebIntent(message: string): boolean {
 // must reach the kernel (the tool-free fast-path would answer from memory and confabulate results).
 // Explicit tool names + inspection verbs/nouns cover the daily tool-driven asks without dragging plain
 // small-talk onto the heavier kernel path.
-const TOOL_NAME_RE = /\b(?:lab_shell|git_(?:status|diff|log|add|commit|push|clone)|ikbi_(?:build|fix|status)|phone_[a-z_]+|web_(?:search|extract)|vision_analyze)\b/i;
-const TOOL_INTENT_RE = /\b(?:scan|inspect|examine|analy[sz]e|explore|clone|commit|push|repo|repos|repository|codebase|the lab|lab repo)\b/i;
+const TOOL_NAME_RE = /\b(?:lab_shell|git_(?:status|diff|log|add|commit|push|clone)|ikbi_(?:build|fix|status)|phone_[a-z_]+|web_(?:search|extract)|vision_analyze|luak_[a-z_]+|bridge\.[a-z]+|lab_status_digest)\b/i;
+const TOOL_INTENT_RE = /\b(?:scan|inspect|examine|analy[sz]e|explore|clone|commit|push|repo|repos|repository|codebase|the lab|lab repo|benchmark|leaderboard|luak)\b/i;
 
 /** True when the message names a tool or asks to inspect lab/repo content — routes to the kernel. */
 export function hasToolIntent(message: string): boolean {

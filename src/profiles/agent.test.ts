@@ -11,9 +11,9 @@ test("agent identity overlay", () => {
 });
 
 // Trio parity: the tool allowlist is the shared union (swappable). 38 base tools
-// + 9 phone-body tools (Termux:API) + 7 git-ops tools + 1 lab_shell (read-only SSH into the lab).
+// + 9 phone-body tools + 7 git-ops + 1 lab_shell + 8 luak (benchmark ground operation).
 test("agent toolset is the canonical union", () => {
-  assert.equal(agentToolNames.length, 55);
+  assert.equal(agentToolNames.length, 63);
   for (const t of ["bridge.health", "bridge.list", "bridge.request", "lab_status_digest", "lab_recall_conversation"]) {
     assert.ok(agentToolNames.includes(t), `missing ${t}`);
   }
@@ -24,4 +24,7 @@ test("agent toolset is the canonical union", () => {
     assert.ok(agentToolNames.includes(t), `missing git tool ${t}`);
   }
   assert.ok(agentToolNames.includes("lab_shell"), "missing lab_shell");
+  for (const t of ["luak_registry", "luak_add_model", "luak_update_model", "luak_run", "luak_leaderboard"]) {
+    assert.ok(agentToolNames.includes(t), `missing luak tool ${t}`);
+  }
 });

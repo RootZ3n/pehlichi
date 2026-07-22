@@ -33,6 +33,9 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "git_status",
   "git_diff",
   "git_log",
+  // Luak — read-only views. add/update/remove/run/test are mutating/costly and stay gated.
+  "luak_registry",
+  "luak_leaderboard",
 ]);
 
 /**
