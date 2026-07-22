@@ -7,6 +7,7 @@
  * NOTE: ToolSpec and ToolHandler types are defined here for standalone use.
  * When integrating into an agent, import from the agent's core instead.
  */
+import { bridgeHost } from "./host.js";
 
 // Standalone types (matches agent core interfaces)
 export interface ToolSpec {
@@ -174,7 +175,7 @@ export function createBridgeToolHandlers(
 
     const results = await Promise.allSettled(
       allServices.map(async (svc) => {
-        const url = `http://localhost:${svc.port}/health`;
+        const url = `http://${bridgeHost()}:${svc.port}/health`;
         try {
           const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
           return { name: svc.name, port: svc.port, up: resp.ok, status: resp.status };

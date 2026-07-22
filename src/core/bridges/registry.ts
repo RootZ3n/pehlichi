@@ -10,6 +10,7 @@
  * to the built-in list below, so behaviour never regresses.
  */
 import { readFileSync, existsSync } from "node:fs";
+import { bridgeHost } from "./host.js";
 import type { BridgeReceipt } from "./http-bridge.js";
 
 export interface BridgeInfo {
@@ -135,7 +136,7 @@ export class BridgeRegistry {
         continue;
       }
       try {
-        const response = await fetch(`http://localhost:${info.port}/health`, {
+        const response = await fetch(`http://${bridgeHost()}:${info.port}/health`, {
           signal: AbortSignal.timeout(5000),
         });
         results.push({

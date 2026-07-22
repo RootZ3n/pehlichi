@@ -43,6 +43,7 @@ import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context
 import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
 import { labConversationToolSpecs, createLabConversationToolHandlers } from './lab-conversation-tools.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../bridges/bridge-tools.js';
+import { bridgeHost } from '../bridges/host.js';
 import { bridgeRegistry } from '../bridges/registry.js';
 // OPTIONAL tool modules (Phase C): present in the SHARED registry, enabled per-agent via
 // AgentToolConfig flags so this file is identical across every agent. Default OFF.
@@ -241,7 +242,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const bridgeHandlers = createBridgeToolHandlers((name: string) => {
     const info = bridgeRegistry.get(name);
     if (!info || info.port === 0) return undefined;
-    return `http://localhost:${info.port}`;
+    return `http://${bridgeHost()}:${info.port}`;
   });
 
   const tools: ToolDef[] = [];
