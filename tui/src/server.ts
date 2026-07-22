@@ -154,16 +154,28 @@ export function hasWebIntent(message: string): boolean {
   return WEB_INTENT_RE.test(message);
 }
 
-// TOOL INTENT: a message that NAMES a tool, or clearly asks to inspect a repo / the lab / a codebase,
-// must reach the kernel (the tool-free fast-path would answer from memory and confabulate results).
-// Explicit tool names + inspection verbs/nouns cover the daily tool-driven asks without dragging plain
-// small-talk onto the heavier kernel path.
-const TOOL_NAME_RE = /\b(?:lab_shell|git_(?:status|diff|log|add|commit|push|clone)|ikbi_(?:build|fix|status)|phone_[a-z_]+|web_(?:search|extract)|vision_analyze|luak_[a-z_]+|bridge\.[a-z]+|lab_status_digest)\b/i;
-const TOOL_INTENT_RE = /\b(?:scan|inspect|examine|analy[sz]e|explore|clone|commit|push|repo|repos|repository|codebase|the lab|lab repo|benchmark|leaderboard|luak)\b/i;
+// TOOL INTENT: a message that NAMES a tool, or clearly asks to inspect a repo / the lab / a codebase /
+// the benchmark ground, must reach the kernel (the tool-free fast-path would answer from memory and
+// confabulate results). Two orthogonal signals, so new tool families need NO router edit:
+//   1. mentionsTool()   — the message contains an ACTUAL tool name from the live registry.
+//   2. hasInspectIntent() — tool-ish phrasing that implies a lookup even without naming a tool.
+const INSPECT_INTENT_RE = /\b(?:scan|inspect|examine|analy[sz]e|explore|clone|commit|push|repo|repos|repository|codebase|the lab|lab repo|benchmark|leaderboard|look\s+at)\b/i;
 
-/** True when the message names a tool or asks to inspect lab/repo content — routes to the kernel. */
-export function hasToolIntent(message: string): boolean {
-  return TOOL_NAME_RE.test(message) || TOOL_INTENT_RE.test(message) || /\blook\s+at\b/i.test(message);
+/** True when the message uses tool-ish inspection/benchmark phrasing (no tool name required). */
+export function hasInspectIntent(message: string): boolean {
+  return INSPECT_INTENT_RE.test(message);
+}
+
+/**
+ * True when the message names an ACTUAL tool from the registry — so ANY current or FUTURE tool
+ * (add a family, it just works) routes to the kernel. Only DISTINCTIVE names (containing `_` or `.`,
+ * e.g. luak_add_model, phone_battery, bridge.request) are matched; bare common-word tools like
+ * "memory"/"process"/"done" are excluded so ordinary chat isn't dragged onto the kernel.
+ */
+export function mentionsTool(message: string, toolNames: readonly string[]): boolean {
+  const distinctive = new Set(toolNames.filter((n) => /[_.]/.test(n)).map((n) => n.toLowerCase()));
+  if (distinctive.size === 0) return false;
+  return message.toLowerCase().split(/[^a-z0-9_.]+/).some((tok) => tok.length > 0 && distinctive.has(tok));
 }
 
 /** Overall wall-clock budget for a single /chat turn — the run is returned as a partial past this.
@@ -890,7 +902,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
       // all-day casual conversation is durably captured (and syncable), not lost like RAM.
       // AGENT_FORCE_KERNEL=true disables the fast-path entirely (every message goes through the
       // kernel — tools + checkpoints — at the cost of small-talk speed).
-      if (att.count === 0 && !hasTaskKeyword(message) && !hasWebIntent(message) && !hasToolIntent(message) && process.env.AGENT_FORCE_KERNEL !== 'true') {
+      if (att.count === 0 && !hasTaskKeyword(message) && !hasWebIntent(message) && !hasInspectIntent(message) && !mentionsTool(message, toolNames) && process.env.AGENT_FORCE_KERNEL !== 'true') {
         const fpRoomKey = roomKeyOf(body);
         recordTurn(fpRoomKey, 'user', message);
         const cs = converseFor(fpRoomKey);

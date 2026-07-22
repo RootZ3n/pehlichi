@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 
 import { ScriptedDriver, type Driver, type DriverAction } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
-import { createPehServer, hasTaskKeyword, type PehServerOptions } from './server.js';
+import { createPehServer, hasTaskKeyword, hasInspectIntent, mentionsTool, type PehServerOptions } from './server.js';
 
 /** A driver that NEVER finishes — every turn narrates, so the budget always exhausts. */
 const neverDoneDriver: Driver = {
@@ -430,6 +430,23 @@ test('intent: hasTaskKeyword detects task verbs (word-boundary, case-insensitive
   }
   // Word boundary: a task verb embedded in a larger word is NOT a match.
   assert.equal(hasTaskKeyword('I am running late'), false, 'substring "run" inside "running" is not a keyword');
+});
+
+test('intent: mentionsTool routes any registry tool name to the kernel (future tools just work)', () => {
+  const tools = ['luak_add_model', 'phone_battery', 'bridge.request', 'git_status', 'memory', 'todo', 'read_file'];
+  assert.equal(mentionsTool('use luak_add_model to add a model', tools), true);
+  assert.equal(mentionsTool('check phone_battery please', tools), true);
+  assert.equal(mentionsTool('call bridge.request on toba', tools), true);
+  assert.equal(mentionsTool('try the new future_tool_xyz', ['future_tool_xyz']), true, 'a brand-new tool needs no router edit');
+  assert.equal(mentionsTool('do you have a good memory today?', tools), false, 'bare common-word tool "memory" is excluded');
+  assert.equal(mentionsTool('just chatting about my day', tools), false);
+});
+
+test('intent: hasInspectIntent catches lookup/benchmark phrasing without naming a tool', () => {
+  for (const m of ['scan the repo for TODOs', 'look at the codebase', 'check the leaderboard', 'run a benchmark', 'inspect the lab'])
+    assert.equal(hasInspectIntent(m), true, `"${m}" implies a tool`);
+  for (const m of ['how are you today?', 'tell me a joke', 'good morning'])
+    assert.equal(hasInspectIntent(m), false, `"${m}" is small-talk`);
 });
 
 test('fast-path: a keyword-free /chat message routes to converse — the kernel driver is NEVER touched', async () => {
