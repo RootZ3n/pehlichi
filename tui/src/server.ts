@@ -36,7 +36,7 @@ import {
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { agentProfile } from '../../src/profile.js';
-import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole } from '../../src/core/lab-transcript.js';
+import { faceSlug, appendTurn, recentSharedContext, ambientProfileForRole, readRoomTail } from '../../src/core/lab-transcript.js';
 import { truthCognition, reviewProposals } from '../../src/core/truth-bridge.js';
 import { KernelChatSession, ResilientDriver, defaultApprovalPolicy } from './lib/kernel-session.js';
 import {
@@ -1125,6 +1125,16 @@ export function createPehServer(opts: PehServerOptions = {}): {
       const view = (t: ModelTarget): Record<string, unknown> =>
         ({ id: t.id, label: t.label, model: t.model, key_kind: t.keyKind, base_url: t.baseUrl });
       return json(res, 200, { active: view(driver.active), available: availableModelTargets().map(view) });
+    }
+
+    // HISTORY: the recent turns of a room's persisted transcript — so the chat UI can RESTORE the
+    // conversation after the tab/app was closed (the turns are recorded server-side either way).
+    if (req.method === 'GET' && url.pathname === '/history') {
+      const room = (url.searchParams.get('roomId') || url.searchParams.get('room') || 'default').trim() || 'default';
+      const limRaw = parseInt(url.searchParams.get('limit') || '200', 10);
+      const limit = Number.isFinite(limRaw) ? Math.min(500, Math.max(1, limRaw)) : 200;
+      const turns = readRoomTail(SELF_FACE, room, limit).map((t) => ({ role: t.role, text: t.text, ts: t.ts }));
+      return json(res, 200, { room, turns });
     }
 
     // MODEL SWITCH: hot-swap the active model (whole-agent, context preserved). Body is either a

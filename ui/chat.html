@@ -156,6 +156,7 @@
     return t;
   }
   function nowTs(){return new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}
+  function fmtTs(ms){try{return new Date(ms).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}catch(e){return nowTs();}}
   function atBottom(){return log.scrollHeight-log.scrollTop-log.clientHeight<120;}
   function scroll(f){if(f||atBottom())log.scrollTop=log.scrollHeight;}
   function toast(m){toastEl.textContent=m;toastEl.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(function(){toastEl.classList.remove("show");},2200);}
@@ -185,7 +186,7 @@
     html+=fmt(text);
     var cost="";
     if(opts.usage){var u=opts.usage;var c="↑"+kfmt(u.in)+" ↓"+kfmt(u.out)+(typeof u.usd==="number"?" · ~"+usd(u.usd):"");cost='<span class="cost">'+c+'</span>';}
-    html+='<div class="meta"><span class="ts">'+nowTs()+'</span>'+cost+'<button class="copy" title="Copy message">⧉</button></div>';
+    html+='<div class="meta"><span class="ts">'+(opts.ts?fmtTs(opts.ts):nowTs())+'</span>'+cost+'<button class="copy" title="Copy message">⧉</button></div>';
     b.innerHTML=html;
     b.querySelector(".copy").addEventListener("click",function(){copyText(text);});
     row.appendChild(b); log.appendChild(row); scroll(true);
@@ -289,8 +290,21 @@
   input.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
   form.addEventListener("submit",function(e){e.preventDefault();send(input.value);});
 
+  // Restore the persisted conversation for this room so closing/reopening the app never loses it.
+  function loadHistory(){
+    return fetch(API+"/history?roomId="+encodeURIComponent(ROOM)+"&limit=200",{headers:headers()})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var turns=(d&&d.turns)||[];
+        turns.forEach(function(t){ addMsg(t.role==="user"?"me":"peh", t.text||"", {ts:t.ts}); });
+        if(turns.length) addSys("— restored "+turns.length+" earlier message"+(turns.length>1?"s":"")+" —");
+        scroll(true);
+      }).catch(function(){});
+  }
+
   refreshStatus(); loadModels();
-  addSys("You're chatting with "+AGENT+" · room “"+ROOM+"” · history syncs to your lab");
+  addSys("Room “"+ROOM+"” · your conversation is saved and restored here");
+  loadHistory();
   setInterval(refreshStatus, 30000);
   input.focus();
 })();

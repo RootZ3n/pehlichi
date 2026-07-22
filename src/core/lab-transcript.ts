@@ -100,6 +100,15 @@ export function appendTurn(turn: TranscriptTurn): void {
   }
 }
 
+/**
+ * Read the most recent `maxLines` turns of one (face, room) transcript, oldest→newest — so a chat
+ * client can RESTORE a conversation view after the tab/app was closed. Best-effort (missing file ⇒ []).
+ */
+export function readRoomTail(face: string, room: string, maxLines = 200): TranscriptTurn[] {
+  if (!face || !room) return [];
+  return readTail(join(transcriptDir(), faceDir(face), roomFile(room)), maxLines);
+}
+
 /** Read the last `maxLines` parseable JSON lines of a file (tolerates a torn final line). */
 function readTail(file: string, maxLines: number): TranscriptTurn[] {
   let raw: string;
