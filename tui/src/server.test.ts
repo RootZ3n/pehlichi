@@ -179,6 +179,41 @@ test('B2. exhausting the iteration budget returns a non-200 partial — and neve
   }
 });
 
+test('B2b. auto-continue: a budget-exhausted turn that was progressing resumes and COMPLETES', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  // Window 1: three narrations exhaust maxIterations:3 → a 'budget' partial. The server auto-continues;
+  // the next window returns done → the client sees a COMPLETED (non-partial) result, not a partial.
+  let calls = 0;
+  const budgetThenDone: Driver = {
+    async next(): Promise<DriverAction> {
+      calls += 1;
+      return calls <= 3
+        ? { kind: 'narrate', phase: 'other', text: 'still working' }
+        : { kind: 'done', summary: { rootCause: 'finished after auto-continue', changes: ['c'], verification: ['v'] } };
+    },
+  };
+  try {
+    await withServer(
+      { driver: budgetThenDone, workspaceRoot: ws, labStoreRoot: store, maxIterations: 3 },
+      async (base) => {
+        const res = await fetch(`${base}/chat`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'run a long multi-step task' }),
+        });
+        assert.equal(res.status, 200, 'auto-continue should complete the task, not stop at a partial');
+        const body = await res.json() as any;
+        assert.equal(body.partial, false);
+        assert.match(body.content, /finished after auto-continue/);
+        assert.ok(calls > 3, 'the run resumed into a second window');
+      },
+    );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
 // ── HTTP contract preserved ───────────────────────────────────────────────────
 
 test('contract: /health, /tools, /capabilities, /reset still respond with the expected shape', async () => {

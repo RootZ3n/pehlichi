@@ -105,6 +105,8 @@ export interface KernelChatResponse {
   readonly ok: boolean;
   /** True iff the run ended by exhausting its iteration budget (Blocker 2). */
   readonly partial: boolean;
+  /** WHY it went partial — 'budget' is safe to auto-continue; 'failures'/'injection' are not. */
+  readonly partialReason?: "budget" | "failures" | "injection";
   /** Human-readable accomplishments captured during the run (present on partial). */
   readonly accomplished: readonly string[];
   /** Structured tool calls WITH receipts (Blocker 5 — nothing is stripped). */
@@ -443,6 +445,7 @@ export class KernelChatSession {
       content,
       ok: result.ok,
       partial: result.partial === true,
+      ...(result.partialReason !== undefined ? { partialReason: result.partialReason } : {}),
       accomplished: result.accomplished ?? [],
       toolCalls,
       events,

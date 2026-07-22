@@ -252,6 +252,9 @@ export interface RunAgentResult {
   readonly tokenUsage?: { readonly totalInput: number; readonly totalOutput: number; readonly totalCached: number; readonly callCount: number };
   /** Velum (improvement #3): how many tool outputs were flagged for injection this run. */
   readonly injectionFindings?: number;
+  /** WHY the run went partial — 'budget' (out of steps, was progressing → safe to auto-continue),
+   *  'failures' (stuck/no-progress governor), or 'injection' (security stop). Absent on a clean done. */
+  readonly partialReason?: "budget" | "failures" | "injection";
 }
 
 export interface RunAgentInShadowOptions extends Omit<RunAgentOptions, "workspaceRoot"> {
@@ -444,7 +447,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           ? `I hit my ${i}-step budget before finishing. I ran ${accomplished.length} tool call(s) (${toolsRun.slice(0, 12).join(", ")}${toolsRun.length > 12 ? ", …" : ""}). Ask me to continue, or narrow the task.`
           : `I hit my ${i}-step budget without completing anything. Try narrowing the task.`;
         emitter.emit({ kind: "narrate", phase: "other", text: output });
-        return { ok: false, partial: true, accomplished, output, ...planResult(), ...tokenResult() };
+        return { ok: false, partial: true, partialReason: "budget", accomplished, output, ...planResult(), ...tokenResult() };
       }
       emitter.emit({ kind: "error", where: "loop", message });
       throw new Error(message);
@@ -604,7 +607,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           emitter.emit({ kind: "narrate", phase: "other", text: output });
           emitter.emit({ kind: "summary", rootCause: verdict.reason ?? "stopped", changes: [], verification: [] });
           if (opts.partialOnExhaustion === true) {
-            return { ok: false, partial: true, accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
+            return { ok: false, partial: true, partialReason: "failures", accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
           }
           throw new Error(output);
         }
@@ -679,7 +682,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
               verification: [],
             });
             if (opts.partialOnExhaustion === true) {
-              return { ok: false, partial: true, accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
+              return { ok: false, partial: true, partialReason: "failures", accomplished, output, injectionFindings, ...planResult(), ...tokenResult() };
             }
             throw new Error(output);
           }

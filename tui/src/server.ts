@@ -184,6 +184,14 @@ export function mentionsTool(message: string, toolNames: readonly string[]): boo
  * now that the step cap is raised — not a tiny iteration count. */
 const CHAT_TIMEOUT_MS = parseInt(process.env.CHAT_TIMEOUT_MS || '600000', 10);
 
+/** AUTO-CONTINUE: how many extra kernel windows to chain when a turn runs out of STEPS (budget) while
+ * still progressing — so a long task finishes instead of stopping. Only 'budget' partials continue;
+ * 'failures'/'injection' stop. The overall /chat wall-clock still caps the whole chain. AGENT_MAX_AUTO_CONTINUES overrides. */
+const MAX_AUTO_CONTINUES = (() => {
+  const n = parseInt(process.env.AGENT_MAX_AUTO_CONTINUES ?? '', 10);
+  return Number.isFinite(n) && n >= 0 ? n : 3;
+})();
+
 /** The minimal converse lane the fast-path needs — a single tool-free model turn. */
 export interface ConverseLike {
   send(message: string): Promise<{ content: string; usage?: { in: number; out: number } }>;
@@ -967,7 +975,22 @@ export function createPehServer(opts: PehServerOptions = {}): {
           // pin the event loop (mattered little at 60s, but a 10-min ceiling would hang exit).
           timer.unref?.();
         });
-        const work = roomSession.send(effectiveMessage, undefined, chatExtra);
+        // AUTO-CONTINUE: chain kernel windows when a turn runs out of STEPS but was still progressing,
+        // so a long task finishes on its own. Only 'budget' partials continue (not stuck/injection stops);
+        // the wall-clock timeout above still bounds the whole chain, and any late finish is persisted.
+        const work = (async () => {
+          let r = await roomSession.send(effectiveMessage, undefined, chatExtra);
+          let continues = 0;
+          while (r.partial && r.partialReason === 'budget' && continues < MAX_AUTO_CONTINUES) {
+            continues += 1;
+            console.log(`[chat] auto-continue ${continues}/${MAX_AUTO_CONTINUES} (out of steps, still progressing) corr=${correlationId}`);
+            r = await roomSession.send(
+              'Continue the previous task from exactly where you left off — do NOT restart or re-summarize the earlier steps. Finish the remaining work, then give the final answer.',
+              undefined, chatExtra,
+            );
+          }
+          return r;
+        })();
         const raced = await Promise.race([work.then((r) => ({ r })), timeout]);
         if (timer) clearTimeout(timer);
 
