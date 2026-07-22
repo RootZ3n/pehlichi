@@ -162,7 +162,7 @@ test('B2. exhausting the iteration budget returns a non-200 partial — and neve
         assert.notEqual(first.status, 200, 'budget-exhausted must NOT be a blind 200');
         assert.equal(first.status, 422);
         assert.equal(first.body.partial, true);
-        assert.match(first.body.content, /Budget exhausted/);
+        assert.match(first.body.content, /step budget/);
 
         // A SECOND request must NOT return the first response verbatim (the stale-replay
         // bug). It is independently evaluated and again reports exhaustion clearly.

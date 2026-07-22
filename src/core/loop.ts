@@ -438,7 +438,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       // Opt-in: return a partial result describing what was accomplished instead of
       // throwing. Default (unset) preserves the proven fail-loud runaway guard.
       if (opts.partialOnExhaustion === true) {
-        const output = `Budget exhausted after ${i} steps. Completed: ${accomplished.length > 0 ? accomplished.join("; ") : "nothing"}`;
+        // Concise, human summary — NEVER dump raw tool outputs into the reply (that floods the chat).
+        const toolsRun = [...new Set(accomplished.map((a) => a.split(":")[0]!.trim()))];
+        const output = accomplished.length > 0
+          ? `I hit my ${i}-step budget before finishing. I ran ${accomplished.length} tool call(s) (${toolsRun.slice(0, 12).join(", ")}${toolsRun.length > 12 ? ", …" : ""}). Ask me to continue, or narrow the task.`
+          : `I hit my ${i}-step budget without completing anything. Try narrowing the task.`;
         emitter.emit({ kind: "narrate", phase: "other", text: output });
         return { ok: false, partial: true, accomplished, output, ...planResult(), ...tokenResult() };
       }
@@ -616,7 +620,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
         // PARTIAL RESULTS: record the accomplishment; advance plan progress.
         if (result.ok) {
-          accomplished.push(`${action.tool}: ${firstLine(result.output) || "ok"}`);
+          // Cap the per-tool note: some tools (e.g. luak_registry) return one huge single-line JSON,
+          // and firstLine() would otherwise carry the whole blob into the partial summary.
+          accomplished.push(`${action.tool}: ${(firstLine(result.output) || "ok").slice(0, 80)}`);
           // EVIDENCE GATE: a successful command that ran and passed (terminal receipt exit 0,
           // or execute_code) is verification evidence AND — since a command can mutate files —
           // also counts as change evidence. A successful write/patch (or a diff-carrying

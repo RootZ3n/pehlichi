@@ -377,7 +377,7 @@ test("10. partialOnExhaustion: exhausting the budget returns a partial result wi
     assert.equal(result.ok, false);
     assert.equal(result.partial, true);
     assert.ok((result.accomplished?.length ?? 0) >= 1, "recorded at least one accomplishment");
-    assert.match(result.output ?? "", /Budget exhausted after 3 steps/);
+    assert.match(result.output ?? "", /hit my 3-step budget/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
     rmSync(labStore, { recursive: true, force: true });

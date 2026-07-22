@@ -69,7 +69,7 @@ import { withRetry } from '../../../src/core/agent-tools/retry.js';
 // may still override per-session via KernelChatSessionOptions.maxIterations.
 const DEFAULT_MAX_ITERATIONS = (() => {
   const n = parseInt(process.env.AGENT_MAX_ITERATIONS ?? '', 10);
-  return Number.isFinite(n) ? (n <= 0 ? 100_000 : n) : 50;
+  return Number.isFinite(n) ? (n <= 0 ? 100_000 : n) : 120;
 })();
 
 /**
@@ -78,7 +78,14 @@ const DEFAULT_MAX_ITERATIONS = (() => {
  * long conversation stops silently overflowing. Compression has a deterministic (no-network)
  * fallback, so enabling it by default is safe even when the summarizer model is unavailable.
  */
-const DEFAULT_CONTEXT_WINDOW = 128_000;
+// AGENT_CONTEXT_WINDOW (tokens) tunes how much transcript the kernel keeps before the compressor
+// summarizes the middle turns (it triggers at ~80% of this). LOWER it to keep long sessions cheap —
+// e.g. 48000 on a phone means prompts stay lean instead of resending ~100k tokens every turn. The
+// model's real window (mimo/deepseek ~128k) is the ceiling; this is the compaction TARGET.
+const DEFAULT_CONTEXT_WINDOW = (() => {
+  const n = parseInt(process.env.AGENT_CONTEXT_WINDOW ?? '', 10);
+  return Number.isFinite(n) && n >= 8_000 ? n : 128_000;
+})();
 
 /** One structured tool call as surfaced to HTTP consumers — INCLUDING its receipt (Blocker 5). */
 export interface KernelToolCall {
