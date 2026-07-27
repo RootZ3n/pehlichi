@@ -324,6 +324,31 @@ function resolveCommit(): string {
 const COMMIT = resolveCommit();
 const receiptStore = new ReceiptStore({ ttlMs: 60 * 60 * 1000 }); // 1 hour TTL
 
+/**
+ * CORS preflight. Required by any browser client that sends a non-safelisted header —
+ * which every AUTHENTICATED one must, because `chatAuthorized` reads `Authorization`.
+ *
+ * Without this the chat lanes are unreachable from a browser at all: Firefox sends
+ * `OPTIONS`, the router had no handler, the 404 failed the preflight, and the real request
+ * was never sent (measured from a WebExtension against 18830, 2026-07-27 — a request
+ * carrying only safelisted headers succeeded, one carrying `Authorization` did not, and a
+ * host permission does NOT waive the preflight).
+ *
+ * This does not widen the auth surface. A page could already issue simple GETs and read
+ * them under the permissive ACAO below; what it still cannot do is present a valid token,
+ * so the chat lanes keep answering it 401. Credentials are deliberately not allowed, so no
+ * cookie or stored credential ever rides along.
+ */
+function preflight(res: ServerResponse): void {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '600',
+  });
+  res.end();
+}
+
 function json(res: ServerResponse, status: number, data: unknown): void {
   // CORS: the read-only UI engine (ui/index.html) is opened from file:// or a
   // separate static origin and only issues simple GETs — a permissive ACAO lets
@@ -699,6 +724,10 @@ export function createPehServer(opts: PehServerOptions = {}): {
   const server = createHttpServer(async (req, res) => {
    try {
     const url = new URL(req.url ?? '/', `http://${HOST}:${opts.port ?? PORT}`);
+
+    // Answer preflights before anything else: they carry no body, no token, and must not
+    // fall through to a route that would 404 them. See `preflight`.
+    if (req.method === 'OPTIONS') return preflight(res);
 
     // Static web UI: try to serve the browser UI for GET requests BEFORE the API
     // routes. serveStatic returns true (and has written the response) when the path
