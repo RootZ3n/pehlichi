@@ -29,21 +29,24 @@ function fakeDriver(tag: string): Driver & { calls: number } {
   return d;
 }
 
-test('availableModelTargets returns the four cloud presets (no local)', () => {
+test('availableModelTargets returns the five cloud presets (no local)', () => {
   const ids = availableModelTargets({}).map((t) => t.id);
-  assert.deepEqual(ids, ['mimo-v2.5', 'mimo-v2.5-pro', 'deepseek-v4-flash', 'deepseek-v4-pro']);
+  assert.deepEqual(ids, ['mimo-v2.5', 'mimo-v2.5-pro', 'deepseek-v4-flash', 'deepseek-v4-pro', 'minimax-m3']);
   const ds = availableModelTargets({}).find((t) => t.id === 'deepseek-v4-flash')!;
   assert.equal(ds.keyKind, 'deepseek');
   assert.match(ds.baseUrl, /api\.deepseek\.com/);
   const mimo = availableModelTargets({}).find((t) => t.id === 'mimo-v2.5')!;
   assert.equal(mimo.keyKind, 'mimo');
   assert.match(mimo.baseUrl, /xiaomimimo/);
+  const mm = availableModelTargets({}).find((t) => t.id === 'minimax-m3')!;
+  assert.equal(mm.keyKind, 'minimax');
+  assert.match(mm.baseUrl, /minimax/);
 });
 
 test('PEHLICHI_MODEL_TARGETS can append custom presets; bad JSON is ignored', () => {
   const extra = availableModelTargets({ PEHLICHI_MODEL_TARGETS: '[{"model":"my-model","baseUrl":"https://x/v1"}]' });
   assert.ok(extra.some((t) => t.id === 'my-model'));
-  assert.equal(availableModelTargets({ PEHLICHI_MODEL_TARGETS: 'not json' }).length, 4);
+  assert.equal(availableModelTargets({ PEHLICHI_MODEL_TARGETS: 'not json' }).length, 5);
 });
 
 test('initialActive defaults to mimo-v2.5, honours a valid AGENT_MODEL', () => {

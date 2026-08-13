@@ -93,9 +93,30 @@ function resolveDeepseekKey(): string | undefined {
   return undefined;
 }
 
+/**
+ * Resolve the MiniMax API key for a MiniMax target (Bearer auth). Env wins; else read the
+ * "minimax …" labeled line from ~/bok.
+ */
+function resolveMinimaxKey(): string | undefined {
+  if (process.env.MINIMAX_API_KEY) return process.env.MINIMAX_API_KEY;
+  if (process.env.AGENT_MINIMAX_API_KEY) return process.env.AGENT_MINIMAX_API_KEY;
+  try {
+    const bok = readFileSync(join(homedir(), 'bok'), 'utf-8');
+    for (const line of bok.split('\n')) {
+      if (/minimax/i.test(line)) {
+        const m = line.match(/sk-api[A-Za-z0-9_-]+/);
+        if (m) return m[0].trim();
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 /** The API key for a target, by its key kind (Mimo api-key vs DeepSeek Bearer). */
 function keyForTarget(t: ModelTarget): string | undefined {
-  return t.keyKind === 'deepseek' ? resolveDeepseekKey() : resolveApiKey();
+  if (t.keyKind === 'deepseek') return resolveDeepseekKey();
+  if (t.keyKind === 'minimax') return resolveMinimaxKey();
+  return resolveApiKey();
 }
 
 /**
@@ -1205,7 +1226,7 @@ export function createPehServer(opts: PehServerOptions = {}): {
         active: { id: target.id, model: target.model, label: target.label, key_kind: target.keyKind, base_url: target.baseUrl },
         keyed: key !== undefined,
         ...(key === undefined
-          ? { note: `no ${target.keyKind} API key found — set ${target.keyKind === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'MIMO_API_KEY'} (or add it to ~/bok); the switch applied but calls will 401 until then` }
+          ? { note: `no ${target.keyKind} API key found — set ${target.keyKind === 'deepseek' ? 'DEEPSEEK_API_KEY' : target.keyKind === 'minimax' ? 'MINIMAX_API_KEY' : 'MIMO_API_KEY'} (or add it to ~/bok); the switch applied but calls will 401 until then` }
           : {}),
       });
     }

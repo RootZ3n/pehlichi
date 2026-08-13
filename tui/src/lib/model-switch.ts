@@ -29,7 +29,7 @@ import { CircuitBreaker } from '../../../src/core/agent-tools/circuit-breaker.js
 import { ResilientDriver } from './kernel-session.js';
 
 /** Which API key a target authenticates with (Mimo api-key header vs DeepSeek Bearer). */
-export type KeyKind = 'mimo' | 'deepseek';
+export type KeyKind = 'mimo' | 'deepseek' | 'minimax';
 
 /** A selectable cloud model: the picker key `id`, the API model name, its endpoint, and key kind. */
 export interface ModelTarget {
@@ -76,12 +76,14 @@ export class SwappableDriver implements Driver {
 }
 
 function inferKeyKind(baseUrl: string): KeyKind {
-  return baseUrl.includes('deepseek') ? 'deepseek' : 'mimo';
+  if (baseUrl.includes('deepseek')) return 'deepseek';
+  if (baseUrl.includes('minimax')) return 'minimax';
+  return 'mimo';
 }
 
 function normalizeKeyKind(v: unknown, fallback: KeyKind): KeyKind {
   const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
-  return s === 'deepseek' || s === 'mimo' ? s : fallback;
+  return s === 'deepseek' || s === 'mimo' || s === 'minimax' ? s : fallback;
 }
 
 /** Parse the optional PEHLICHI_MODEL_TARGETS env (a JSON array of partial ModelTarget). Bad JSON ⇒ []. */
@@ -107,8 +109,10 @@ function parseTargetsEnv(raw: string | undefined): ModelTarget[] {
   }
 }
 
+const MINIMAX_BASE_DEFAULT = 'https://api.minimax.io/v1';
+
 /**
- * The presets the picker offers: the operator's four cloud models. Endpoints are env-overridable
+ * The presets the picker offers: the operator's cloud models.
  * (AGENT_BASE_URL for Mimo, DEEPSEEK_BASE_URL for DeepSeek); PEHLICHI_MODEL_TARGETS adds more.
  */
 export function availableModelTargets(env: NodeJS.ProcessEnv = process.env): ModelTarget[] {
@@ -119,6 +123,7 @@ export function availableModelTargets(env: NodeJS.ProcessEnv = process.env): Mod
     { id: 'mimo-v2.5-pro', label: 'Mimo v2.5 Pro · main', model: 'mimo-v2.5-pro', baseUrl: mimoBase, keyKind: 'mimo' },
     { id: 'deepseek-v4-flash', label: 'DeepSeek v4 Flash', model: 'deepseek-v4-flash', baseUrl: dsBase, keyKind: 'deepseek' },
     { id: 'deepseek-v4-pro', label: 'DeepSeek v4 Pro', model: 'deepseek-v4-pro', baseUrl: dsBase, keyKind: 'deepseek' },
+    { id: 'minimax-m3', label: 'MiniMax M3', model: 'MiniMax-M3', baseUrl: env.MINIMAX_BASE_URL || MINIMAX_BASE_DEFAULT, keyKind: 'minimax' },
   ];
   const merged: ModelTarget[] = [...builtin];
   for (const t of parseTargetsEnv(env.PEHLICHI_MODEL_TARGETS)) {
@@ -167,6 +172,7 @@ export const MODEL_PRICING: Record<string, { in: number; out: number }> = {
   'mimo-v2.5-pro': { in: 0.6, out: 1.8 },
   'deepseek-v4-flash': { in: 0.14, out: 0.28 },
   'deepseek-v4-pro': { in: 0.27, out: 1.1 },
+  'MiniMax-M3': { in: 0.15, out: 0.6 },
 };
 
 /** Estimated USD cost for a turn's token usage on a given model. Undefined if the model is unpriced. */
