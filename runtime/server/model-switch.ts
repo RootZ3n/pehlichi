@@ -26,10 +26,20 @@ import {
   type TokenUsage,
 } from '../../src/core/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
+import {
+  bokahliFetch,
+  readBokahliToken,
+  type BokahliTarget,
+  type BokahliTurnState,
+} from '../../src/core/drivers/bokahli.js';
 import { ResilientDriver } from './kernel-session.js';
 
 /** Which API key a target authenticates with (Mimo api-key header vs DeepSeek Bearer). */
-export type KeyKind = 'mimo' | 'deepseek' | 'minimax';
+// 'bokahli' is the one kind whose credential is a FILE. Every cloud target
+// here takes its key from the environment, which is right for a vendor API
+// key and wrong for a local one: it would sit in /proc/<pid>/environ of a
+// long-lived server for the sake of saving a read.
+export type KeyKind = 'mimo' | 'deepseek' | 'minimax' | 'bokahli';
 
 /** A selectable cloud model: the picker key `id`, the API model name, its endpoint, and key kind. */
 export interface ModelTarget {
@@ -38,6 +48,13 @@ export interface ModelTarget {
   readonly model: string;
   readonly baseUrl: string;
   readonly keyKind: KeyKind;
+  /**
+   * Present only for keyKind 'bokahli'. Carries the routing question
+   * (AUTO/PROFILE/EXACT), whether qualification is demanded, and whether the
+   * request may leave this machine at all. A cloud target has no equivalent
+   * because a cloud endpoint cannot refuse on any of those grounds.
+   */
+  readonly bokahli?: BokahliTarget;
 }
 
 const MIMO_BASE_DEFAULT = 'https://api.xiaomimimo.com/v1';
@@ -76,6 +93,8 @@ export class SwappableDriver implements Driver {
 }
 
 function inferKeyKind(baseUrl: string): KeyKind {
+  // Loopback and the Mushin tailnet address are Bokahli; nothing else local is.
+  if (baseUrl.includes('127.0.0.1:8080') || baseUrl.includes('100.115.140.2:8080')) return 'bokahli';
   if (baseUrl.includes('deepseek')) return 'deepseek';
   if (baseUrl.includes('minimax')) return 'minimax';
   return 'mimo';
@@ -83,7 +102,7 @@ function inferKeyKind(baseUrl: string): KeyKind {
 
 function normalizeKeyKind(v: unknown, fallback: KeyKind): KeyKind {
   const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
-  return s === 'deepseek' || s === 'mimo' || s === 'minimax' ? s : fallback;
+  return s === 'deepseek' || s === 'mimo' || s === 'minimax' || s === 'bokahli' ? s : fallback;
 }
 
 /** Parse optional AGENT_MODEL_TARGETS (JSON array of partial ModelTarget). Bad JSON ⇒ []. */
@@ -188,6 +207,50 @@ export function buildDriverForTarget(target: ModelTarget, apiKey: string | undef
     cooldownMs: 30_000,
     successThreshold: 3,
   });
+  if (target.keyKind === 'bokahli') return buildBokahliDriver(target, breaker);
   const inner = new MimoDriver({ baseUrl: target.baseUrl, model: target.model, ...(apiKey !== undefined ? { apiKey } : {}) });
+  return new ResilientDriver(inner, breaker);
+}
+
+/**
+ * The most recent Bokahli turn, for the transcript and the receipt.
+ *
+ * Module-scoped because the runtime shares one driver across every room session
+ * (KernelChatSession.driver is readonly, which is what makes hot-swap work), so
+ * there is exactly one active Bokahli target at a time and no per-session state
+ * to key this by. It is last-turn-wins, and is read immediately after a turn.
+ */
+export const lastBokahliTurn: BokahliTurnState = { binding: null, escalation: null };
+
+/**
+ * Build the Bokahli driver.
+ *
+ * The token is read here, from the mode-0600 file the target names, and handed
+ * straight to the transport wrapper. It is never stored on the target, so there
+ * is nowhere for it to be serialised into config, a receipt or a transcript.
+ *
+ * No circuit breaker wraps the escalation path on purpose. A breaker exists to
+ * stop hammering a sick provider, and a deployment that refuses is not sick — it
+ * is answering. Tripping a breaker on refusals would take a healthy Bokahli out
+ * of rotation for saying no, which is the one thing it is there to do. Transport
+ * failures still reach the breaker through ResilientDriver as usual.
+ */
+function buildBokahliDriver(target: ModelTarget, breaker: CircuitBreaker): Driver {
+  const cfg = target.bokahli;
+  if (cfg === undefined) {
+    throw new Error(`bokahli target ${target.id} has no routing configuration`);
+  }
+  const token = readBokahliToken(cfg.tokenFile);
+  const inner = new MimoDriver({
+    baseUrl: target.baseUrl,
+    model: target.model,
+    apiKey: token,
+    fetchImpl: bokahliFetch(
+      globalThis.fetch as unknown as Parameters<typeof bokahliFetch>[0],
+      cfg,
+      token,
+      lastBokahliTurn,
+    ),
+  });
   return new ResilientDriver(inner, breaker);
 }

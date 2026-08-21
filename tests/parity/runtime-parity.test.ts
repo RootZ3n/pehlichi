@@ -17,7 +17,7 @@ const roots = (process.env.TRIO_REPOSITORIES ?? [
 // Independent code-level trust anchor for the architecture-controlled shape.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;
 // doing so also requires an explicit, review-visible verifier change.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'e8af80ab92fd1dbf239112f672d117e5ac4cda665550b496175046afbf5c7ed5';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'd23eb260d1b487b820a2b9d48b1af9efc390d27d1a9fd6621ac13db8e61365f9';
 
 interface Inventory {
   schemaVersion: 3;

@@ -290,6 +290,13 @@
         "work-order-state"
       ],
       "effect": "validated-runtime-state"
+    },
+    {
+      "site": "src/core/drivers/bokahli.ts",
+      "targets": [
+        "<operator-configured bokahli token file, mode 0600>"
+      ],
+      "effect": "outbound-credential"
     }
   ],
   "identityReferences": [

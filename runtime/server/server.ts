@@ -91,6 +91,9 @@ function resolveMinimaxKey(): string | undefined {
 
 /** The API key for a target, by its key kind (Mimo api-key vs DeepSeek Bearer). */
 function keyForTarget(t: ModelTarget): string | undefined {
+  // Read from a mode-0600 file at driver construction, not here: this
+  // function's result flows into places a secret should not go.
+  if (t.keyKind === 'bokahli') return undefined;
   if (t.keyKind === 'deepseek') return resolveDeepseekKey();
   if (t.keyKind === 'minimax') return resolveMinimaxKey();
   return resolveApiKey();

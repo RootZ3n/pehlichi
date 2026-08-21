@@ -450,3 +450,92 @@ export function decideAfterBokahli(
         : 'no fallback is configured, so the turn ends here'),
   };
 }
+
+// ---------------------------------------------------------------------------
+// The driver
+// ---------------------------------------------------------------------------
+
+/** Minimal fetch shape, matching the one MimoDriver already accepts. */
+export type BokahliFetch = (
+  input: string,
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }>;
+
+/** The last binding this wrapper observed, and whether the last turn was refused. */
+export interface BokahliTurnState {
+  binding: BokahliBinding | null;
+  escalation: BokahliEscalation | null;
+}
+
+/**
+ * Wrap a fetch so a Bokahli endpoint can be driven by the ordinary OpenAI client.
+ *
+ * `MimoDriver` already speaks OpenAI-over-Bearer, handles streaming, retries and
+ * the control-object protocol. Rebuilding that to add three fields would be a
+ * second copy of a well-tested thing, so the Bokahli-specific behaviour lives at
+ * the transport instead, where all of it actually belongs:
+ *
+ *  - the route spec goes onto the outbound body, because AUTO/PROFILE/EXACT and
+ *    requireQualified are per-request routing questions, not model parameters;
+ *  - tool authority is stripped on the way out, and stripping is not enough on
+ *    its own — `assertNoToolAuthority` *throws*, so a caller that tries is told,
+ *    rather than having its request quietly rewritten;
+ *  - the response is read once for a typed refusal and for the served identity,
+ *    and a refusal is raised as `BokahliEscalation` so the driver above sees an
+ *    error instead of an empty completion.
+ *
+ * `state` is written on every turn. It is a plain object owned by the caller
+ * rather than a field here so that the session holding it decides its lifetime,
+ * and so two drivers cannot share one by accident.
+ */
+export function bokahliFetch(
+  inner: BokahliFetch,
+  target: BokahliTarget,
+  token: string,
+  state: BokahliTurnState,
+): BokahliFetch {
+  const route = buildRouteSpec(target);
+  return async (input, init) => {
+    state.binding = null;
+    state.escalation = null;
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(init.body) as Record<string, unknown>;
+    } catch {
+      // Not ours to repair; let the inner client report it.
+      return inner(input, init);
+    }
+
+    assertNoToolAuthority(body);
+    const outbound = JSON.stringify({ ...body, route });
+
+    const res = await inner(input, {
+      ...init,
+      body: outbound,
+      headers: { ...init.headers, authorization: `Bearer ${token}` },
+    });
+
+    // Read the body once, here. Bokahli answers a declined request with HTTP 200
+    // and no `choices`, which every generic OpenAI client reads as an empty
+    // completion — the one outcome that must never reach a user as an answer.
+    let parsed: unknown;
+    try {
+      parsed = await res.json();
+    } catch {
+      return res;
+    }
+
+    state.escalation = readEscalation(parsed);
+    state.binding = readBinding(parsed);
+    if (state.escalation !== null) throw state.escalation;
+
+    const replay = {
+      ok: res.ok,
+      status: res.status,
+      json: async (): Promise<unknown> => parsed,
+      text: async (): Promise<string> => JSON.stringify(parsed),
+    };
+    return replay;
+  };
+}
