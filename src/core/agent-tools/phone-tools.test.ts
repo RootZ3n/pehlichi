@@ -19,7 +19,7 @@ import {
   type PhoneRunResult,
 } from './phone-tools.js';
 import { createFullToolRegistry } from './index.js';
-import { agentToolNames } from '../../profiles/agent.js';
+import { agentToolNames } from '../../profile.js';
 import type { ToolContext } from '../tools.js';
 
 const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
@@ -48,7 +48,7 @@ test('all 9 phone specs have handlers and are on the persona allowlist', () => {
 
 test('phone tools are registered in the full tool registry', () => {
   const dir = workspace();
-  const tools = createFullToolRegistry({ workspaceRoot: dir, agentServerUrl: 'http://127.0.0.1:0' });
+  const tools = createFullToolRegistry({ workspaceRoot: dir, agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' });
   const names = new Set(tools.map((t) => t.spec.name));
   for (const spec of phoneToolSpecs) assert.ok(names.has(spec.name), `${spec.name} registered`);
 });
@@ -123,7 +123,7 @@ test('phone_speak and phone_notify require their text; torch defaults ON', async
 
   await h.get('phone_notify')!({ content: 'hi' }, ctx(dir));
   const notify = calls.find((c) => c.binary === 'termux-notification')!;
-  assert.deepEqual(notify.args, ['--title', 'Pehlichi', '--content', 'hi']); // default title
+  assert.deepEqual(notify.args, ['--title', 'Agent', '--content', 'hi']); // identity-neutral default title
 
   await h.get('phone_torch')!({}, ctx(dir));
   const torch = calls.find((c) => c.binary === 'termux-torch')!;
@@ -149,9 +149,9 @@ test('a spawn failure (binary not found off-device) fails cleanly, never throws'
   assert.match(res.error ?? '', /not found/);
 });
 
-test('resolvePhoneTransport reads PEHLICHI_PHONE_SSH_HOST', () => {
+test('resolvePhoneTransport reads AGENT_PHONE_SSH_HOST', () => {
   assert.deepEqual(resolvePhoneTransport({}), { kind: 'local' });
-  assert.deepEqual(resolvePhoneTransport({ PEHLICHI_PHONE_SSH_HOST: 'pixel' }), { kind: 'ssh', host: 'pixel' });
+  assert.deepEqual(resolvePhoneTransport({ AGENT_PHONE_SSH_HOST: 'pixel' }), { kind: 'ssh', host: 'pixel' });
 });
 
 test('buildPhoneEnv passes Termux/Android wiring through but never secrets', () => {
@@ -171,7 +171,7 @@ test('buildPhoneEnv passes Termux/Android wiring through but never secrets', () 
   assert.equal(env.IKBI_API_TOKEN, undefined, 'token not leaked into the subprocess env');
 });
 
-test('PEHLICHI_PHONE_ENV_ALLOWLIST can add extra passthrough keys', () => {
-  const env = buildPhoneEnv({ PATH: '/x', FOO_VAR: 'v', PEHLICHI_PHONE_ENV_ALLOWLIST: 'FOO_VAR' });
+test('AGENT_PHONE_ENV_ALLOWLIST can add extra passthrough keys', () => {
+  const env = buildPhoneEnv({ PATH: '/x', FOO_VAR: 'v', AGENT_PHONE_ENV_ALLOWLIST: 'FOO_VAR' });
   assert.equal(env.FOO_VAR, 'v');
 });

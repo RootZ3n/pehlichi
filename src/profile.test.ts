@@ -57,7 +57,7 @@ test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", as
       task: "t",
       workspaceRoot: workspace,
       labStoreRoot: labStore,
-      toolNames: ["read_file"],  // terminal NOT in allowlist
+      toolNames: [],  // terminal is registered but NOT in the explicit lane
       driver: new ScriptedDriver(actions),
       sinks: [sink],
     });
@@ -140,6 +140,7 @@ test("primarySkill: the loop loads the active skillpack from the store and injec
       workspaceRoot: workspace,
       labStoreRoot: labStore,
       primarySkill: "demo-pack",
+      toolNames: [],
       driver: new ScriptedDriver([DONE]),
     });
     // primarySkill not in the store fails loud
@@ -150,6 +151,7 @@ test("primarySkill: the loop loads the active skillpack from the store and injec
         workspaceRoot: workspace,
         labStoreRoot: labStore,
         primarySkill: "no-such-skill",
+        toolNames: [],
         driver: new ScriptedDriver([DONE]),
       }),
       /primarySkill "no-such-skill" not found/,

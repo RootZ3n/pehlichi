@@ -95,7 +95,7 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   },
   {
     name: "fake-tool-tag",
-    pattern: /<\/?(?:tool|TOOL|Tool|function_call|FUNCTION_CALL)>/,
+    pattern: /<\/?(?:tool|tool_result|tool_call|function_call)>/i,
     scopes: ["context", "strict"],
   },
   {
@@ -107,7 +107,7 @@ const THREAT_PATTERNS: ThreatPattern[] = [
   // ── Prompt leaking ──
   {
     name: "reveal-prompt",
-    pattern: /(?:reveal|show|display|print|output|repeat|echo|dump)\s+(?:your|the|system)\s+(?:prompt|instructions|rules|initial\s+message|first\s+message)/i,
+    pattern: /(?:reveal|show|display|print|output|repeat|echo|dump)\s+(?:(?:your|the)\s+)?(?:system\s+)?(?:prompt|instructions|rules|initial\s+message|first\s+message)/i,
     scopes: ["all", "context", "strict"],
   },
   {

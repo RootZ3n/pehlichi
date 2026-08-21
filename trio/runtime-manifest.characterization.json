@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "authorizedLaneSource": "capsule request plus trusted deployment ceiling",
+  "advertisementAndExecutionUseSameLane": true,
+  "registryGrowthExpandsAuthority": false,
+  "missingDeclaredToolFailsStartup": true,
+  "toolOutputGuardMandatory": true,
+  "hostileRawEvidencePublic": false,
+  "typedVelumFindings": true,
+  "chatModeProtocol": ["agent", "converse", "auto"],
+  "omittedMode": "auto",
+  "timeoutStopsUnderlyingWork": false,
+  "cooperativeCancellation": "not-started",
+  "releaseProvenanceWithoutManifest": "development-unbound"
+}

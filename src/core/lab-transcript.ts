@@ -21,22 +21,9 @@ import { appendFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The primary session room per face (used by the server to converge primary surfaces). */
-export const CANONICAL_ROOMS = Object.freeze({
-  peh: 'lab:peh',
-  ptah: 'lab:ptah',
-  luna: 'lab:luna',
-} as const);
-
-/** The three face slugs (also the per-face store subdir names). */
-export const FACE_SLUGS: readonly string[] = Object.freeze(['peh', 'ptah', 'luna']);
-
-/** Map an agent display name (or selector) to its face slug. Falls back to a slugified name. */
+/** Normalize an explicitly configured identity namespace. No branding value grants a special namespace. */
 export function faceSlug(name: string): string {
   const n = (name ?? '').toLowerCase().trim();
-  if (n === 'peh' || n.startsWith('pehlichi')) return 'peh';
-  if (n.startsWith('ptah')) return 'ptah';
-  if (n.startsWith('luna')) return 'luna';
   return n.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
 }
 
@@ -199,22 +186,6 @@ export interface AmbientOptions {
 }
 
 /**
- * Role-aware ambient tuning. The trio is ONE agent split into focused faces to spread
- * responsibility (see the origin rationale) — so the hub sees broadly to route, while
- * specialists get a TIGHT, relevant slice and stay heads-down (never re-overloaded).
- *
- * - coordinator (Peh, the hub/router): broad — all faces, more turns.
- * - specialist  (Ptah/Luna): tight — only the hub (Peh) + this face's own other surfaces;
- *   NOT the other specialist's chatter.
- */
-export function ambientProfileForRole(role: string, selfFace: string): AmbientOptions {
-  if (role === 'coordinator') {
-    return { maxTurns: 16, maxCharsPerTurn: 700 };
-  }
-  return { maxTurns: 6, maxCharsPerTurn: 400, includeFaces: ['peh', selfFace] };
-}
-
-/**
  * AMBIENT recall (injected into every turn): recent memory from everything EXCEPT the
  * caller's current live thread `(selfFace, selfRoom)` — because the session already holds
  * that. This is how a face stays aware of its OTHER surfaces (e.g. a prior Matrix chat) and
@@ -231,7 +202,7 @@ export function recentSharedContext(selfFace: string, selfRoom: string, opts: Am
     }).slice(-maxTurns);
     if (turns.length === 0) return '';
     return [
-      'SHARED LAB MEMORY (you are one agent with three faces — Peh, Ptah, Luna — across many surfaces; this is what was recently said elsewhere, so you can pick up where it left off):',
+      'SHARED AGENT MEMORY (recent conversation from configured agent surfaces; use it only as prior context):',
       ...turns.map((t) => formatTurn(t, maxChars)),
     ].join('\n');
   } catch {
@@ -240,7 +211,7 @@ export function recentSharedContext(selfFace: string, selfRoom: string, opts: Am
 }
 
 export interface RecallOptions {
-  /** Filter to one face ('peh'|'ptah'|'luna'); default = all faces. */
+  /** Filter to one normalized configured identity namespace; default = all. */
   readonly face?: string;
   /** Max turns returned (default 30). */
   readonly limit?: number;
@@ -260,7 +231,6 @@ export function recallConversation(opts: RecallOptions = {}): string {
     let onlyFace: string | undefined;
     if (opts.face) {
       onlyFace = faceSlug(opts.face);
-      if (!FACE_SLUGS.includes(onlyFace)) return `Unknown face '${opts.face}'. Known faces: peh, ptah, luna.`;
     }
     const turns = collect({ ...(onlyFace ? { onlyFace } : {}), perFile: limit }).slice(-limit);
     if (turns.length === 0) return 'No shared lab conversation recorded yet.';

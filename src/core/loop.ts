@@ -14,6 +14,7 @@ import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
 import type { AgentProfile } from "./profile.js";
+import { createIsolatedProcessScope, type ProcessScope } from "./process-registry.js";
 import { ShadowWorkspace } from "./shadow.js";
 import { buildSystemPrompt } from "./prompt.js";
 import {
@@ -26,7 +27,12 @@ import {
 import { RepetitionDetector, resolveToolBudget, type BudgetTier } from "./agent-tools/tool-governor.js";
 import { ContextCompressor } from "./context-compressor.js";
 import { ReceiptStore } from "./receipt-store.js";
-import { guardToolOutput } from "./agent-tools/velum-scan.js";
+import {
+  createRestrictedEvidenceVault,
+  toPublicFinding,
+  type RestrictedEvidenceRecorder,
+} from "./agent-tools/restricted-evidence.js";
+import { projectToolResult, thrownToolFailure } from "./agent-tools/tool-text-boundary.js";
 import { TokenMonitor, IterationBudget } from "./agent-tools/infrastructure.js";
 import {
   unattendedToolDenyReason,
@@ -204,15 +210,10 @@ export interface RunAgentOptions {
    * SHAPE only (non-empty arrays), exactly as before, so every proven caller is unchanged.
    */
   readonly requireEvidence?: boolean;
-  /**
-   * VELUM OUTPUT-GUARDING (opt-in): when true, every tool result is routed through the Velum
-   * boundary — sanitized, scanned for prompt-injection, and quarantine-wrapped — before it
-   * re-enters the model's context; findings are counted in `injectionFindings` and narrated,
-   * never dropped. Unset/false => tool output is passed through verbatim exactly as before, so
-   * this is the seam that lets the SAME core serve a hardening-focused agent (Ptah) and the
-   * others without forking the loop. The core stays generic; the agent supplies the posture.
-   */
-  readonly guardToolOutput?: boolean;
+  /** Restricted forensic sink. Guarding itself is mandatory and cannot be disabled by callers. */
+  readonly evidenceRecorder?: RestrictedEvidenceRecorder;
+  /** Owner-bound background-process capability. Kernel sessions inject a persistent scope. */
+  readonly processScope?: ProcessScope;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -297,7 +298,14 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
  * result (when `partialOnExhaustion` is set) or throws (the default, unchanged).
  */
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
+  if (!Array.isArray(opts.toolNames)) throw new Error('explicit validated tool lane is required');
+  const lane = Object.freeze([...opts.toolNames]);
+  if (new Set(lane).size !== lane.length) throw new Error('tool lane contains duplicate names');
+  if (lane.some((name) => typeof name !== 'string' || name.length === 0)) throw new Error('tool lane contains an invalid name');
   const clock = opts.clock ?? Date.now;
+  const localProcessScope = opts.processScope === undefined ? createIsolatedProcessScope("agent-run") : undefined;
+  const processScope = opts.processScope ?? localProcessScope!;
+  try {
   const emitter = new EventEmitter(opts.sinks ?? [], clock);
   // Per-tier budget (Phase 7): an explicit maxIterations always wins; otherwise a
   // budgetTier derives the cap (converse=4 keeps casual prompts out of long loops).
@@ -315,6 +323,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   // Infrastructure: context compression, receipt tracking, token monitoring
   const compressor = new ContextCompressor();
   const receiptStore = new ReceiptStore();
+  const evidenceRecorder = opts.evidenceRecorder
+    ?? createRestrictedEvidenceVault({ clock }).recorderFor({ taskId: opts.taskId ?? opts.task, roomKey: 'direct' });
   const tokenMonitor = new TokenMonitor({ model: "mimo-v2.5" });
 
   // Unattended mode: assert startup guards before proceeding
@@ -329,7 +339,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     workspaceRoot,
   });
 
-  const registry = createToolRegistry(opts.extraTools);
+  const registry = createToolRegistry(opts.extraTools, processScope);
   const ctx: ToolContext = {
     workspaceRoot,
     labStoreRoot: opts.labStoreRoot,
@@ -349,10 +359,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   // it directly. (The memory-wiring filter only affects ADVERTISEMENT — an
   // unwired memory tool still reaches its handler so it returns the precise
   // "require a memory store" error, unchanged.)
-  const allow = opts.toolNames !== undefined ? new Set(opts.toolNames) : undefined;
-  const specs = toolSpecs(registry)
-    .filter((s) => !s.name.startsWith("memory_") || memoryStore !== undefined)
-    .filter((s) => allow === undefined || allow.has(s.name));
+  const allow = new Set(lane);
+  const availableSpecs = toolSpecs(registry)
+    .filter((s) => !s.name.startsWith("memory_") || memoryStore !== undefined);
+  const specByName = new Map(availableSpecs.map((spec) => [spec.name, spec]));
+  const specs = lane.flatMap((name) => {
+        const spec = specByName.get(name);
+        return spec === undefined ? [] : [spec];
+      });
+  const missingLaneTools = lane.filter((name) => !specByName.has(name));
+  if (missingLaneTools.length > 0) throw new Error(`tool lane references missing registry tools: ${missingLaneTools.join(', ')}`);
 
   const modules = store.listModules();
   // The active skillpack supplies this run's contract via its structured fields.
@@ -507,7 +523,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         // A tool outside this run's allowlist is refused HERE and never reaches a
         // handler — the in-lane guarantee is structural, not prompt-dependent.
         // With no allowlist, behavior is exactly as before (registry lookup only).
-        const blockedByLane = allow !== undefined && !allow.has(action.tool);
+        const blockedByLane = !allow.has(action.tool);
         const def = blockedByLane ? undefined : registry.get(action.tool);
         let result: ToolResult;
         if (def === undefined) {
@@ -542,9 +558,31 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
             try {
               result = await def.handler(action.args, ctx);
             } catch (err) {
-              result = { ok: false, output: "", error: messageOf(err) };
+              result = thrownToolFailure(err);
             }
           }
+        }
+
+        // AUTHORITATIVE TOOL-TEXT BOUNDARY: success, structured failure, and thrown
+        // failure text are projected exactly once before any model/public/persistent sink.
+        const projected = projectToolResult(action.tool, result, evidenceRecorder);
+        result = projected.result;
+        injectionFindings += projected.findings.length;
+        for (const finding of projected.findings) {
+          emitter.emit({
+            kind: "velum-finding",
+            source: action.tool,
+            channel: finding.channel,
+            patterns: [...finding.patterns],
+            evidenceId: finding.id,
+            evidenceSha256: finding.sha256,
+            evidenceBytes: finding.bytes,
+          });
+          emitter.emit({
+            kind: "narrate",
+            phase: "other",
+            text: `[velum] quarantined possible injection in ${action.tool} ${finding.channel}: ${finding.patterns.join(", ")}`,
+          });
         }
 
         emitter.emit({
@@ -557,9 +595,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         // Receipt store: record audit trail for every tool call
         receiptStore.record({
           agent: opts.profile.name,
-          status: result.ok ? "success" : "failed",
+          status: projected.findings.length > 0 ? "injection_quarantined" : (result.ok ? "success" : "failed"),
           toolCallCount: 1,
           contentSummary: `${action.tool}: ${firstLine(result.output) || (result.ok ? "ok" : (result.error ?? "error"))}`,
+          ...(projected.findings.length > 0 ? {
+            injectionDetected: true,
+            injectionFindings: projected.findings.length,
+            findingMetadata: projected.findings.map(toPublicFinding),
+          } : {}),
           ...(opts.taskId !== undefined ? { taskId: opts.taskId } : {}),
         });
         if (result.receipt) {
@@ -571,25 +614,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         if (result.skillCreated) {
           emitter.emit({ kind: "skill-created", ...result.skillCreated });
         }
-        // VELUM-GATED TOOL OUTPUT (improvement #3): route every tool result through
-        // the Velum boundary — sanitize, scan for injection, and quarantine-wrap the
-        // text before it re-enters the model's context. Findings are FLAGGED (counted
-        // + narrated), never dropped, so an audit agent still sees the hostile string.
-        const guarded = opts.guardToolOutput === true && result.output.length > 0 ? guardToolOutput(result.output, action.tool) : undefined;
-        if (guarded?.scan.detected) {
-          injectionFindings += 1;
-          emitter.emit({
-            kind: "narrate",
-            phase: "other",
-            text: `[velum] quarantined possible injection in ${action.tool} output: ${guarded.scan.patterns.join(", ")}`,
-          });
-        }
         // Feed the ACTUAL result back into history (output/error, success, and
         // the terminal receipt summary) so the model grounds its next turn on
         // results it RECEIVED, not ones it imagines. A failure puts its failure
         // here. A call that never executed (e.g. textual-call-detected) produces
         // NO such message — the model has nothing to cite for it.
-        messages.push({ role: "tool", content: toolResultForHistory(action.tool, result, guarded?.safe) });
+        messages.push({ role: "tool", content: toolResultForHistory(action.tool, result, result.output) });
 
         // REPETITION / NO-PROGRESS GOVERNOR (Phase 7): detect same-tool+same-args
         // loops, repeated no-evidence reads, and stuck delegations. A hard stop
@@ -749,6 +779,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     if (opts.checkpointDir !== undefined && checkpointEvery > 0 && (i + 1) % checkpointEvery === 0) {
       saveCheckpoint(opts.checkpointDir, { iteration: i + 1, timestamp: clock(), messages, taskId });
     }
+  }
+  } finally {
+    // Direct/library runs have no later authorized caller, so any surviving child
+    // is reclaimed. Kernel sessions inject a persistent owner scope and control
+    // cleanup on reset, eviction, or runtime shutdown.
+    localProcessScope?.close();
   }
 }
 

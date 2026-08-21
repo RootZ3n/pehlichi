@@ -45,6 +45,7 @@ async function runShadow(
       task: "t",
       labStoreRoot: labStore,
       driver: new ScriptedDriver(actions),
+      toolNames: ['terminal', 'process'],
       sinks: [events],
       // These tests exercise terminal MECHANICS (cwd/env/output/receipt); the loop now denies
       // mutating tools by default, so authorize explicitly to reach the handler under test.

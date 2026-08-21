@@ -9,9 +9,9 @@
  * time. When that file is absent (a released / standalone build) we fall back
  * to the built-in list below, so behaviour never regresses.
  */
-import { readFileSync, existsSync } from "node:fs";
 import { bridgeHost } from "./host.js";
 import type { BridgeReceipt } from "./http-bridge.js";
+import { readVerifiedExternalData } from '../external-runtime-integrity.js';
 
 export interface BridgeInfo {
   readonly name: string;
@@ -41,7 +41,6 @@ interface RegistryService {
  * survive even when the registry IS read.
  */
 const FALLBACK_BRIDGES: readonly BridgeInfo[] = [
-  { name: "pehlichi", description: "Canonical Pehlichi coordinator", port: 18830, status: "unknown" },
   { name: "ikbi", description: "Build/repair engine", port: 18796, status: "unknown" },
   { name: "comfyui", description: "Image generation", port: 8188, status: "unknown" },
   { name: "toba", description: "Career transformation", port: 18815, status: "unknown" },
@@ -60,20 +59,15 @@ const FALLBACK_BRIDGES: readonly BridgeInfo[] = [
  * Returns null when the file is absent or unreadable.
  */
 function loadCanonicalBridges(): BridgeInfo[] | null {
-  const candidates = [
-    process.env.LAB_REGISTRY_PATH,
-    "/pehverse/repos/lab-utilities/lab-registry/services.json",
-  ].filter((p): p is string => typeof p === "string" && p.length > 0);
-  for (const path of candidates) {
-    try {
-      if (!existsSync(path)) continue;
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as { services?: readonly RegistryService[] };
-      if (!parsed.services) continue;
+  const bytes = readVerifiedExternalData('lab-registry', 'services.json');
+  if (bytes === null) return null;
+  const parsed = JSON.parse(bytes) as { services?: readonly RegistryService[] };
+  if (!parsed.services) return null;
       // Register the canonical id PLUS every alias, all pointing at the same
       // port (and therefore the same host/health endpoint), so that
       // bridgeRegistry.get(alias) resolves identically to the canonical service
       // (e.g. "peh" -> pehlichi, "mechanic" -> mad-ptah, "luna" -> loony-luna).
-      return parsed.services.flatMap((s) => {
+  return parsed.services.flatMap((s) => {
         const port = typeof s.port === "number" ? s.port : 0;
         const description = s.displayName ?? s.id;
         const canonical: BridgeInfo = { name: s.id, description, port, status: "unknown" };
@@ -84,12 +78,7 @@ function loadCanonicalBridges(): BridgeInfo[] | null {
           status: "unknown",
         }));
         return [canonical, ...aliases];
-      });
-    } catch {
-      // Unreadable / invalid registry — try the next candidate, else fall back.
-    }
-  }
-  return null;
+  });
 }
 
 /**

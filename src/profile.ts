@@ -1,7 +1,15 @@
 /**
- * Active-agent seam. The persona + tool allowlist live in the per-agent
- * overlay (src/profiles/agent.ts). This file is the stable import path
- * (./profile.js) and is BYTE-IDENTICAL across the trio — swap the overlay
- * to swap the agent; nothing else changes.
+ * Active-agent compatibility seam. Persona lives in the per-agent profile;
+ * tool authority lives only in the closed capsule/deployment configuration.
+ * This stable import path is byte-identical across the trio.
  */
-export { agentProfile, agentToolNames } from "./profiles/agent.js";
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readAgentCapsules } from './core/runtime-config.js';
+
+export { agentProfile } from "./profiles/agent.js";
+
+/** Deprecated read-only view. The live runtime still intersects this request with its trusted ceiling. */
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const { capsule } = readAgentCapsules(repositoryRoot);
+export const agentToolNames: readonly string[] = Object.freeze([...capsule.baseToolNames]);

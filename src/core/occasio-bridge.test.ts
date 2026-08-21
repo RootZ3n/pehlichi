@@ -28,6 +28,10 @@ function recordingBridge(overrides: Record<string, boolean> = {}): { fn: BridgeR
   };
   return { fn, calls };
 }
+const configuredRouting = {
+  sourceAgentId: 'mad-ptah',
+  routingTargets: { creative: 'luna', coordinator: 'pehlichi', workOrderSource: 'ptah' as const },
+};
 
 test("isCreativeFinding keys off category and the explicit flag", () => {
   assert.equal(isCreativeFinding({ title: "t", description: "d", category: "broken-demo" }), true);
@@ -41,12 +45,12 @@ test("a non-creative finding creates a WO and announces to pehlichi only", async
   const { fn, calls } = recordingBridge();
   const res = await fileFinding(
     { title: "repeated build failure", description: "ikbi build failed 5x", category: "repeated-failure", repos: ["ikbi"] },
-    { store, bridgeRequest: fn },
+    { store, bridgeRequest: fn, ...configuredRouting },
   );
   assert.equal(res.workOrder.category, "bug");
   assert.equal(res.workOrder.severity, "high");
-  assert.equal(res.routedToLuna, false);
-  assert.equal(res.announcedToPehlichi, true);
+  assert.equal(res.routedToCreative, false);
+  assert.equal(res.announcedToCoordinator, true);
   // exactly one bridge call, to pehlichi /intake
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.service, "pehlichi");
@@ -61,11 +65,11 @@ test("a creative finding dispatches to Luna AND announces to pehlichi", async ()
   const { fn, calls } = recordingBridge();
   const res = await fileFinding(
     { title: "missing hero image", description: "demo page has a broken image", category: "missing-image", assetSpec: { dimensions: "1024x1024" } },
-    { store, bridgeRequest: fn },
+    { store, bridgeRequest: fn, ...configuredRouting },
   );
   assert.equal(res.workOrder.category, "creative");
-  assert.equal(res.routedToLuna, true);
-  assert.equal(res.announcedToPehlichi, true);
+  assert.equal(res.routedToCreative, true);
+  assert.equal(res.announcedToCoordinator, true);
   const services = calls.map((c) => c.service);
   assert.deepEqual(services, ["luna", "pehlichi"]);
   const lunaCall = calls.find((c) => c.service === "luna");
@@ -78,11 +82,11 @@ test("bridge failures are non-fatal: the WO is still created and errors are repo
   const { fn } = recordingBridge({ luna: false, pehlichi: false });
   const res = await fileFinding(
     { title: "broken demo", description: "the demo crashes", category: "broken-demo" },
-    { store, bridgeRequest: fn },
+    { store, bridgeRequest: fn, ...configuredRouting },
   );
   assert.ok(res.workOrder.id.startsWith("WO-"));
-  assert.equal(res.routedToLuna, false);
-  assert.equal(res.announcedToPehlichi, false);
+  assert.equal(res.routedToCreative, false);
+  assert.equal(res.announcedToCoordinator, false);
   assert.equal(res.bridgeErrors.length, 2);
   // the work order persists regardless of bridge outcome
   assert.ok(await store.get(res.workOrder.id));

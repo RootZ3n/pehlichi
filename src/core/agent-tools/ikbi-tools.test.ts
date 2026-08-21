@@ -41,7 +41,7 @@ function jsonResponse(status: number, body: unknown): Response {
 const handlers = createIkbiToolHandlers();
 
 test("ikbi tools are registered in the full tool registry", () => {
-  const tools = createFullToolRegistry({ workspaceRoot: "/tmp", agentServerUrl: "http://127.0.0.1:0" });
+  const tools = createFullToolRegistry({ workspaceRoot: "/tmp", agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
   const names = new Set(tools.map((t) => t.spec.name));
   for (const spec of ikbiToolSpecs) {
     assert.ok(names.has(spec.name), `${spec.name} registered`);

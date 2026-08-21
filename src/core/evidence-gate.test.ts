@@ -9,9 +9,10 @@ import { test } from "node:test";
 
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
-import { runAgent, unprovenClaim } from "./loop.js";
+import { runAgent as governedRunAgent, unprovenClaim, type RunAgentOptions } from "./loop.js";
 import type { AgentProfile } from "./profile.js";
 import { createLabStore, createWorkspace } from "./scenario.js";
+import { createToolRegistry } from './tools.js';
 
 const testProfile: AgentProfile = {
   name: "EvidenceAgent",
@@ -21,6 +22,8 @@ const testProfile: AgentProfile = {
 };
 
 const allowAll = () => ({ approved: true as const });
+const runAgent = (opts: Omit<RunAgentOptions, 'toolNames'> & { toolNames?: readonly string[] }) =>
+  governedRunAgent({ ...opts, toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()] });
 
 function capture(): { events: AgentEvent[]; sink: (e: AgentEvent) => void } {
   const events: AgentEvent[] = [];

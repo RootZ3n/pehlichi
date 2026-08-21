@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentProfile, agentToolNames } from "./agent.js";
+import { agentProfile } from "./agent.js";
+import { agentToolNames } from "../profile.js";
 
 // Per-agent identity pins (OVERLAY — personality; differs per agent).
 // Structural invariants live in the shared src/profile.test.ts.

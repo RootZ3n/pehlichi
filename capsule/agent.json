@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "identity": {
+    "id": "pehlichi",
+    "displayName": "Pehlichi",
+    "role": "coordinator",
+    "icon": "🐿"
+  },
+  "providerDefaults": {
+    "model": "mimo-v2.5",
+    "baseUrl": "https://api.xiaomimimo.com/v1"
+  },
+  "baseToolNames": [
+    "read_file", "search_files", "web_search", "web_extract", "vision_analyze",
+    "browser_navigate", "browser_snapshot", "browser_click", "browser_type", "browser_vision",
+    "browser_get_images", "browser_back", "browser_scroll", "browser_press", "browser_console",
+    "write_file", "patch", "terminal", "process", "memory", "labmem_recall", "labmem_remember",
+    "lab_recall_conversation", "skills_list", "skill_view", "skill_manage", "todo", "clarify",
+    "delegate_task", "cronjob", "execute_code", "ikbi_build", "ikbi_fix", "ikbi_status",
+    "bridge.health", "bridge.list", "bridge.request", "lab_status_digest", "phone_take_photo",
+    "phone_record_audio", "phone_read_sensor", "phone_read_text", "phone_location", "phone_battery",
+    "phone_speak", "phone_notify", "phone_torch", "git_status", "git_diff", "git_log", "git_add",
+    "git_commit", "git_push", "git_clone", "lab_shell", "luak_registry", "luak_add_model",
+    "luak_update_model", "luak_remove_model", "luak_add_provider", "luak_test_provider", "luak_run",
+    "luak_leaderboard"
+  ],
+  "requestedCapabilityPacks": [],
+  "personalityPath": "personality",
+  "skinPath": "tui/skin.yaml",
+  "skillTags": [
+    "coordination", "memory", "routing", "planning", "archivum",
+    "career", "learning", "toba", "nusika", "security"
+  ]
+}

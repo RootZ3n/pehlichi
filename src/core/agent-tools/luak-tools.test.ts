@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createLuakToolHandlers, luakToolSpecs, luakToolNames } from './luak-tools.js';
 import { createFullToolRegistry } from './index.js';
-import { agentToolNames } from '../../profiles/agent.js';
+import { agentToolNames } from '../../profile.js';
 import { READ_ONLY_TOOLS } from '../approval-policy.js';
 
 const handlers = createLuakToolHandlers();
@@ -45,7 +45,7 @@ test('all 8 luak specs registered + on allowlist; only reads are auto-approved',
     assert.ok(agentToolNames.includes(spec.name), `${spec.name} allowlisted`);
     assert.ok(luakToolNames.has(spec.name));
   }
-  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0' }).map((t) => t.spec.name));
+  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
   for (const spec of luakToolSpecs) assert.ok(names.has(spec.name), `${spec.name} in registry`);
   assert.ok(READ_ONLY_TOOLS.has('luak_registry') && READ_ONLY_TOOLS.has('luak_leaderboard'));
   for (const t of ['luak_add_model', 'luak_update_model', 'luak_remove_model', 'luak_run']) assert.ok(!READ_ONLY_TOOLS.has(t), `${t} gated`);

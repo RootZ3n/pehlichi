@@ -6,6 +6,7 @@
  * structured data only; presentation (emoji, layout, colour) is the renderer's
  * job, never the agent's.
  */
+import { validateFindingMetadata, type ToolTextChannel } from './agent-tools/restricted-evidence.js';
 
 /** Narration phase — the shape of a reasoning beat. */
 export type Phase = "investigate" | "act" | "verify" | "other";
@@ -28,6 +29,15 @@ export type AgentEventInput =
   | { kind: "root-cause"; text: string }
   | { kind: "tool-call"; tool: string; args: unknown }
   | { kind: "tool-result"; tool: string; ok: boolean; output: string; error?: string }
+  | {
+      kind: "velum-finding";
+      source: string;
+      channel: ToolTextChannel;
+      patterns: string[];
+      evidenceId: string;
+      evidenceSha256: string;
+      evidenceBytes: number;
+    }
   | {
       // The audit surface for every executed terminal command. Carries env
       // allowlist KEYS only — never values — so secrets can never leak here.
@@ -88,6 +98,16 @@ export class EventEmitter {
 
   /** Stamp and fan out an event; returns the stamped event. */
   emit(input: AgentEventInput): AgentEvent {
+    if (input.kind === 'velum-finding') {
+      validateFindingMetadata({
+        evidenceId: input.evidenceId,
+        sha256: input.evidenceSha256,
+        source: input.source,
+        channel: input.channel,
+        patterns: input.patterns,
+        bytes: input.evidenceBytes,
+      });
+    }
     const e = { ...input, ts: this.clock(), seq: this.seq++ } as AgentEvent;
     for (const sink of this.sinks) sink(e);
     return e;

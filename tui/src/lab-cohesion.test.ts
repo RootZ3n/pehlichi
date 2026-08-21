@@ -18,7 +18,8 @@ import { test } from 'node:test';
 import type { Driver, DriverAction, DriverContext, Message } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
 import { recallConversation } from '../../src/core/lab-transcript.js';
-import { createPehServer, type PehServerOptions } from './server.js';
+import { truthCognition } from '../../src/core/truth-bridge.js';
+import { createPehServer, truthLayerEnabled, type PehServerOptions } from './server.js';
 
 class RecordingDriver implements Driver {
   lastMessages: Message[] = [];
@@ -54,7 +55,7 @@ test('shared memory: kernel turns are recorded, and a later surface recalls them
   const driver = new RecordingDriver();
   // The ambient recall is folded into the system/persona message; inspect it precisely.
   const ambientMsg = (): string =>
-    driver.lastMessages.find((m) => m.content.includes('SHARED LAB MEMORY'))?.content ?? '';
+    driver.lastMessages.find((m) => m.content.includes('SHARED AGENT MEMORY'))?.content ?? '';
 
   try {
     await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
@@ -83,10 +84,20 @@ test('shared memory: kernel turns are recorded, and a later surface recalls them
   }
 });
 
-test('truth-layer advisory is injected into the turn when enabled (TF-2)', async () => {
+test('truth-layer enablement is explicit and independent from legacy dependency-root data', () => {
+  assert.equal(truthLayerEnabled({}), false, 'unset feature is disabled');
+  assert.equal(truthLayerEnabled({ TRUTH_FIREWALL_ROOT: '/approved/or/untrusted' }), false, 'a path never enables code');
+  assert.equal(truthLayerEnabled({ LAB_TRUTH: '0', TRUTH_FIREWALL_ROOT: '/approved' }), false);
+  assert.equal(truthLayerEnabled({ LAB_TRUTH: 'true' }), false, 'only the exact declared flag enables');
+  assert.equal(truthLayerEnabled({ LAB_TRUTH: '1' }), true);
+  assert.equal(truthLayerEnabled({ LAB_TRUTH: '1', TRUTH_FIREWALL_ROOT: '/untrusted' }), true,
+    'legacy path data cannot disable or replace the verified dependency when explicitly enabled');
+});
+
+test('an environment-selected truth module cannot enable or inject advisory behavior', async () => {
   const ws = createWorkspace();
   const store = createLabStore();
-  // A fake truth-firewall facade so the test is hermetic (no dependency on the real build).
+  // A fake truth-firewall facade carrying an unmistakable executable advisory.
   const tfRoot = mkdtempSync(join(tmpdir(), 'fake-tf-'));
   const tfDir = join(tfRoot, 'dist', 'src');
   mkdirSync(tfDir, { recursive: true });
@@ -94,18 +105,47 @@ test('truth-layer advisory is injected into the turn when enabled (TF-2)', async
   writeFileSync(
     join(tfDir, 'lab-cognition.js'),
     `export function cognitionForAgent(i){ return { advisoryOnly:true, task:i.task }; }\n` +
-      `export function renderCognitionForPrompt(s){ return s ? 'TRUTH-LAYER CHECK: ' + (s.task||'') : ''; }`,
+      `export function renderCognitionForPrompt(s){ return s ? 'UNTRUSTED EXECUTABLE ADVISORY: ' + (s.task||'') : ''; }`,
   );
-  process.env.LAB_TRUTH = '1';
+  delete process.env.LAB_TRUTH;
   process.env.TRUTH_FIREWALL_ROOT = tfRoot;
   const driver = new RecordingDriver();
-  const truthMsg = (): string =>
-    driver.lastMessages.find((m) => m.content.includes('TRUTH-LAYER CHECK'))?.content ?? '';
+  const corpus = (): string => driver.lastMessages.map((message) => message.content).join('\n');
 
   try {
     await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
       await post(base, 'run the-task', 'lab:peh');
-      assert.match(truthMsg(), /TRUTH-LAYER CHECK: run the-task/, 'truth advisory folded into the turn');
+      assert.doesNotMatch(corpus(), /UNTRUSTED EXECUTABLE ADVISORY/);
+      assert.doesNotMatch(corpus(), /TRUTH-LAYER CHECK/, 'a dependency path alone does not enable the feature');
+    });
+  } finally {
+    delete process.env.LAB_TRUTH;
+    delete process.env.TRUTH_FIREWALL_ROOT;
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+    rmSync(tfRoot, { recursive: true, force: true });
+  }
+});
+
+test('LAB_TRUTH runs only the verified canonical dependency and ignores a fake root', async () => {
+  const ws = createWorkspace();
+  const store = createLabStore();
+  const tfRoot = mkdtempSync(join(tmpdir(), 'fake-tf-enabled-'));
+  mkdirSync(join(tfRoot, 'dist', 'src'), { recursive: true });
+  writeFileSync(join(tfRoot, 'package.json'), JSON.stringify({ type: 'module' }));
+  writeFileSync(join(tfRoot, 'dist', 'src', 'lab-cognition.js'),
+    `export const cognitionForAgent=()=>({}); export const renderCognitionForPrompt=()=> 'UNTRUSTED EXECUTABLE ADVISORY';`);
+  process.env.LAB_TRUTH = '1';
+  process.env.TRUTH_FIREWALL_ROOT = tfRoot;
+  const expected = await truthCognition({ task: 'run the-task' });
+  const driver = new RecordingDriver();
+  try {
+    await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
+      await post(base, 'run the-task', 'lab:peh');
+      const corpus = driver.lastMessages.map((message) => message.content).join('\n');
+      assert.doesNotMatch(corpus, /UNTRUSTED EXECUTABLE ADVISORY/, 'fake root never executes');
+      if (expected.length > 0) assert.match(corpus, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      else assert.doesNotMatch(corpus, /TRUTH-LAYER CHECK/, 'verified canonical dependency produced no advisory');
     });
   } finally {
     delete process.env.LAB_TRUTH;
@@ -126,7 +166,7 @@ test('shared memory is INERT when LAB_TRANSCRIPT_DIR is unset (release / test de
   try {
     await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
       await post(base, 'run something-here', 'lab:peh');
-      assert.doesNotMatch(corpus(), /SHARED LAB MEMORY/, 'no ambient injected when memory is off');
+    assert.doesNotMatch(corpus(), /SHARED AGENT MEMORY/, 'no ambient injected when memory is off');
     });
   } finally {
     rmSync(ws, { recursive: true, force: true });

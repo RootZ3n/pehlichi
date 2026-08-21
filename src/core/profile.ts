@@ -23,7 +23,7 @@ export interface AgentProfile {
   /** Personality/VOICE only — who the agent is, never how it works (that is the skillpack). */
   readonly personaPreamble: string;
   /** Tags this agent prioritizes pulling from lab-store (selects candidate skillpacks). */
-  readonly skillTags: string[];
+  readonly skillTags: readonly string[];
   /** Prompt/banner emoji — per-agent branding (overlay). */
   readonly icon?: string;
   /** This agent's own server base URL (overlay; env AGENT_URL wins). */

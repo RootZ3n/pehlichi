@@ -37,6 +37,7 @@ async function runWithTier(tier: 'converse' | 'readonly'): Promise<{ partial: bo
       workspaceRoot: workspace,
       labStoreRoot: labStore,
       driver: runawayDriver(),
+      toolNames: [],
       sinks: [(e) => events.push(e)],
       budgetTier: tier,
       partialOnExhaustion: true,

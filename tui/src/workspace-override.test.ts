@@ -2,7 +2,7 @@
  * Codex P6 — workspace override confinement.
  *
  * A caller-supplied `workspace` may only point inside an operator-approved root
- * (PEHLICHI_WORKSPACE_ROOTS). Arbitrary absolute paths, /etc, the home root, sibling repos
+ * (the validated deployment workspace-roots key). Arbitrary absolute paths, /etc, the home root, sibling repos
  * outside the allowlist, and symlink escapes are all rejected. With no allowlist configured,
  * overrides fail closed.
  */
@@ -12,7 +12,9 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, afterEach } from 'node:test';
 
-import { parseWorkspaceOverride } from './server.js';
+import { configuredRuntime, parseWorkspaceOverride } from './server.js';
+
+const workspaceRootsEnvironment = configuredRuntime.deployment.environment.workspaceRoots;
 
 const created: string[] = [];
 function tmp(prefix: string): string {
@@ -21,7 +23,7 @@ function tmp(prefix: string): string {
   return d;
 }
 afterEach(() => {
-  delete process.env.PEHLICHI_WORKSPACE_ROOTS;
+  delete process.env[workspaceRootsEnvironment];
   for (const d of created.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -29,20 +31,20 @@ test('allowed repo path inside an approved root succeeds', () => {
   const root = tmp('peh-roots-');
   const repo = join(root, 'myrepo');
   mkdirSync(repo);
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   const out = parseWorkspaceOverride({ workspace: repo });
   assert.equal(out, realpathSync(repo));
 });
 
 test('/etc is rejected', () => {
   const root = tmp('peh-roots-');
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: '/etc' }), /outside the approved roots/);
 });
 
 test('home directory root is rejected unless explicitly allowlisted', () => {
   const root = tmp('peh-roots-');
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: homedir() }), /outside the approved roots|not found|not a directory/);
 });
 
@@ -50,7 +52,7 @@ test('sibling directory outside the allowlist is rejected', () => {
   const root = tmp('peh-roots-');
   const sibling = tmp('peh-sibling-'); // a real dir, but NOT under the approved root
   mkdirSync(join(sibling, 'repo'));
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: join(sibling, 'repo') }), /outside the approved roots/);
 });
 
@@ -60,26 +62,26 @@ test('symlink escape is rejected (realpath confinement)', () => {
   // A symlink INSIDE the approved root that points OUTSIDE it.
   const link = join(root, 'escape');
   symlinkSync(outside, link);
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: link }), /outside the approved roots/);
 });
 
 test('.. traversal is rejected before resolution', () => {
   const root = tmp('peh-roots-');
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: `${root}/../etc` }), /absolute path without \.\./);
 });
 
 test('relative (non-absolute) path is rejected', () => {
   const root = tmp('peh-roots-');
-  process.env.PEHLICHI_WORKSPACE_ROOTS = root;
+  process.env[workspaceRootsEnvironment] = root;
   assert.throws(() => parseWorkspaceOverride({ workspace: 'relative/dir' }), /absolute path/);
 });
 
 test('fails closed with operator guidance when no allowlist is configured', () => {
-  delete process.env.PEHLICHI_WORKSPACE_ROOTS;
+  delete process.env[workspaceRootsEnvironment];
   const repo = tmp('peh-repo-');
-  assert.throws(() => parseWorkspaceOverride({ workspace: repo }), /PEHLICHI_WORKSPACE_ROOTS/);
+  assert.throws(() => parseWorkspaceOverride({ workspace: repo }), new RegExp(workspaceRootsEnvironment));
 });
 
 test('absent workspace field returns undefined (no override, uses server default)', () => {

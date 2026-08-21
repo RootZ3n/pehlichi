@@ -30,7 +30,7 @@ export interface BrainToolConfig {
    * the direct write. brain_search/brain_think (reads) are unaffected.
    */
   governance?: BrainGovernance;
-  /** Agent id recorded on each brain proposal (defaults to "pehlichi"). */
+  /** Agent id recorded on each brain proposal (generic for direct trusted/test callers). */
   agentId?: string;
 }
 
@@ -119,7 +119,7 @@ function toError(tool: string, err: unknown): ToolResult {
 export function createBrainToolHandlers(config: BrainToolConfig = {}): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
   const governance = config.governance;
-  const agentId = config.agentId ?? "pehlichi";
+  const agentId = config.agentId ?? "agent";
 
   handlers.set("brain_search", async (args): Promise<ToolResult> => {
     const query = (args.query as string)?.trim();

@@ -7,8 +7,8 @@
  * side-effect-free; add/commit/push/clone are writes (gated by the approval policy, i.e. they
  * only run when AGENT_ALLOW_WRITES is enabled).
  *
- * PUSH AUTH: a Personal Access Token is read from the env (GITHUB_TOKEN / GH_TOKEN /
- * PEH_GITHUB_TOKEN) and injected ONLY for push/clone via `http.extraHeader` passed through
+ * PUSH AUTH: a Personal Access Token is read from the generic env (GITHUB_TOKEN / GH_TOKEN)
+ * and injected ONLY for push/clone via `http.extraHeader` passed through
  * GIT_CONFIG_* ENVIRONMENT (git 2.31+) — so the token never lands in argv (ps-visible) nor is it
  * persisted to .git/config. Unset ⇒ push/clone of a private remote fails with a clear hint.
  *
@@ -42,7 +42,7 @@ export type GitRunner = (args: readonly string[], cwd: string, extraEnv?: Record
 
 /** Resolve a GitHub PAT from the env (checked in order). Undefined ⇒ no token configured. */
 export function resolveGitToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'PEH_GITHUB_TOKEN']) {
+  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN']) {
     const v = env[k]?.trim();
     if (v !== undefined && v.length > 0) return v;
   }

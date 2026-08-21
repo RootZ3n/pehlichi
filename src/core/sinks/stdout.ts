@@ -24,6 +24,8 @@ export function formatEvent(e: AgentEvent): string {
       return `${head}: ${e.tool} ${JSON.stringify(e.args)}`;
     case "tool-result":
       return `${head}: ${e.tool} ok=${e.ok}${e.error ? ` error=${e.error}` : ""} | ${oneLine(e.output)}`;
+    case "velum-finding":
+      return `${head}: source=${e.source} patterns=${e.patterns.join(",")}`;
     case "terminal-receipt":
       return `${head}: ${JSON.stringify(e.command)} cwd=${e.cwd} env=[${e.envKeys.join(",")}] exit=${e.exitCode} ${e.durationMs}ms out=${e.stdoutBytes}b err=${e.stderrBytes}b${e.truncated ? " [truncated]" : ""}`;
     case "diff":

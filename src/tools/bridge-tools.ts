@@ -7,9 +7,9 @@
  * Services: pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha
  */
 import { randomUUID } from "node:crypto";
-import { readFileSync, existsSync } from "node:fs";
 import type { ToolSpec } from "../core/driver.js";
 import type { ToolHandler, ToolResult } from "../core/tools.js";
+import { readVerifiedExternalData } from '../core/external-runtime-integrity.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -54,24 +54,14 @@ interface RegistryService {
  */
 function loadServicePortMap(): Record<string, number> {
   const ports: Record<string, number> = { ...DEFAULT_SERVICE_PORTS };
-  const candidates = [
-    process.env.LAB_REGISTRY_PATH,
-    "/pehverse/repos/lab-utilities/lab-registry/services.json",
-  ].filter((p): p is string => typeof p === "string" && p.length > 0);
-  for (const path of candidates) {
-    try {
-      if (!existsSync(path)) continue;
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as { services?: readonly RegistryService[] };
-      for (const svc of parsed.services ?? []) {
-        if (typeof svc.port === "number" && svc.port > 0) {
-          ports[svc.id] = svc.port;
-          for (const alias of svc.aliases ?? []) ports[alias] = svc.port;
-        }
+  const bytes = readVerifiedExternalData('lab-registry', 'services.json');
+  if (bytes === null) return ports;
+  const parsed = JSON.parse(bytes) as { services?: readonly RegistryService[] };
+  for (const svc of parsed.services ?? []) {
+    if (typeof svc.port === "number" && svc.port > 0) {
+      ports[svc.id] = svc.port;
+      for (const alias of svc.aliases ?? []) ports[alias] = svc.port;
       }
-      break; // first readable registry wins
-    } catch {
-      // Unreadable/invalid registry — fall back to defaults. Never throw here.
-    }
   }
   return ports;
 }
@@ -177,8 +167,8 @@ const DEFAULT_RETRY_BACKOFF_MS: readonly number[] = [1000, 4000];
 
 /** Configuration for the bridge tool handlers. */
 export interface BridgeToolConfig {
-  /** This agent's id, stamped on X-Agent-Id. Defaults to $AGENT_ID, else "unknown". */
-  agentId?: string;
+  /** Canonical validated capsule id, stamped on X-Agent-Id. */
+  agentId: string;
   /** Injectable fetch (tests pass a mock to drive retry classification). Defaults to global fetch. */
   fetchImpl?: typeof fetch;
   /** Injectable backoff sleep (tests pass a no-op so retries don't add wall-clock). Defaults to realSleep. */
@@ -188,9 +178,12 @@ export interface BridgeToolConfig {
 }
 
 /** Create the bridge tool handlers. */
-export function createBridgeToolHandlers(config: BridgeToolConfig = {}): Map<string, ToolHandler> {
+export function createBridgeToolHandlers(config: BridgeToolConfig): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
-  const agentId = config.agentId ?? process.env.AGENT_ID ?? "unknown";
+  if (!config || typeof config.agentId !== 'string' || config.agentId.length === 0) {
+    throw new Error('bridge tools require the canonical validated agent identity');
+  }
+  const agentId = config.agentId;
   const fetchImpl = config.fetchImpl ?? fetch;
   const sleep = config.sleep ?? realSleep;
   const backoff = config.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;

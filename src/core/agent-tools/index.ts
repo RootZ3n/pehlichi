@@ -12,7 +12,7 @@
  *
  * Usage:
  *   import { createFullToolRegistry } from './agent-tools/index.js';
- *   const extraTools = createFullToolRegistry({ workspaceRoot, agentServerUrl, apiKey });
+ *   const extraTools = createFullToolRegistry({ workspaceRoot, agentServerUrl, agentId, apiKey });
  *   const registry = createToolRegistry(extraTools);
  */
 import type { ToolDef } from '../tools.js';
@@ -94,8 +94,16 @@ export interface AgentToolConfig {
    * lab-store's `.agent-sync` dir — one source of truth for the whole lab.
    */
   coordinationDir?: string;
-  /** This agent's id, recorded on each agent_sync entry. Defaults to the workspace basename. */
-  agentId?: string;
+  /** Canonical capsule identity recorded by memory/coordination mechanisms. Required. */
+  agentId: string;
+  /** Declarative routing targets used by optional generic capability packs. */
+  routingTargets?: {
+    readonly creative: string;
+    readonly coordinator: string;
+    readonly workOrderSource: 'zen' | 'peh' | 'luna' | 'julian' | 'atoni' | 'ptah' | 'unknown';
+  };
+  /** Immutable lane inherited by any nested runtime. Missing means nested runtimes get no tools. */
+  authorizedToolNames?: readonly string[];
   /**
    * PERSISTENCE (Blocker 3): where cron jobs are persisted (a JSON file). Defaults to
    * `<workspaceRoot>/.cron-jobs.json`. Jobs are reloaded and active ones rescheduled
@@ -141,6 +149,7 @@ function defaultCronExecute(config: AgentToolConfig): (prompt: string) => Promis
       labStoreRoot: labStore,
       driver: new MimoDriver(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
       sinks: [(e) => events.push(e)],
+      toolNames: config.authorizedToolNames ?? [],
       plan: false,
     });
     const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
@@ -175,6 +184,9 @@ export function resolveSubagentRunner(): { runnerPath: string; nodeArgs: readonl
  * Returns a ToolDef[] that can be passed to createToolRegistry(extraTools).
  */
 export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
+  if (typeof config.agentId !== 'string' || config.agentId.trim() !== config.agentId || config.agentId.length === 0) {
+    throw new Error('full tool registry requires an explicit canonical agent identity');
+  }
   const browserHandlers = createBrowserToolHandlers();
   const webHandlers = createWebToolHandlers();
   const fileHandlers = createEnhancedFileToolHandlers(config.workspaceRoot);
@@ -186,6 +198,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
     nodeArgs: config.subagentNodeArgs ?? resolved.nodeArgs,
     ...(config.delegateTimeoutMs !== undefined ? { timeoutMs: config.delegateTimeoutMs } : {}),
     ...(config.delegateAllowWrites !== undefined ? { allowWrites: config.delegateAllowWrites } : {}),
+    authorizedToolNames: config.authorizedToolNames ?? [],
   });
   const todoHandlers = createTodoToolHandlers();
   const skillsRoot = config.skillsRoot ?? join(config.workspaceRoot, 'skills');
@@ -197,7 +210,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // for human verification + approval. The raw handler keeps a trusted direct-write mode
   // (no sink) for internal callers/tests only.
   const memoryGovernance = createFileMemoryGovernance({ proposalsDir: join(memoryDir, '.proposals') });
-  const memoryAgentId = config.agentId ?? config.workspaceRoot.split('/').filter(Boolean).pop() ?? 'pehlichi';
+  const memoryAgentId = config.agentId;
   const memoryHandlers = createMemoryToolHandlers({ memoryDir, governance: memoryGovernance, agentId: memoryAgentId });
   // CRON (Blocker 3): the execute callback runs a REAL agent loop in a disposable
   // shadow workspace and returns its summary — not a stub string. Jobs persist to a
@@ -210,7 +223,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const coordinationDir = config.coordinationDir
     ?? process.env.AGENT_SYNC_DIR
     ?? join(config.workspaceRoot, '..', 'lab-store', '.agent-sync');
-  const agentId = config.agentId ?? config.workspaceRoot.split('/').filter(Boolean).pop() ?? 'agent';
+  const agentId = config.agentId;
   const coordinationHandlers = createCoordinationToolHandlers({ syncDir: coordinationDir, agentId });
 
   const clarifyHandlers = createClarifyToolHandlers();
@@ -233,7 +246,7 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const labContextHandlers = createLabContextToolHandlers();
 
   // LABMEM: lab-wide memory system (recall shared/own/project memory; record own).
-  const labmemHandlers = createLabmemToolHandlers();
+  const labmemHandlers = createLabmemToolHandlers({ agentId: config.agentId });
 
   // LAB CONVERSATION: on-demand deep recall from the shared cross-agent transcript.
   const labConversationHandlers = createLabConversationToolHandlers();
@@ -385,7 +398,11 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
     }
   }
   if (config.enableOccasio) {
-    const occasioHandlers = createOccasioToolHandlers();
+    if (!config.routingTargets) throw new Error('occasio capability requires validated declarative routing targets');
+    const occasioHandlers = createOccasioToolHandlers({
+      agentId: config.agentId,
+      routingTargets: config.routingTargets,
+    });
     for (const spec of occasioToolSpecs) {
       const handler = occasioHandlers.get(spec.name);
       if (handler) tools.push({ spec, handler });

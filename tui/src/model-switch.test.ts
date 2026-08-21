@@ -43,10 +43,10 @@ test('availableModelTargets returns the five cloud presets (no local)', () => {
   assert.match(mm.baseUrl, /minimax/);
 });
 
-test('PEHLICHI_MODEL_TARGETS can append custom presets; bad JSON is ignored', () => {
-  const extra = availableModelTargets({ PEHLICHI_MODEL_TARGETS: '[{"model":"my-model","baseUrl":"https://x/v1"}]' });
+test('AGENT_MODEL_TARGETS can append custom presets; bad JSON is ignored', () => {
+  const extra = availableModelTargets({ AGENT_MODEL_TARGETS: '[{"model":"my-model","baseUrl":"https://x/v1"}]' });
   assert.ok(extra.some((t) => t.id === 'my-model'));
-  assert.equal(availableModelTargets({ PEHLICHI_MODEL_TARGETS: 'not json' }).length, 5);
+  assert.equal(availableModelTargets({ AGENT_MODEL_TARGETS: 'not json' }).length, 5);
 });
 
 test('initialActive defaults to mimo-v2.5, honours a valid AGENT_MODEL', () => {

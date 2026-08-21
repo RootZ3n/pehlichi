@@ -1,10 +1,9 @@
 /**
- * PHONE TOOLS — Peh's governed Android BODY (Termux + Termux:API).
+ * PHONE TOOLS — a governed Android body (Termux + Termux:API).
  *
- * Ported from ikbi's builder/chat phone_* group so the REAL Peh (this coordinator
- * runtime) has camera, microphone, sensors, GPS, battery/thermal, speech,
+ * Provides a runtime with camera, microphone, sensors, GPS, battery/thermal, speech,
  * notifications, torch, and fast on-device OCR without needing to wake ikbi. When
- * Peh runs on the phone as the all-day daily driver, these are how she perceives and
+ * When an agent runs on the phone, these are how it perceives and
  * acts through the device.
  *
  * EXECUTION: each tool shells a single fixed `termux-*` binary with ARRAY args (no
@@ -12,15 +11,15 @@
  * spawnSync with a Termux-aware env — the phone's `termux-api` helper shells to
  * Android `am`, which needs the ANDROID_* / TERMUX_* / BOOTCLASSPATH / PREFIX / LD_PRELOAD vars; the
  * lab's other tools build env FROM EMPTY, which strips exactly those, so we pass the
- * Termux/Android vars through (extendable via PEHLICHI_PHONE_ENV_ALLOWLIST). Off the
+ * Termux/Android vars through (extendable via AGENT_PHONE_ENV_ALLOWLIST). Off the
  * phone the termux-* binaries are absent, so every tool returns a clean "not found"
  * error rather than doing anything.
  *
  * CONFINEMENT: capture tools write ONLY inside the workspace (resolveInWorkspace); a
  * saved photo is then perceived with vision_analyze, closing the perceive→reason loop.
  *
- * TRANSPORT: LOCAL by default (Peh on the phone). Set PEHLICHI_PHONE_SSH_HOST to drive
- * a REMOTE phone over SSH from a PC-hosted Peh during development — the remote login
+ * TRANSPORT: LOCAL by default. Set AGENT_PHONE_SSH_HOST to drive
+ * a REMOTE phone over SSH from a development host — the remote login
  * shell word-splits the joined command, so remote save paths must be space-free (the
  * LOCAL path is fully quote-safe via array args).
  *
@@ -55,7 +54,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 
 // ── transport + runner (the injection seam for tests) ─────────────────────────────
 
-/** How a phone command reaches the device: LOCAL (Peh on the phone) or over SSH (Peh on a PC). */
+/** How a phone command reaches the device: local on-device execution or SSH. */
 export type PhoneTransport = { readonly kind: 'local' } | { readonly kind: 'ssh'; readonly host: string };
 
 /** The raw outcome of one device command. `error` is set for spawn failures (e.g. binary not found). */
@@ -70,11 +69,10 @@ export interface PhoneRunResult {
 export type PhoneRunner = (binary: string, args: readonly string[]) => PhoneRunResult;
 
 /**
- * Resolve the device transport from the environment. PEHLICHI_PHONE_SSH_HOST drives a
- * REMOTE phone over SSH from a PC-hosted Peh; unset ⇒ LOCAL (on-device).
+ * Resolve transport from the generic deployment environment. Unset means local/on-device.
  */
 export function resolvePhoneTransport(env: NodeJS.ProcessEnv = process.env): PhoneTransport {
-  const host = typeof env.PEHLICHI_PHONE_SSH_HOST === 'string' ? env.PEHLICHI_PHONE_SSH_HOST.trim() : '';
+  const host = typeof env.AGENT_PHONE_SSH_HOST === 'string' ? env.AGENT_PHONE_SSH_HOST.trim() : '';
   return host.length > 0 ? { kind: 'ssh', host } : { kind: 'local' };
 }
 
@@ -88,7 +86,7 @@ const TERMUX_ENV_PREFIXES: readonly string[] = ['ANDROID_', 'TERMUX_'];
 
 /**
  * Build the env for a LOCAL termux command: PATH/HOME/LANG/TMPDIR plus the Termux/Android
- * vars the api bridge needs. PEHLICHI_PHONE_ENV_ALLOWLIST (comma-separated) adds keys.
+ * vars the api bridge needs. AGENT_PHONE_ENV_ALLOWLIST (comma-separated) adds keys.
  * Carries NO secrets by construction — only device/OS wiring, never API keys/tokens.
  */
 export function buildPhoneEnv(src: NodeJS.ProcessEnv = process.env): Record<string, string> {
@@ -98,7 +96,7 @@ export function buildPhoneEnv(src: NodeJS.ProcessEnv = process.env): Record<stri
     LANG: src.LANG ?? 'C.UTF-8',
   };
   if (src.TMPDIR !== undefined) env.TMPDIR = src.TMPDIR;
-  const extra = (src.PEHLICHI_PHONE_ENV_ALLOWLIST ?? '')
+  const extra = (src.AGENT_PHONE_ENV_ALLOWLIST ?? '')
     .split(',').map((s) => s.trim()).filter((s) => s.length > 0);
   for (const [k, v] of Object.entries(src)) {
     if (typeof v !== 'string') continue;
@@ -129,7 +127,7 @@ export function defaultPhoneRunner(transport: PhoneTransport): PhoneRunner {
     if (res.error !== undefined && res.error !== null) {
       const code = (res.error as NodeJS.ErrnoException).code;
       const msg = code === 'ENOENT'
-        ? `${cmd} not found — is Peh running on the phone with Termux:API installed?`
+          ? `${cmd} not found — is the agent running on a phone with Termux:API installed?`
         : res.error.message;
       return { code: -1, stdout: '', stderr: '', error: msg };
     }
@@ -223,12 +221,12 @@ export const phoneToolSpecs: ToolSpec[] = [
   },
   {
     name: 'phone_battery',
-    description: "Read the phone's battery + thermal status (percentage, charging state, temperature, health) via Termux:API. Returns JSON — useful for Peh to monitor her own device's health.",
+    description: "Read the phone's battery + thermal status (percentage, charging state, temperature, health) via Termux:API. Returns JSON for device-health monitoring.",
     parameters: obj({}, []),
   },
   {
     name: 'phone_speak',
-    description: "Speak text aloud through the phone's speaker (Termux:API text-to-speech). Peh's voice OUT.",
+    description: "Speak text aloud through the phone's speaker (Termux:API text-to-speech).",
     parameters: obj({
       text: { type: 'string', description: 'The text to speak.' },
     }, ['text']),
@@ -238,7 +236,7 @@ export const phoneToolSpecs: ToolSpec[] = [
     description: 'Post an Android notification on the phone (Termux:API). Use to surface something to the human holding the device.',
     parameters: obj({
       content: { type: 'string', description: 'The notification body.' },
-      title: { type: 'string', description: "The notification title. Default 'Pehlichi'." },
+      title: { type: 'string', description: "The notification title. Default 'Agent'." },
     }, ['content']),
   },
   {
@@ -328,7 +326,7 @@ export function createPhoneToolHandlers(opts: PhoneToolOptions = {}): Map<string
   handlers.set('phone_notify', async (args): Promise<ToolResult> => {
     const content = str(args.content);
     if (content === '') return failR("phone_notify requires non-empty 'content'");
-    const title = str(args.title) || 'Pehlichi';
+    const title = str(args.title) || 'Agent';
     const r = run('termux-notification', ['--title', title, '--content', content]);
     return render(r, `Posted notification "${title}".`);
   });

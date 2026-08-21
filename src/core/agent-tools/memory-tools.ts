@@ -125,7 +125,7 @@ export interface MemoryStoreConfig {
    * for trusted internal callers and unit tests. Reads are unaffected either way.
    */
   governance?: MemoryGovernance;
-  /** Agent id recorded on each proposal (defaults to "pehlichi"). */
+  /** Agent id recorded on each proposal (generic for direct trusted/test callers). */
   agentId?: string;
 }
 
@@ -139,7 +139,7 @@ export function createMemoryToolHandlers(config: MemoryStoreConfig): Map<string,
   const memoryCharLimit = config.memoryCharLimit ?? MEMORY_CHAR_LIMIT;
   const userCharLimit = config.userCharLimit ?? USER_CHAR_LIMIT;
   const governance = config.governance;
-  const agentId = config.agentId ?? 'pehlichi';
+  const agentId = config.agentId ?? 'agent';
 
   // EPHEMERAL SCRATCH: session-only, non-durable. Lives in this closure and is
   // discarded when the process ends. Never written to disk, never installed.

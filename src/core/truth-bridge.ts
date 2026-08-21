@@ -1,105 +1,75 @@
 /**
- * TRUTH BRIDGE (lab overlay) — folds an advisory memory-truth read into an agent's turn.
- *
- * Dynamic-imports truth-firewall's lab-cognition facade (`dist/src/lab-cognition.js`) at
- * RUNTIME — never a static import — so a released standalone build (which ships no
- * truth-firewall) simply gets ''. Lab-only, gated by the caller. Never throws.
- *
- * Resolution: TRUTH_FIREWALL_ROOT wins; else walk up to `ecosystem/` and look at the sibling
- * `lab-utilities/truth-firewall`. labmem root mirrors labmem-tools (LABMEM_ROOT ?? vendored).
+ * Advisory truth-firewall bridge over an explicitly declared, digest-verified
+ * optional executable dependency. Environment variables may select memory DATA,
+ * never executable module roots.
  */
-import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { importVerifiedExternal, verifiedExternalDependencyRoot } from './external-runtime-integrity.js';
 
-function resolveTruthRoot(): string | undefined {
-  if (process.env['TRUTH_FIREWALL_ROOT']) return process.env['TRUTH_FIREWALL_ROOT'];
-  let d = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'truth-firewall');
-    const parent = dirname(d);
-    if (parent === d) break;
-    d = parent;
-  }
-  return undefined;
-}
-
-function resolveLabmemRoot(): string {
-  if (process.env['LABMEM_ROOT']) return process.env['LABMEM_ROOT'];
-  let d = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem');
-    const parent = dirname(d);
-    if (parent === d) break;
-    d = parent;
-  }
-  return join(process.cwd(), 'lab-memory', 'labmem');
-}
-
-/** Cache the imported facade per resolved root (null = tried and unavailable). */
-const _cache = new Map<string, unknown>();
-
+let cached: Record<string, unknown> | null | undefined;
 async function facade(): Promise<Record<string, unknown> | null> {
-  const root = resolveTruthRoot();
-  if (!root) return null;
-  if (_cache.has(root)) return _cache.get(root) as Record<string, unknown> | null;
-  let mod: Record<string, unknown> | null = null;
+  if (cached !== undefined) return cached;
   try {
-    mod = (await import(join(root, 'dist', 'src', 'lab-cognition.js'))) as Record<string, unknown>;
+    cached = await importVerifiedExternal('truth-firewall', 'dist/src/lab-cognition.js');
   } catch {
-    mod = null;
+    cached = null;
   }
-  _cache.set(root, mod);
-  return mod;
+  return cached;
+}
+
+function labmemDataRoot(): string {
+  return process.env.LABMEM_ROOT ?? verifiedExternalDependencyRoot('labmem');
 }
 
 export interface TruthCognitionInput {
-  /** Current task/message text (context for the consistency audit). */
   readonly task?: string;
-  /** Memory ids the agent recently relied on. */
   readonly recentRefs?: readonly string[];
-  /** Override the labmem store root (defaults to the vendored/LABMEM_ROOT store). */
   readonly labmemRoot?: string;
 }
 
-/**
- * A compact advisory memory-truth block for a turn, or '' when truth-firewall is unavailable
- * (release / not built), memory is empty, or memory is healthy. Never throws.
- */
+export interface TruthFacade {
+  readonly cognitionForAgent?: (value: unknown) => unknown;
+  readonly renderCognitionForPrompt?: (value: unknown) => string;
+  readonly reviewLabMemoryProposals?: (
+    directories: readonly string[], options?: unknown,
+  ) => { processed: number; hallucinations: number; skippedDuplicates: number; inboxes: number };
+}
+
+/** Pure adapter seam for deterministic tests; production loading remains digest-bound above. */
+export function renderTruthCognition(loaded: TruthFacade, input: TruthCognitionInput): string {
+  if (typeof loaded.cognitionForAgent !== 'function') return '';
+  const summary = loaded.cognitionForAgent({
+    labmemRoot: input.labmemRoot ?? labmemDataRoot(),
+    task: input.task ?? '',
+    recentRefs: input.recentRefs ?? [],
+  });
+  return typeof loaded.renderCognitionForPrompt === 'function'
+    ? (loaded.renderCognitionForPrompt(summary) || '') : '';
+}
+
+export function renderProposalReview(loaded: TruthFacade, directories: readonly string[]): string {
+  if (typeof loaded.reviewLabMemoryProposals !== 'function') return '';
+  const result = loaded.reviewLabMemoryProposals(directories);
+  if (!result || (result.processed === 0 && result.hallucinations === 0)) return '';
+  return `truth-review: ${result.processed} new proposal-claim(s), ${result.hallucinations} advisory hallucination(s) across ${result.inboxes} inbox(es)`;
+}
+
 export async function truthCognition(input: TruthCognitionInput = {}): Promise<string> {
   try {
-    const f = await facade();
-    if (!f || typeof f['cognitionForAgent'] !== 'function') return '';
-    const cognitionForAgent = f['cognitionForAgent'] as (a: unknown) => unknown;
-    const render = f['renderCognitionForPrompt'] as ((s: unknown) => string) | undefined;
-    const summary = cognitionForAgent({
-      labmemRoot: input.labmemRoot ?? resolveLabmemRoot(),
-      task: input.task ?? '',
-      recentRefs: input.recentRefs ?? [],
-    });
-    return typeof render === 'function' ? (render(summary) || '') : '';
+    const loaded = await facade();
+    if (!loaded) return '';
+    return renderTruthCognition(loaded as TruthFacade, input);
   } catch {
     return '';
   }
 }
 
-/**
- * Trigger truth-firewall's ADVISORY review of durable/global memory proposals. Defaults to the
- * labmem shared-proposals inbox (`<LABMEM_ROOT>/proposals`). Verdicts persist to the firewall
- * store (surfaced later in ittunaha); returns a compact summary or '' (absent/nothing new).
- * Never throws — safe to fire-and-forget.
- */
 export async function reviewProposals(inboxDirs?: readonly string[]): Promise<string> {
   try {
-    const f = await facade();
-    if (!f || typeof f['reviewLabMemoryProposals'] !== 'function') return '';
-    const review = f['reviewLabMemoryProposals'] as (
-      dirs: readonly string[],
-      opts?: unknown,
-    ) => { processed: number; hallucinations: number; skippedDuplicates: number; inboxes: number };
-    const dirs = inboxDirs && inboxDirs.length ? inboxDirs : [join(resolveLabmemRoot(), 'proposals')];
-    const r = review(dirs);
-    if (!r || (r.processed === 0 && r.hallucinations === 0)) return '';
-    return `truth-review: ${r.processed} new proposal-claim(s), ${r.hallucinations} advisory hallucination(s) across ${r.inboxes} inbox(es)`;
+    const loaded = await facade();
+    if (!loaded) return '';
+    const dirs = inboxDirs?.length ? inboxDirs : [join(labmemDataRoot(), 'proposals')];
+    return renderProposalReview(loaded as TruthFacade, dirs);
   } catch {
     return '';
   }

@@ -33,7 +33,7 @@ const REAL_LABMEM = process.env['LABMEM_REAL'] ?? (() => {
   return join(process.cwd(), 'lab-memory', 'labmem');
 })();
 
-const handlers = createLabmemToolHandlers();
+const handlers = createLabmemToolHandlers({ agentId: AGENT });
 const recall = handlers.get('labmem_recall')!;
 const remember = handlers.get('labmem_remember')!;
 const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
@@ -62,16 +62,16 @@ async function seed(root: string): Promise<void> {
   store.addMemory({ ...base, id: 'foreign-secret', scope: 'agent', namespace: 'other-agent', shared: false, memoryType: 'semantic', title: 'Foreign secret delta', description: 'another agent private', body: 'delta' });
 }
 
-// ── 1. unavailable labmem → tool error, not a crash (MUST run first) ──────────
+// ── 1. LABMEM_ROOT selects data only; it cannot replace executable code ───────
 
-test('labmem unavailable (bad LABMEM_ROOT) returns a tool error, not a crash', async () => {
+test('LABMEM_ROOT is a data root and cannot replace the digest-bound labmem implementation', async () => {
   const root = mkdtempSync(join(tmpdir(), 'labmem-missing-')); // no dist/, no core/
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {
     const res: ToolResult = await recall({}, ctx(root));
-    assert.equal(res.ok, false);
-    assert.match(res.error ?? '', /labmem_recall failed/);
+    assert.equal(res.ok, true, res.error);
+    assert.doesNotMatch(res.output, /module|implementation|dist\/index/);
   } finally {
     if (prev === undefined) delete process.env['LABMEM_ROOT']; else process.env['LABMEM_ROOT'] = prev;
     rmSync(root, { recursive: true, force: true });

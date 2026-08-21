@@ -19,7 +19,7 @@ import {
   type GitRunResult,
 } from './git-ops-tools.js';
 import { createFullToolRegistry } from './index.js';
-import { agentToolNames } from '../../profiles/agent.js';
+import { agentToolNames } from '../../profile.js';
 import { READ_ONLY_TOOLS } from '../approval-policy.js';
 import type { ToolContext } from '../tools.js';
 
@@ -49,7 +49,7 @@ test('all 7 git specs have handlers, are on the allowlist; reads are auto-approv
 });
 
 test('git tools are registered in the full tool registry', () => {
-  const tools = createFullToolRegistry({ workspaceRoot: workspace(), agentServerUrl: 'http://127.0.0.1:0' });
+  const tools = createFullToolRegistry({ workspaceRoot: workspace(), agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' });
   const names = new Set(tools.map((t) => t.spec.name));
   for (const spec of gitOpsToolSpecs) assert.ok(names.has(spec.name), `${spec.name} registered`);
 });
@@ -130,8 +130,9 @@ test('gitAuthEnv builds a Basic header without exposing the token in argv; empty
   assert.equal(env.GIT_TERMINAL_PROMPT, '0');
 });
 
-test('resolveGitToken reads GITHUB_TOKEN / GH_TOKEN / PEH_GITHUB_TOKEN in order', () => {
+test('resolveGitToken reads only generic GITHUB_TOKEN / GH_TOKEN in order', () => {
   assert.equal(resolveGitToken({}), undefined);
   assert.equal(resolveGitToken({ GH_TOKEN: 'b' }), 'b');
   assert.equal(resolveGitToken({ GITHUB_TOKEN: 'a', GH_TOKEN: 'b' }), 'a');
+  assert.equal(resolveGitToken({ PEH_GITHUB_TOKEN: 'agent-specific' }), undefined);
 });

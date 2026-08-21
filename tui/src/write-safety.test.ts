@@ -126,7 +126,8 @@ function writeSession(ws: string, store: string, actions: DriverAction[]): Kerne
     driver: new ScriptedDriver(actions),
     workspaceRoot: ws,
     labStoreRoot: store,
-    extraTools: createFullToolRegistry({ workspaceRoot: ws, agentServerUrl: "http://x" }),
+    extraTools: createFullToolRegistry({ workspaceRoot: ws, agentServerUrl: "http://x", agentId: "test-agent" }),
+    toolNames: ["write_file"],
     approvalCallback: defaultApprovalPolicy({ allowWrites: true }),
   });
 }

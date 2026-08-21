@@ -36,6 +36,8 @@ interface Job {
    * write authority the spawning policy did not have.
    */
   readonly approvalPolicy?: { readonly allowWrites?: boolean };
+  /** Explicit parent-narrowed lane; absence is invalid rather than unrestricted. */
+  readonly toolNames?: string[];
 }
 
 const SUBAGENT_PROFILE: AgentProfile = {
@@ -75,6 +77,18 @@ async function main(): Promise<void> {
     print({ ok: false, output: '', error: 'job is missing a goal' });
     return;
   }
+  if (!Array.isArray(job.toolNames)
+      || job.toolNames.some((name) => typeof name !== 'string' || name.length === 0)
+      || new Set(job.toolNames).size !== job.toolNames.length) {
+    print({ ok: false, output: '', error: 'job is missing an explicit valid tool lane' });
+    return;
+  }
+  const childRegistryCeiling = new Set(['terminal', 'process', 'delegate_task']);
+  if (job.toolNames.some((name) => !childRegistryCeiling.has(name))) {
+    print({ ok: false, output: '', error: 'job tool lane exceeds the sub-agent registry ceiling' });
+    return;
+  }
+  const lane = Object.freeze([...job.toolNames]);
 
   // CIRCULAR DELEGATION PROTECTION (defense-in-depth): even if a cyclic job slips
   // past the parent's pre-spawn check, a chain that contains a repeat is refused
@@ -105,6 +119,7 @@ async function main(): Promise<void> {
     delegatedFrom: chain,
     // Carry the SAME approval posture down to any grandchild this sub-agent spawns.
     allowWrites,
+    authorizedToolNames: lane,
   });
   const extraTools: ToolDef[] = [];
   for (const spec of delegateToolSpecs) {
@@ -124,6 +139,7 @@ async function main(): Promise<void> {
       sinks: [(e) => events.push(e)],
       plan: false,
       extraTools,
+      toolNames: lane,
       // APPROVAL GATE (N5): a delegated sub-agent runs under the SAME approval policy
       // a fresh session would — writes gated off unless the parent explicitly granted
       // them. Without this the loop defaults to approve-everything.

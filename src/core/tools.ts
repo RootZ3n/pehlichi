@@ -19,13 +19,8 @@ import { resolve } from "node:path";
 import type { ToolSpec } from "./driver.js";
 import type { ReceiptStore } from "./receipt-store.js";
 import {
-  getProcess,
-  killProcess,
-  listProcesses,
-  pollProcess,
-  spawnBackground,
-  waitProcess,
-  writeProcess,
+  createIsolatedProcessScope,
+  type ProcessScope,
 } from "./process-registry.js";
 import { ToolError } from "./workspace.js";
 
@@ -94,7 +89,10 @@ export type ToolRegistry = ReadonlyMap<string, ToolDef>;
  * (advertisement filter) and execution allowlist as built-in tools, so an
  * agent repo can add its own tools without touching the core.
  */
-export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistry {
+export function createToolRegistry(extraTools?: readonly ToolDef[], processScope?: ProcessScope): ToolRegistry {
+  // A registry without an injected session capability receives its own isolated
+  // scope. Two independently constructed registries can never see one another.
+  const processes = processScope ?? createIsolatedProcessScope("tool-registry");
   const obj = (
     properties: Record<string, unknown>,
     required: string[],
@@ -120,7 +118,7 @@ export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistr
           ["command"],
         ),
       },
-      handler: terminalTool,
+      handler: (args, ctx) => terminalTool(args, ctx, processes),
     },
     {
       spec: {
@@ -139,12 +137,18 @@ export function createToolRegistry(extraTools?: readonly ToolDef[]): ToolRegistr
           ["action"],
         ),
       },
-      handler: processTool,
+      handler: (args, ctx) => processTool(args, ctx, processes),
     },
     // ── Agent-supplied tools (tool-registration seam) ──────────────────────────
     ...(extraTools ?? []),
   ];
-  return new Map(defs.map((d) => [d.spec.name, d]));
+  const registry = new Map<string, ToolDef>();
+  for (const definition of defs) {
+    const name = definition.spec.name;
+    if (registry.has(name)) throw new Error(`duplicate registered tool name: ${name}`);
+    registry.set(name, definition);
+  }
+  return registry;
 }
 
 /** The ToolSpec list advertised to the driver. */
@@ -164,7 +168,7 @@ export function toolSpecs(registry: ToolRegistry): ToolSpec[] {
  *   - a hard TIMEOUT kills overruns and surfaces a clean error.
  *   - every executed command emits an audit receipt (loop-emitted).
  */
-const terminalTool: ToolHandler = async (args, ctx) => {
+const terminalTool = async (args: Record<string, unknown>, ctx: ToolContext, processes: ProcessScope): Promise<ToolResult> => {
   const command = str(args, "command");
   const timeout = optInt(args, "timeoutMs") ?? DEFAULT_TERMINAL_TIMEOUT_MS;
   const cwd = resolve(ctx.workspaceRoot);
@@ -182,7 +186,7 @@ const terminalTool: ToolHandler = async (args, ctx) => {
   // BACKGROUND mode (item 5): spawn async and return a session id immediately.
   // The same locked cwd + from-empty env confine it exactly like a foreground run.
   if (args.background === true) {
-    const sessionId = spawnBackground(command, { cwd, env }, Date.now());
+    const sessionId = processes.spawn(command, { cwd, env }, Date.now());
     return {
       ok: true,
       output: `started background process: session_id=${sessionId}\nUse the \`process\` tool (poll/wait/kill/write) to drive it.`,
@@ -234,16 +238,15 @@ const terminalTool: ToolHandler = async (args, ctx) => {
 // ── process handler (background process management) ──────────────────────────
 
 /**
- * Drive background processes started by `terminal` (background:true). Stateless
- * itself — all state lives in the process registry, so any handler invocation in
- * the same run can reach a previously started process by session id.
+ * Drive background processes started by `terminal` (background:true). The bound
+ * capability carries authority; the process id by itself does not.
  */
-const processTool: ToolHandler = async (args) => {
+const processTool = async (args: Record<string, unknown>, _ctx: ToolContext, processes: ProcessScope): Promise<ToolResult> => {
   const action = str(args, "action");
 
   if (action === "list") {
-    const procs = listProcesses();
-    const lines = procs.map((p) => `${p.sessionId} [${p.status}${p.exitCode !== null ? ` exit=${p.exitCode}` : ""}] ${p.command}`);
+    const procs = processes.list();
+    const lines = procs.map((p) => `${p.processId} [${p.status}${p.exitCode !== null ? ` exit=${p.exitCode}` : ""}] ${p.command}`);
     return { ok: true, output: procs.length === 0 ? "(no background processes)" : lines.join("\n") };
   }
 
@@ -251,8 +254,8 @@ const processTool: ToolHandler = async (args) => {
 
   switch (action) {
     case "poll": {
-      const proc = getProcess(sessionId);
-      const out = pollProcess(sessionId);
+      const proc = processes.get(sessionId);
+      const out = processes.poll(sessionId);
       if (proc === undefined || out === undefined) {
         return { ok: false, output: "", error: `unknown session: ${sessionId}` };
       }
@@ -263,9 +266,9 @@ const processTool: ToolHandler = async (args) => {
     }
     case "wait": {
       const timeout = optInt(args, "timeoutMs") ?? 30_000;
-      const status = await waitProcess(sessionId, timeout);
+      const status = await processes.wait(sessionId, timeout);
       if (status === undefined) return { ok: false, output: "", error: `unknown session: ${sessionId}` };
-      const proc = getProcess(sessionId);
+      const proc = processes.get(sessionId);
       const exited = status !== "running";
       return {
         ok: exited,
@@ -274,14 +277,14 @@ const processTool: ToolHandler = async (args) => {
       };
     }
     case "kill": {
-      const ok = killProcess(sessionId);
+      const ok = processes.kill(sessionId);
       return ok
         ? { ok: true, output: `killed ${sessionId}` }
         : { ok: false, output: "", error: `unknown session: ${sessionId}` };
     }
     case "write": {
       const data = str(args, "data");
-      const ok = writeProcess(sessionId, data);
+      const ok = processes.write(sessionId, data);
       return ok
         ? { ok: true, output: `wrote ${data.length} chars to ${sessionId}` }
         : { ok: false, output: "", error: `cannot write to session: ${sessionId} (unknown or stdin closed)` };

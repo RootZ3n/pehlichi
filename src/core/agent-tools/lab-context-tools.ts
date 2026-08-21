@@ -15,7 +15,7 @@
  * Key invariant: supersession chains have exactly ONE current entry.
  */
 
-import { join } from 'node:path';
+import { createMemoryStore, proposeMemoryCreate, proposeMemorySupersede } from 'lab-memory';
 import type { ToolSpec, ToolHandler } from '../tools.js';
 import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
@@ -33,11 +33,6 @@ function getStoreRoot(): string {
 async function getStore() {
   if (_store && _storeRoot === getStoreRoot()) return _store;
   const root = getStoreRoot();
-  // Dynamic import so we don't crash if lab-memory isn't installed.
-  // NOTE: reads only. createMemoryStore({ root }) is unguarded; this handler never
-  // calls its createMemory/supersedeMemory — durable writes go through governance
-  // (proposeMemoryCreate / proposeMemorySupersede) below.
-  const { createMemoryStore } = await import(join(root, 'src/store.js'));
   _store = createMemoryStore({ root });
   _storeRoot = root;
   return _store;
@@ -45,8 +40,6 @@ async function getStore() {
 
 /** Load lab-memory's agent-facing proposal API (no durable write — returns a pending proposal). */
 async function getGovernance() {
-  const root = getStoreRoot();
-  const { proposeMemoryCreate, proposeMemorySupersede } = await import(join(root, 'src/governance.js'));
   return { proposeMemoryCreate, proposeMemorySupersede };
 }
 

@@ -59,6 +59,8 @@ export interface SubagentJob {
   readonly delegatedFrom: string[];
   /** APPROVAL (N5): the approval posture the sub-agent must run under. */
   readonly approvalPolicy: { readonly allowWrites: boolean };
+  /** Explicit fail-closed lane for the child's deliberately small registry. */
+  readonly toolNames: string[];
 }
 
 export interface DelegateConfig {
@@ -97,6 +99,8 @@ export interface DelegateConfig {
    * delegations can spawn processes without bound.
    */
   readonly maxDepth?: number;
+  /** Parent's validated lane. Missing is the empty lane, never registry-wide authority. */
+  readonly authorizedToolNames?: readonly string[];
 }
 
 /** Default maximum delegation depth (top-level → child → grandchild). */
@@ -115,6 +119,14 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
   const chain = config.delegatedFrom ?? [];
   const allowWrites = config.allowWrites === true;
   const maxDepth = config.maxDepth ?? DEFAULT_MAX_DELEGATION_DEPTH;
+  const parentLane = Object.freeze([...(config.authorizedToolNames ?? [])]);
+  if (new Set(parentLane).size !== parentLane.length || parentLane.some((name) => typeof name !== 'string' || name.length === 0)) {
+    throw new Error('delegate authority contains invalid or duplicate tool names');
+  }
+  // The production child intentionally constructs only this minimal registry. A
+  // delegated job can narrow the parent lane, but can never introduce authority.
+  const childRegistryCeiling = new Set(['terminal', 'process', 'delegate_task']);
+  const childLane = Object.freeze(parentLane.filter((name) => childRegistryCeiling.has(name)));
 
   handlers.set('delegate_task', async (args): Promise<ToolResult> => {
     const goal = args.goal as string;
@@ -145,7 +157,14 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
       };
     }
 
-    const job: SubagentJob = { goal, context, toolsets, delegatedFrom: [...chain, key], approvalPolicy: { allowWrites } };
+    const job: SubagentJob = {
+      goal,
+      context,
+      toolsets,
+      delegatedFrom: [...chain, key],
+      approvalPolicy: { allowWrites },
+      toolNames: [...childLane],
+    };
     return runSubagent(nodePath, [...nodeArgs, config.runnerPath], JSON.stringify(job), timeoutMs);
   });
 

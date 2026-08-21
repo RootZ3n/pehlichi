@@ -1,33 +1,34 @@
 /**
- * BACKGROUND PROCESS REGISTRY — long-running children for the terminal tool.
+ * BACKGROUND PROCESS REGISTRY — owner-scoped long-running terminal children.
  *
- * `spawnSync` (the foreground terminal path) blocks until the command exits, so a
- * server, watcher, or build-in-watch-mode can never be driven by the agent. This
- * registry adds the missing capability: a command launched in BACKGROUND mode is
- * spawned with async `spawn()`, tracked by a session id, and then list/poll/wait/
- * kill/write-able. Output is buffered (capped) and `poll` returns only what is NEW
- * since the last poll, so a chatty process cannot flood the model's context.
- *
- * Containment is inherited from the caller: the terminal tool passes the SAME locked
- * cwd and FROM-EMPTY env it uses for foreground commands, so a background command is
- * confined exactly like a foreground one.
+ * Every registry belongs to one runtime/session container. Callers never receive
+ * the controller: they receive a capability bound to validated session, room,
+ * task, and caller identity. Knowing a process id therefore grants no authority.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
-/** Per-stream buffer cap. A runaway background process cannot exhaust memory. */
 const MAX_BUFFER_BYTES = 256 * 1024;
+const MAX_OWNER_COMPONENT_BYTES = 512;
 
 export type ProcessStatus = "running" | "exited" | "killed" | "error";
 
-/** One tracked background process. */
-export interface BackgroundProcess {
+export interface ProcessOwner {
   readonly sessionId: string;
+  readonly roomKey: string;
+  readonly taskId: string;
+  readonly callerId: string;
+}
+
+interface BackgroundProcess {
+  readonly processId: string;
+  readonly owner: ProcessOwner;
+  readonly ownerKey: string;
   readonly command: string;
   readonly child: ChildProcess;
   readonly startedAt: number;
   stdout: string;
   stderr: string;
-  /** How many bytes of each stream have already been returned by `poll`. */
   stdoutCursor: number;
   stderrCursor: number;
   status: ProcessStatus;
@@ -35,9 +36,8 @@ export interface BackgroundProcess {
   error?: string;
 }
 
-/** A point-in-time view of a process (no live child handle). */
 export interface ProcessSnapshot {
-  readonly sessionId: string;
+  readonly processId: string;
   readonly command: string;
   readonly status: ProcessStatus;
   readonly exitCode: number | null;
@@ -49,134 +49,207 @@ export interface SpawnBackgroundOptions {
   readonly env: Record<string, string>;
 }
 
-/**
- * The registry. Module-level so the `process` tool (a separate handler) can reach
- * processes started by the `terminal` tool within the same run.
- */
-const registry = new Map<string, BackgroundProcess>();
-let counter = 0;
+/** Owner-bound capability consumed only by the built-in terminal/process tools. */
+export interface ProcessScope {
+  spawn(command: string, opts: SpawnBackgroundOptions, now: number): string;
+  get(processId: string): ProcessSnapshot | undefined;
+  list(): ProcessSnapshot[];
+  poll(processId: string): { newStdout: string; newStderr: string } | undefined;
+  kill(processId: string, signal?: NodeJS.Signals): boolean;
+  write(processId: string, data: string): boolean;
+  wait(processId: string, timeoutMs: number): Promise<ProcessStatus | undefined>;
+  /** Kill and forget only this exact owner's processes. */
+  close(): number;
+}
 
-/** Append to a stream buffer, capped — drops the OLDEST bytes past the cap. */
+/** Internal lifecycle boundary. It is intentionally absent from the package index. */
+export interface ProcessRegistryController {
+  scope(owner: ProcessOwner): ProcessScope;
+  /** Session reset/eviction cleanup; unrelated sessions are untouched. */
+  clearSession(sessionId: string): number;
+  /** Runtime shutdown cleanup. */
+  destroy(): number;
+}
+
+function validOwnerComponent(value: string, label: string): string {
+  if (typeof value !== "string" || value.length === 0
+      || Buffer.byteLength(value, "utf8") > MAX_OWNER_COMPONENT_BYTES
+      || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`background process ${label} is invalid`);
+  }
+  return value;
+}
+
+function freezeOwner(owner: ProcessOwner): ProcessOwner {
+  return Object.freeze({
+    sessionId: validOwnerComponent(owner.sessionId, "session owner"),
+    roomKey: validOwnerComponent(owner.roomKey, "room owner"),
+    taskId: validOwnerComponent(owner.taskId, "task owner"),
+    callerId: validOwnerComponent(owner.callerId, "caller owner"),
+  });
+}
+
+function keyFor(owner: ProcessOwner): string {
+  return JSON.stringify([owner.sessionId, owner.roomKey, owner.taskId, owner.callerId]);
+}
+
+function snapshot(process: BackgroundProcess): ProcessSnapshot {
+  return Object.freeze({
+    processId: process.processId,
+    command: process.command,
+    status: process.status,
+    exitCode: process.exitCode,
+    ...(process.error !== undefined ? { error: process.error } : {}),
+  });
+}
+
 function appendCapped(existing: string, chunk: string): string {
   const next = existing + chunk;
   if (Buffer.byteLength(next, "utf8") <= MAX_BUFFER_BYTES) return next;
-  // Keep the tail (most recent output) — that is what poll/wait care about.
   const buf = Buffer.from(next, "utf8");
   return buf.subarray(buf.byteLength - MAX_BUFFER_BYTES).toString("utf8");
 }
 
-/** Spawn a command in the background and register it. Returns the new session id. */
-export function spawnBackground(command: string, opts: SpawnBackgroundOptions, now: number): string {
-  const child = spawn(command, {
-    shell: true,
-    cwd: opts.cwd,
-    env: opts.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  const sessionId = `bg-${++counter}-${child.pid ?? "nopid"}`;
-  const proc: BackgroundProcess = {
-    sessionId,
-    command,
-    child,
-    startedAt: now,
-    stdout: "",
-    stderr: "",
-    stdoutCursor: 0,
-    stderrCursor: 0,
-    status: "running",
-    exitCode: null,
+function terminate(process: BackgroundProcess, signal: NodeJS.Signals): void {
+  if (process.status !== "running") return;
+  process.status = "killed";
+  process.child.kill(signal);
+}
+
+/** Create one runtime-owned registry. No module-level process map exists. */
+export function createProcessRegistry(): ProcessRegistryController {
+  const registry = new Map<string, BackgroundProcess>();
+
+  const removeWhere = (predicate: (process: BackgroundProcess) => boolean): number => {
+    let removed = 0;
+    for (const [processId, process] of registry) {
+      if (!predicate(process)) continue;
+      terminate(process, "SIGKILL");
+      registry.delete(processId);
+      removed += 1;
+    }
+    return removed;
   };
 
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (d: string) => {
-    proc.stdout = appendCapped(proc.stdout, d);
+  return Object.freeze({
+    scope(ownerInput: ProcessOwner): ProcessScope {
+      const owner = freezeOwner(ownerInput);
+      const ownerKey = keyFor(owner);
+      const owned = (processId: string): BackgroundProcess | undefined => {
+        const process = registry.get(processId);
+        return process?.ownerKey === ownerKey ? process : undefined;
+      };
+
+      return Object.freeze({
+        spawn(command: string, opts: SpawnBackgroundOptions, now: number) {
+          const child = spawn(command, {
+            shell: true,
+            cwd: opts.cwd,
+            env: opts.env,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          const processId = `bg-${randomUUID()}`;
+          const process: BackgroundProcess = {
+            processId,
+            owner,
+            ownerKey,
+            command,
+            child,
+            startedAt: now,
+            stdout: "",
+            stderr: "",
+            stdoutCursor: 0,
+            stderrCursor: 0,
+            status: "running",
+            exitCode: null,
+          };
+          child.stdout?.setEncoding("utf8");
+          child.stderr?.setEncoding("utf8");
+          child.stdout?.on("data", (data: string) => { process.stdout = appendCapped(process.stdout, data); });
+          child.stderr?.on("data", (data: string) => { process.stderr = appendCapped(process.stderr, data); });
+          child.on("error", (error) => {
+            process.status = "error";
+            process.error = error instanceof Error ? error.message : String(error);
+          });
+          child.on("exit", (code, signal) => {
+            if (process.status !== "killed") process.status = signal !== null ? "killed" : "exited";
+            process.exitCode = code;
+          });
+          registry.set(processId, process);
+          return processId;
+        },
+
+        get(processId: string) {
+          const process = owned(processId);
+          return process === undefined ? undefined : snapshot(process);
+        },
+
+        list() {
+          return [...registry.values()].filter((process) => process.ownerKey === ownerKey).map(snapshot);
+        },
+
+        poll(processId: string) {
+          const process = owned(processId);
+          if (process === undefined) return undefined;
+          const newStdout = process.stdout.slice(process.stdoutCursor);
+          const newStderr = process.stderr.slice(process.stderrCursor);
+          process.stdoutCursor = process.stdout.length;
+          process.stderrCursor = process.stderr.length;
+          return { newStdout, newStderr };
+        },
+
+        kill(processId: string, signal: NodeJS.Signals = "SIGTERM") {
+          const process = owned(processId);
+          if (process === undefined) return false;
+          terminate(process, signal);
+          return true;
+        },
+
+        write(processId: string, data: string) {
+          const process = owned(processId);
+          if (process === undefined || process.child.stdin === null || process.child.stdin.writableEnded) return false;
+          process.child.stdin.write(data);
+          return true;
+        },
+
+        wait(processId: string, timeoutMs: number): Promise<ProcessStatus | undefined> {
+          const process = owned(processId);
+          if (process === undefined) return Promise.resolve(undefined);
+          if (process.status !== "running") return Promise.resolve(process.status);
+          return new Promise<ProcessStatus>((resolveWait) => {
+            let settled = false;
+            const finish = (status: ProcessStatus) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolveWait(status);
+            };
+            const timer = setTimeout(() => finish(process.status), timeoutMs);
+            process.child.on("exit", () => finish(process.status));
+            process.child.on("error", () => finish(process.status));
+          });
+        },
+
+        close() { return removeWhere((process) => process.ownerKey === ownerKey); },
+      });
+    },
+
+    clearSession(sessionIdInput: string) {
+      const sessionId = validOwnerComponent(sessionIdInput, "session owner");
+      return removeWhere((process) => process.owner.sessionId === sessionId);
+    },
+
+    destroy() { return removeWhere(() => true); },
   });
-  child.stderr?.on("data", (d: string) => {
-    proc.stderr = appendCapped(proc.stderr, d);
+}
+
+/** Default direct-use capability: private state, never a shared singleton. */
+export function createIsolatedProcessScope(label = "direct"): ProcessScope {
+  const registry = createProcessRegistry();
+  return registry.scope({
+    sessionId: `${label}-${randomUUID()}`,
+    roomKey: "direct",
+    taskId: "direct",
+    callerId: "direct",
   });
-  child.on("error", (err) => {
-    proc.status = "error";
-    proc.error = err instanceof Error ? err.message : String(err);
-  });
-  child.on("exit", (code, signal) => {
-    // A SIGTERM/SIGKILL we issued is reported as "killed"; a natural exit as "exited".
-    if (proc.status !== "killed") proc.status = signal !== null ? "killed" : "exited";
-    proc.exitCode = code;
-  });
-
-  registry.set(sessionId, proc);
-  return sessionId;
-}
-
-export function getProcess(sessionId: string): BackgroundProcess | undefined {
-  return registry.get(sessionId);
-}
-
-/** Snapshot every tracked process (for `list`). */
-export function listProcesses(): ProcessSnapshot[] {
-  return [...registry.values()].map((p) => ({
-    sessionId: p.sessionId,
-    command: p.command,
-    status: p.status,
-    exitCode: p.exitCode,
-    ...(p.error !== undefined ? { error: p.error } : {}),
-  }));
-}
-
-/** Read NEW stdout/stderr since the last poll, advancing the cursors. */
-export function pollProcess(sessionId: string): { newStdout: string; newStderr: string } | undefined {
-  const p = registry.get(sessionId);
-  if (p === undefined) return undefined;
-  const newStdout = p.stdout.slice(p.stdoutCursor);
-  const newStderr = p.stderr.slice(p.stderrCursor);
-  p.stdoutCursor = p.stdout.length;
-  p.stderrCursor = p.stderr.length;
-  return { newStdout, newStderr };
-}
-
-/** Terminate a process. Returns false if the session is unknown. */
-export function killProcess(sessionId: string, signal: NodeJS.Signals = "SIGTERM"): boolean {
-  const p = registry.get(sessionId);
-  if (p === undefined) return false;
-  if (p.status === "running") {
-    p.status = "killed";
-    p.child.kill(signal);
-  }
-  return true;
-}
-
-/** Send data to a process's stdin. Returns false if unknown or stdin is closed. */
-export function writeProcess(sessionId: string, data: string): boolean {
-  const p = registry.get(sessionId);
-  if (p === undefined || p.child.stdin === null || p.child.stdin.writableEnded) return false;
-  p.child.stdin.write(data);
-  return true;
-}
-
-/** Block until the process exits or `timeoutMs` elapses. Resolves to the final status. */
-export function waitProcess(sessionId: string, timeoutMs: number): Promise<ProcessStatus | undefined> {
-  const p = registry.get(sessionId);
-  if (p === undefined) return Promise.resolve(undefined);
-  if (p.status !== "running") return Promise.resolve(p.status);
-  return new Promise((resolveWait) => {
-    let settled = false;
-    const finish = (s: ProcessStatus) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolveWait(s);
-    };
-    const timer = setTimeout(() => finish(p.status), timeoutMs);
-    p.child.on("exit", () => finish(p.status));
-    p.child.on("error", () => finish(p.status));
-  });
-}
-
-/** Test/lifecycle helper: kill and forget every tracked process. */
-export function clearProcessRegistry(): void {
-  for (const p of registry.values()) {
-    if (p.status === "running") p.child.kill("SIGKILL");
-  }
-  registry.clear();
 }

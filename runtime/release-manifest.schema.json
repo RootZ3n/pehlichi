@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trio release provenance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "repositoryId", "agentId", "executionMode", "fullGitCommit",
+    "gitTreeId", "dependencyLockDigest", "tuiDependencyLockDigest",
+    "runtimeManifestDigest", "runtimeTreeDigest", "sourceInventoryDigest",
+    "localDependencyDigests", "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "agentId": { "type": "string", "minLength": 1 },
+    "executionMode": { "enum": ["source", "generated"] },
+    "fullGitCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "gitTreeId": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "dependencyLockDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "tuiDependencyLockDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtimeManifestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtimeTreeDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceInventoryDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "localDependencyDigests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["specifier", "sha256"],
+        "properties": {
+          "specifier": { "type": "string", "minLength": 1 },
+          "sha256": {
+            "oneOf": [
+              { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}

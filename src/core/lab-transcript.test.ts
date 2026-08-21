@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  CANONICAL_ROOMS,
-  FACE_SLUGS,
   faceSlug,
   appendTurn,
   recentSharedContext,
   recallConversation,
-  ambientProfileForRole,
+  type AmbientOptions,
 } from './lab-transcript.js';
+
+const CANONICAL_ROOMS = { peh: 'lab:peh', ptah: 'lab:ptah', luna: 'lab:luna' } as const;
 
 function freshDir(): string {
   const d = mkdtempSync(join(tmpdir(), 'lab-transcript-'));
@@ -23,12 +23,11 @@ function freshDir(): string {
 const turn = (face: string, agent: string, room: string, role: 'user' | 'assistant', text: string, ts: number) =>
   ({ face, agent, room, role, text, ts });
 
-test('faceSlug maps names/selectors to the three faces', () => {
-  assert.equal(faceSlug('Pehlichi'), 'peh');
+test('faceSlug generically normalizes configured identity namespaces', () => {
+  assert.equal(faceSlug('Pehlichi'), 'pehlichi');
   assert.equal(faceSlug('peh'), 'peh');
   assert.equal(faceSlug('Ptah'), 'ptah');
   assert.equal(faceSlug('Luna'), 'luna');
-  assert.deepEqual([...FACE_SLUGS].sort(), ['luna', 'peh', 'ptah']);
 });
 
 test('memory follows the user across surfaces: a Matrix turn is recalled from the direct thread', () => {
@@ -113,9 +112,9 @@ test('recallConversation filters to one face', () => {
   assert.doesNotMatch(out, /from-peh/);
 });
 
-test('recallConversation reports an unknown face selector', () => {
+test('recallConversation accepts an arbitrary configured identity namespace', () => {
   freshDir();
-  assert.match(recallConversation({ face: 'nobody' }), /Unknown face/);
+  assert.match(recallConversation({ face: 'new-agent' }), /No shared lab conversation/);
 });
 
 test('recallConversation on an empty lab says so', () => {
@@ -123,27 +122,27 @@ test('recallConversation on an empty lab says so', () => {
   assert.match(recallConversation(), /No shared lab conversation recorded yet/);
 });
 
-test('role-aware: the hub (coordinator) sees broadly; a specialist gets a tight, scoped slice', () => {
-  const hub = ambientProfileForRole('coordinator', 'peh');
+test('deployment-provided ambient policy can be broad or tightly scoped without role branching', () => {
+  const hub: AmbientOptions = { maxTurns: 16, maxCharsPerTurn: 700 };
   assert.equal(hub.includeFaces, undefined); // all faces
   assert.ok((hub.maxTurns ?? 0) >= 12);
 
-  const spec = ambientProfileForRole('creative', 'luna');
+  const spec: AmbientOptions = { maxTurns: 6, maxCharsPerTurn: 400, includeFaces: ['peh', 'luna'] };
   assert.deepEqual(spec.includeFaces, ['peh', 'luna']); // hub + self only
   assert.ok((spec.maxTurns ?? 99) <= 8); // tighter
 });
 
-test('role-aware scoping: a specialist does NOT see the other specialist chatter', () => {
+test('configured scoping excludes namespaces not present in the deployment allowlist', () => {
   freshDir();
   appendTurn({ face: 'peh', agent: 'Peh', room: CANONICAL_ROOMS.peh, role: 'assistant', text: 'peh-routing-note', ts: 1 });
   appendTurn({ face: 'luna', agent: 'Luna', room: CANONICAL_ROOMS.luna, role: 'assistant', text: 'luna-creative-chatter', ts: 2 });
 
   // Ptah, scoped as a specialist, sees Peh (hub) but not Luna (other specialist).
-  const ptahView = recentSharedContext('ptah', CANONICAL_ROOMS.ptah, ambientProfileForRole('repairman', 'ptah'));
+  const ptahView = recentSharedContext('ptah', CANONICAL_ROOMS.ptah, { maxTurns: 6, maxCharsPerTurn: 400, includeFaces: ['peh', 'ptah'] });
   assert.match(ptahView, /peh-routing-note/);
   assert.doesNotMatch(ptahView, /luna-creative-chatter/);
 
   // Peh (hub) sees everything.
-  const pehView = recentSharedContext('peh', CANONICAL_ROOMS.peh, ambientProfileForRole('coordinator', 'peh'));
+  const pehView = recentSharedContext('peh', CANONICAL_ROOMS.peh, { maxTurns: 16, maxCharsPerTurn: 700 });
   assert.match(pehView, /luna-creative-chatter/);
 });

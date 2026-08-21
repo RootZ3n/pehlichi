@@ -30,7 +30,7 @@ test("B4. resolveSubagentRunner picks the runtime-correct runner path and node a
 test("B4. delegate_task spawns the REAL resolved runner (it starts — not a spawn failure)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "b4-spawn-"));
   try {
-    const tools = createFullToolRegistry({ workspaceRoot: dir, agentServerUrl: "http://127.0.0.1:0" });
+    const tools = createFullToolRegistry({ workspaceRoot: dir, agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
     const delegate = tools.find((t) => t.spec.name === "delegate_task");
     assert.ok(delegate, "delegate_task is registered");
     // An empty goal makes the REAL subagent-entry short-circuit with a clean JSON

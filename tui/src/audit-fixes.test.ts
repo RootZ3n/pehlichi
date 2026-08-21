@@ -50,7 +50,7 @@ test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the
   const ws = createWorkspace();
   const store = createLabStore();
   const checkpointDir = mkdtempSync(join(tmpdir(), 'c4-cp-'));
-  const base = { profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir };
+  const base = { profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir, toolNames: [] };
   try {
     // Turn 1 writes a checkpoint.
     const s1 = new KernelChatSession(base);
@@ -142,6 +142,7 @@ test('H4. token usage from the driver is recorded in the session TokenMonitor (n
       driver: new UsageDriver(),
       workspaceRoot: ws,
       labStoreRoot: store,
+      toolNames: [],
     });
     const res = await session.send('do something');
     assert.ok(res.tokenUsage, 'tokenUsage is surfaced');

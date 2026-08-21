@@ -17,7 +17,7 @@ import {
   type LabRunResult,
 } from './lab-shell-tools.js';
 import { createFullToolRegistry } from './index.js';
-import { agentToolNames } from '../../profiles/agent.js';
+import { agentToolNames } from '../../profile.js';
 import type { ToolContext } from '../tools.js';
 
 const ctx: ToolContext = { workspaceRoot: '/tmp', labStoreRoot: '/tmp', store: {} };
@@ -37,7 +37,7 @@ test('spec registered + on the allowlist', () => {
   assert.equal(labShellToolSpecs.length, 1);
   assert.ok(labShellToolNames.has('lab_shell'));
   assert.ok(agentToolNames.includes('lab_shell'));
-  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0' }).map((t) => t.spec.name));
+  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
   assert.ok(names.has('lab_shell'));
 });
 

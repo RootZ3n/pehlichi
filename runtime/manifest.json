@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "architecture": "TRIO-001D-transitional-local-runtime",
+  "closedInventorySource": "trio/path-inventory.json",
+  "closedInventorySha256": "6a10e2e3c43cd8697fbb20df29a791ec1344a74b758d0c68b410398fb1de0cf8",
+  "runtimeClosureSource": "trio/runtime-closure.json",
+  "runtimeClosureSha256": "b8c0202659aeda3a95189b45e37857983ed7e2bf5c0dc3903484845f8b673d76",
+  "securityInvariants": {
+    "toolAuthority": "configured request intersected with trusted deployment ceiling",
+    "toolOutputGuard": "mandatory",
+    "hostileRawEvidence": "restricted-store-only",
+    "chatModes": ["agent", "converse", "auto"],
+    "cancellation": "not-started"
+  },
+  "provenance": {
+    "schema": "runtime/release-manifest.schema.json",
+    "developmentStatus": "development-unbound"
+  }
+}

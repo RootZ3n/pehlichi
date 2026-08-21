@@ -13,8 +13,9 @@ import {
 import { createDelegateToolHandlers } from "./agent-tools/delegate-tools.js";
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
-import { runAgent } from "./loop.js";
-import { clearProcessRegistry } from "./process-registry.js";
+import { runAgent as governedRunAgent, type RunAgentOptions } from "./loop.js";
+import * as processRegistryModule from "./process-registry.js";
+import { createProcessRegistry, type ProcessOwner } from "./process-registry.js";
 import type { AgentProfile } from "./profile.js";
 import { createToolRegistry, type ToolContext, type ToolDef } from "./tools.js";
 import {
@@ -52,6 +53,10 @@ function assertSubsequence(actual: string[], expected: string[]): void {
 // Explicit allow-all approval. Direct/library runs now DENY mutating tools by default, so tests that
 // exercise tool MECHANICS (terminal, seam tools, planning) opt in explicitly to authorize them.
 const allowAll = () => ({ approved: true as const });
+
+/** Tests still exercise explicit authority; derive it from each test's exact registry fixture. */
+const runAgent = (opts: Omit<RunAgentOptions, 'toolNames'> & { toolNames?: readonly string[] }) =>
+  governedRunAgent({ ...opts, toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()] });
 
 // A seam tool named like a known read-only tool (read_file ∈ READ_ONLY_TOOLS), so the default
 // library approval auto-approves it. Used to prove read-only tools still run with no callback.
@@ -260,7 +265,8 @@ test("6. extraTools seam: agent-supplied tools are registered alongside core", a
     const res = events.find((e) => e.kind === "tool-result" && e.tool === "echo");
     assert.ok(res && res.kind === "tool-result");
     assert.equal(res.ok, true);
-    assert.equal(res.output, "hello from seam");
+    assert.match(res.output, /<untrusted-content source="echo:output">/);
+    assert.match(res.output, /hello from seam/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
     rmSync(labStore, { recursive: true, force: true });
@@ -466,7 +472,9 @@ test("14. background process: start via terminal, write+poll, kill, then wait re
   const workspace = createWorkspace();
   const labStore = createLabStore();
   const ctx: ToolContext = { workspaceRoot: workspace, labStoreRoot: labStore, store: {} };
-  const registry = createToolRegistry();
+  const processRegistry = createProcessRegistry();
+  const processScope = processRegistry.scope({ sessionId: "session-a", roomKey: "room-a", taskId: "task-a", callerId: "caller-a" });
+  const registry = createToolRegistry(undefined, processScope);
   const terminal = registry.get("terminal");
   const procTool = registry.get("process");
   assert.ok(terminal && procTool, "terminal and process tools are registered");
@@ -499,9 +507,61 @@ test("14. background process: start via terminal, write+poll, kill, then wait re
     assert.equal(unknown.ok, false);
     assert.match(unknown.error ?? "", /unknown session/);
   } finally {
-    clearProcessRegistry();
+    processRegistry.destroy();
     rmSync(workspace, { recursive: true, force: true });
     rmSync(labStore, { recursive: true, force: true });
+  }
+});
+
+test("14b. background process ownership rejects cross-session, room, task, caller, forged-id, and delegated access", async () => {
+  const processRegistry = createProcessRegistry();
+  const ownerA: ProcessOwner = { sessionId: "session-a", roomKey: "room-a", taskId: "task-a", callerId: "caller-a" };
+  const ownerB: ProcessOwner = { sessionId: "session-b", roomKey: "room-b", taskId: "task-b", callerId: "caller-b" };
+  const a = processRegistry.scope(ownerA);
+  const b = processRegistry.scope(ownerB);
+  const sameRoomOtherCaller = processRegistry.scope({ ...ownerA, callerId: "caller-forged" });
+  const sameRoomOtherTask = processRegistry.scope({ ...ownerA, taskId: "task-forged" });
+  const otherRoom = processRegistry.scope({ ...ownerA, roomKey: "room-forged" });
+  const delegatedChild = processRegistry.scope({ sessionId: "delegated-child", roomKey: "room-a", taskId: "task-a", callerId: "caller-a" });
+  try {
+    const [processA, processB] = await Promise.all([
+      Promise.resolve(a.spawn("sleep 30", { cwd: "/tmp", env: { PATH: "/usr/bin:/bin" } }, Date.now())),
+      Promise.resolve(b.spawn("sleep 30", { cwd: "/tmp", env: { PATH: "/usr/bin:/bin" } }, Date.now())),
+    ]);
+    assert.deepEqual(a.list().map((process) => process.processId), [processA], "creator lists only its process");
+    assert.deepEqual(b.list().map((process) => process.processId), [processB], "concurrent session lists only its process");
+
+    for (const unauthorized of [b, sameRoomOtherCaller, sameRoomOtherTask, otherRoom, delegatedChild]) {
+      assert.equal(unauthorized.get(processA), undefined);
+      assert.equal(unauthorized.poll(processA), undefined);
+      assert.equal(unauthorized.write(processA, "forged\n"), false);
+      assert.equal(unauthorized.kill(processA), false);
+      assert.equal(await unauthorized.wait(processA, 1), undefined);
+      assert.equal(unauthorized.list().some((process) => process.processId === processA), false);
+    }
+    assert.equal(a.kill("bg-forged-process-id"), false, "a forged id conveys no authority");
+    assert.equal(a.get(processA)?.status, "running", "unauthorized attacks did not affect the owner");
+
+    assert.equal(processRegistry.clearSession(ownerA.sessionId), 1, "session cleanup removes only owned processes");
+    assert.equal(a.get(processA), undefined, "closed/expired session id is unusable");
+    assert.equal(a.kill(processA), false);
+    assert.equal(b.get(processB)?.status, "running", "unrelated session survives cleanup");
+  } finally {
+    processRegistry.destroy();
+  }
+});
+
+test("14c. process registry has no unrestricted singleton action API and validates ownership", () => {
+  assert.deepEqual(Object.keys(processRegistryModule).sort(), ["createIsolatedProcessScope", "createProcessRegistry"]);
+  const registry = createProcessRegistry();
+  try {
+    for (const owner of [
+      { sessionId: "", roomKey: "r", taskId: "t", callerId: "c" },
+      { sessionId: "s", roomKey: "r\n", taskId: "t", callerId: "c" },
+      { sessionId: "s", roomKey: "r", taskId: "t", callerId: "x".repeat(513) },
+    ]) assert.throws(() => registry.scope(owner), /owner is invalid/);
+  } finally {
+    registry.destroy();
   }
 });
 

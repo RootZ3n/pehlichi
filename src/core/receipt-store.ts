@@ -7,6 +7,7 @@
  *
  * Shared across the trio (Peh, Ptah, Luna) — identical file in each repo.
  */
+import { validateFindingMetadata, type PublicFindingMetadata } from './agent-tools/restricted-evidence.js';
 
 export interface Receipt {
   readonly id: string;
@@ -18,10 +19,12 @@ export interface Receipt {
   readonly provider?: string;
   readonly model?: string;
   readonly cost?: number;
-  readonly status: 'success' | 'partial' | 'failed' | 'injection_blocked' | 'error';
+  readonly status: 'success' | 'partial' | 'failed' | 'injection_blocked' | 'injection_quarantined' | 'error';
   readonly toolCallCount: number;
   readonly contentSummary?: string;
   readonly injectionDetected?: boolean;
+  readonly injectionFindings?: number;
+  readonly findingMetadata?: readonly PublicFindingMetadata[];
   readonly partial?: boolean;
   readonly durationMs?: number;
   /** Receipt ID alias for Kokuli/Ittunaha compatibility. */
@@ -54,8 +57,26 @@ export class ReceiptStore {
 
   /** Record a new receipt. */
   record(data: Omit<Receipt, 'id' | 'timestamp'>): Receipt {
+    const findingMetadata = data.findingMetadata?.map(validateFindingMetadata) ?? [];
+    const findingCount = data.injectionFindings ?? 0;
+    if (!Number.isSafeInteger(findingCount) || findingCount < 0 || findingCount !== findingMetadata.length) {
+      throw new Error('receipt finding count does not match validated finding metadata');
+    }
+    if (findingCount > 0 && data.injectionDetected !== true) throw new Error('receipt finding metadata requires injectionDetected');
+    if (data.injectionDetected !== true && findingCount !== 0) throw new Error('receipt injectionDetected contradicts finding metadata');
+    if (findingCount > 0 && data.status !== 'injection_blocked' && data.status !== 'injection_quarantined') {
+      throw new Error('receipt with a security finding cannot claim a clean terminal status');
+    }
+    if (findingCount > 0 && data.status === 'injection_blocked') {
+      throw new Error('input-blocked status cannot carry tool-output finding metadata');
+    }
+    if (findingCount === 0 && data.status === 'injection_quarantined') throw new Error('receipt quarantine status requires validated finding metadata');
+    if (data.injectionDetected === true && findingCount === 0 && data.status !== 'injection_blocked') {
+      throw new Error('receipt metadata-free input detection must be injection_blocked');
+    }
     const receipt: Receipt = {
       ...data,
+      ...(data.findingMetadata !== undefined ? { findingMetadata: Object.freeze(findingMetadata) } : {}),
       id: `r-${this.clock()}-${(++this.idCounter).toString(36)}`,
       timestamp: this.clock(),
       receipt_id: `r-${this.clock()}-${this.idCounter.toString(36)}`,
@@ -83,7 +104,7 @@ export class ReceiptStore {
   /** Get failed/blocked receipts only. */
   failures(): Receipt[] {
     return [...this.receipts.values()].filter(
-      (r) => r.status === 'failed' || r.status === 'error' || r.status === 'injection_blocked'
+      (r) => r.status === 'failed' || r.status === 'error' || r.status === 'injection_blocked' || r.status === 'injection_quarantined'
     );
   }
 

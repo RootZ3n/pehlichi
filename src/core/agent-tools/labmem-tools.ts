@@ -19,47 +19,22 @@
  * never crashes the agent — reads/writes degrade to a clear tool error.
  */
 
-import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ToolSpec, ToolHandler } from '../tools.js';
+import { importVerifiedExternal, verifiedExternalDependencyRoot } from '../external-runtime-integrity.js';
 import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
 
 /** This agent's labmem namespace (scope:agent / scope:project key). */
-const AGENT = process.env.AGENT_ID ?? 'lab-agent';
-
-/**
- * Portable default labmem root: the lab's labmem in the sibling lab-utilities/lab-memory, resolved by
- * walking up to `ecosystem/` and crossing into its sibling so the code ships no absolute lab
- * path. That tree ships CODE only — set LABMEM_ROOT to point at the real
- * mutable memory DATA (the home lab sets it via .env; public installs set it to
- * their own store).
- */
-function defaultLabmemRoot(): string {
-  let d = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) {
-    if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem');
-    const parent = dirname(d);
-    if (parent === d) break;
-    d = parent;
-  }
-  return join(process.cwd(), 'lab-memory', 'labmem');
-}
-
 function labmemRoot(): string {
-  return process.env['LABMEM_ROOT'] ?? defaultLabmemRoot();
+  return process.env['LABMEM_ROOT'] ?? verifiedExternalDependencyRoot('labmem');
 }
 
 /** Lazy dynamic import of labmem: built dist first (compiled-safe), TS source fallback (tsx dev). */
 let _core: any = null;
 async function core(): Promise<any> {
   if (_core) return _core;
-  const root = labmemRoot();
-  try {
-    _core = await import(join(root, 'dist/index.js'));
-  } catch {
-    _core = await import(join(root, 'core/index.js'));
-  }
+  _core = await importVerifiedExternal('labmem', 'dist/index.js');
+  if (!_core) throw new Error('labmem runtime dependency is unavailable');
   return _core;
 }
 
@@ -103,27 +78,30 @@ export const labmemToolSpecs: ToolSpec[] = [
   },
 ];
 
-const recallHandler: ToolHandler = async (args) => {
+function recallHandlerFor(agentId: string): ToolHandler {
+  return async (args) => {
   try {
     const c = await core();
     const root = labmemRoot();
     if (args.query && typeof args.query === 'string') {
       const store = c.createStore({ root });
       const q = args.query.toLowerCase();
-      const visible = store.visibleToAgent(AGENT).filter((m: any) => m.status === 'current');
+      const visible = store.visibleToAgent(agentId).filter((m: any) => m.status === 'current');
       const hits = visible.filter((m: any) =>
         [m.id, m.title, m.description, (m.tags || []).join(' '), m.subject || ''].join(' ').toLowerCase().includes(q),
       );
       if (hits.length === 0) return { ok: true, output: `No lab memory matches "${args.query}"` };
       return { ok: true, output: hits.map((m: any) => `- ${m.fqid} [${m.confidence}]: ${m.title} — ${m.description}`).join('\n') };
     }
-    return { ok: true, output: c.renderRecall(c.recall(root, AGENT)) };
+    return { ok: true, output: c.renderRecall(c.recall(root, agentId)) };
   } catch (err) {
     return { ok: false, output: '', error: `labmem_recall failed: ${msg(err)}` };
   }
-};
+  };
+}
 
-const rememberHandler: ToolHandler = async (args) => {
+function rememberHandlerFor(agentId: string): ToolHandler {
+  return async (args) => {
   try {
     const body = String(args.body ?? '');
     const scan = scanForInjection(body, 'strict');
@@ -135,7 +113,7 @@ const rememberHandler: ToolHandler = async (args) => {
     const apply = args.apply === true;
     // Agents may apply their OWN memory; GLOBAL/shared writes are always dry-run proposals.
     const dryRun = isGlobal ? true : !apply;
-    const namespace = isGlobal ? (scope === 'user' ? 'user' : 'global') : AGENT;
+    const namespace = isGlobal ? (scope === 'user' ? 'user' : 'global') : agentId;
 
     const c = await core();
     const store = c.createStore({ root: labmemRoot() });
@@ -145,8 +123,8 @@ const rememberHandler: ToolHandler = async (args) => {
       namespace,
       memoryType: (typeof args.type === 'string' ? args.type : scope === 'project' ? 'project' : 'semantic'),
       confidence: (typeof args.confidence === 'string' ? args.confidence : 'observed'),
-      source: `agent:${AGENT}`,
-      actor: AGENT,
+      source: `agent:${agentId}`,
+      actor: agentId,
       title: sanitize(args.title),
       description: sanitize(args.description),
       body: sanitize(body),
@@ -172,11 +150,15 @@ const rememberHandler: ToolHandler = async (args) => {
   } catch (err) {
     return { ok: false, output: '', error: `labmem_remember failed: ${msg(err)}` };
   }
-};
+  };
+}
 
-export function createLabmemToolHandlers(): Map<string, ToolHandler> {
+export function createLabmemToolHandlers(config: { readonly agentId: string }): Map<string, ToolHandler> {
+  if (typeof config.agentId !== 'string' || config.agentId.length === 0 || config.agentId !== config.agentId.trim()) {
+    throw new Error('labmem handlers require the canonical validated agent identity');
+  }
   const handlers = new Map<string, ToolHandler>();
-  handlers.set('labmem_recall', recallHandler);
-  handlers.set('labmem_remember', rememberHandler);
+  handlers.set('labmem_recall', recallHandlerFor(config.agentId));
+  handlers.set('labmem_remember', rememberHandlerFor(config.agentId));
   return handlers;
 }
