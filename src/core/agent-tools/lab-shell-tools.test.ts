@@ -3,6 +3,7 @@
  * scripted outcome, so we assert the read-only allowlist, cwd confinement, and wrapper construction.
  */
 import test from 'node:test';
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 
 import {
@@ -20,7 +21,7 @@ import { createFullToolRegistry } from './index.js';
 import { agentToolNames } from '../../profile.js';
 import type { ToolContext } from '../tools.js';
 
-const ctx: ToolContext = { workspaceRoot: '/tmp', labStoreRoot: '/tmp', store: {} };
+const ctx: ToolContext = { workspaceRoot: tmpdir(), labStoreRoot: tmpdir(), store: {} };
 const ROOT = '/pehverse/repos';
 
 function fakeRunner(outcome: Partial<LabRunResult> = {}): { run: LabRunner; calls: Array<{ host: string; cmd: string }> } {
@@ -37,7 +38,7 @@ test('spec registered + on the allowlist', () => {
   assert.equal(labShellToolSpecs.length, 1);
   assert.ok(labShellToolNames.has('lab_shell'));
   assert.ok(agentToolNames.includes('lab_shell'));
-  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
+  const names = new Set(createFullToolRegistry({ workspaceRoot: tmpdir(), agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
   assert.ok(names.has('lab_shell'));
 });
 

@@ -27,7 +27,8 @@
  *   # Skill Title
  *   Full instructions...
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync, rmSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync, rmSync, realpathSync, lstatSync, accessSync, constants } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname, relative, isAbsolute, resolve, sep } from 'node:path';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 
@@ -122,12 +123,180 @@ export const skillToolSpecs: ToolSpec[] = [
   },
 ];
 
+
+/**
+ * Where the runtime may stage skills when no workspace supplies a location.
+ *
+ * `createSkillToolHandlers` used to `mkdirSync(skillsRoot, {recursive:true})`
+ * on whatever it was handed. That is fine for a real workspace and wrong in two
+ * ways otherwise: a caller passing `/tmp` makes the runtime create a directory
+ * directly inside a root it does not own, and on Android there is no `/tmp` at
+ * all — the call throws `EACCES` and takes the whole tool registry with it.
+ *
+ * So the root is *resolved and validated* rather than trusted:
+ *
+ *   1. an explicit deployment configuration, when supplied and valid;
+ *   2. otherwise `os.tmpdir()`, which is what Node already resolves per
+ *      platform — `$TMPDIR` on Termux, `/tmp` on ordinary Linux.
+ *
+ * And only a runtime-owned child beneath that root is ever created. The root
+ * itself must already exist: creating it would mean the runtime inventing a
+ * directory somewhere it was merely pointed at.
+ *
+ * The refusals below are deliberate. A relative path or one containing `..`
+ * resolves differently depending on the process's cwd, so the same
+ * configuration would mean different directories to different callers. A
+ * filesystem root is never an acceptable staging parent. A symlink is refused
+ * because the target can be replaced between the check and the write. A path
+ * that is a file, or a directory we cannot write, fails now with an explanation
+ * rather than later with a confusing error from deep inside a tool handler.
+ *
+ * There is deliberately no fallback to the cwd, the repository, `$HOME` or `/`.
+ * A fallback that lands somewhere plausible is worse than a refusal: it writes
+ * real files into a location nobody chose and nobody is watching.
+ */
+const SKILLS_STAGING_DIR = 'runtime-skills';
+
+/** Validate a candidate staging root. Returns null with a reason when unusable. */
+function checkStagingRoot(root: string): { ok: true } | { ok: false; why: string } {
+  if (root.trim() === '') return { ok: false, why: 'is empty' };
+  if (!root.startsWith('/')) return { ok: false, why: 'is not absolute' };
+  if (root.split('/').includes('..')) return { ok: false, why: 'contains a traversal segment' };
+  if (root.replace(/\/+$/, '') === '') return { ok: false, why: 'is a filesystem root' };
+
+  let st;
+  try {
+    // lstat, not stat: a symlinked root can be repointed after we check it.
+    st = lstatSync(root);
+  } catch {
+    return { ok: false, why: 'does not exist' };
+  }
+  if (st.isSymbolicLink()) return { ok: false, why: 'is a symlink' };
+  if (!st.isDirectory()) return { ok: false, why: 'is not a directory' };
+  try {
+    accessSync(root, constants.W_OK | constants.X_OK);
+  } catch {
+    return { ok: false, why: 'is not writable' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Resolve the runtime-owned skills staging directory and make sure it exists.
+ *
+ * Concurrency-safe by construction: `mkdirSync(..., {recursive:true})` succeeds
+ * when the directory already exists, so two runtimes starting together both end
+ * up with the same directory and neither observes a failure.
+ *
+ * The resolved path is returned so it can be logged. It is a directory name,
+ * not a secret.
+ */
+export function resolveSkillsStagingRoot(configuredRoot?: string): string {
+  // A configured root is a hard requirement, not a preference. If deployment
+  // configuration names a staging root and that root is unusable, the runtime
+  // refuses — it does not quietly stage skills somewhere the operator did not
+  // choose. Falling through to os.tmpdir() here would turn a typo into a
+  // deployment that looks healthy and writes real files into the wrong place.
+  if (configuredRoot !== undefined && configuredRoot !== null) {
+    const path = String(configuredRoot);
+    const verdict = checkStagingRoot(path);
+    if (!verdict.ok) {
+      throw new Error(
+        `configured skills staging root (${path}) ${verdict.why}. ` +
+          'Fix the deployment configuration, or remove it to use the platform ' +
+          'temp directory; the runtime will not fall back to the working ' +
+          'directory, the home root, or /.',
+      );
+    }
+    return createStagingChild(path);
+  }
+
+  // Nothing configured: use whatever Node resolves for this platform. That is
+  // $TMPDIR under Termux and /tmp on ordinary Linux, so the code never has to
+  // name either — which is the whole of the Android portability fix.
+  let osTmp = '';
+  try {
+    osTmp = tmpdir();
+  } catch {
+    osTmp = '';
+  }
+  if (osTmp === '') {
+    throw new Error(
+      'no skills staging root: os.tmpdir() is unavailable and none was configured. ' +
+        'Set an explicit staging root in deployment configuration; the runtime ' +
+        'will not fall back to the working directory, the home root, or /.',
+    );
+  }
+  const verdict = checkStagingRoot(osTmp);
+  if (!verdict.ok) {
+    throw new Error(
+      `platform temp directory (${osTmp}) ${verdict.why}, and no staging root was ` +
+        'configured. Set an explicit staging root in deployment configuration; ' +
+        'the runtime will not fall back to the working directory, the home root, or /.',
+    );
+  }
+  return createStagingChild(osTmp);
+}
+
+/**
+ * Create the runtime-owned child beneath an already-validated root.
+ *
+ * `recursive: true` is what makes concurrent initialisation safe: it succeeds
+ * on a directory that already exists, so two runtimes starting together
+ * converge on the same directory instead of one of them failing. It never
+ * removes anything — an existing staging directory keeps its contents, because
+ * recursively deleting a tree the caller may own is precisely the behaviour
+ * this must not have.
+ *
+ * mode 0700 is honoured on Linux and Termux and ignored where unsupported.
+ */
+function createStagingChild(root: string): string {
+  const dir = `${root.replace(/\/+$/, '')}/${SKILLS_STAGING_DIR}`;
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/**
+ * Is this root one the runtime must not create a directory directly inside?
+ *
+ * A workspace path like `<workspace>/skills` is the runtime's own to create.
+ * A shared staging root — the platform temp directory, or a filesystem root —
+ * is not: it belongs to the system, may not exist at all (Android has no
+ * `/tmp`), and a bare `mkdir` there is how a missing directory became a
+ * registry-wide startup failure.
+ */
+function isBareStagingRoot(root: string): boolean {
+  const trimmed = root.replace(/\/+$/, '');
+  if (trimmed === '') return true;                      // "/" and friends
+  if (trimmed.split('/').filter(Boolean).length <= 1) return true;  // "/tmp"
+  let osTmp = '';
+  try {
+    osTmp = tmpdir().replace(/\/+$/, '');
+  } catch {
+    osTmp = '';
+  }
+  return osTmp !== '' && trimmed === osTmp;             // "$TMPDIR" on Termux
+}
+
 export function createSkillToolHandlers(skillsRoot: string): Map<string, ToolHandler> {
   const handlers = new Map<string, ToolHandler>();
 
-  // Ensure skills directory exists
+  // Ensure the skills directory exists.
+  //
+  // A workspace-relative root is the normal case and is created as before. What
+  // is no longer done is creating a directory directly inside a root the
+  // runtime does not own: passing a bare filesystem root — `/tmp` was the case
+  // in practice — used to mkdir straight into it, and on Android, where there
+  // is no `/tmp`, the EACCES took the entire tool registry down with it.
+  //
+  // Such a root is now routed through the validated staging resolver, which
+  // creates only a runtime-owned child beneath a directory that already exists.
   if (!existsSync(skillsRoot)) {
-    mkdirSync(skillsRoot, { recursive: true });
+    if (isBareStagingRoot(skillsRoot)) {
+      skillsRoot = resolveSkillsStagingRoot(skillsRoot);
+    } else {
+      mkdirSync(skillsRoot, { recursive: true });
+    }
   }
 
   handlers.set('skills_list', async (args): Promise<ToolResult> => {
