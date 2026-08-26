@@ -10,6 +10,10 @@ import { readStrictJson,StrictJsonError } from './strict-json.mjs';
 export const SLOT_NAMES=Object.freeze(['pehlichi','loony-luna','mad-ptah']);
 const MATCH_CLASSES=new Set(['behavior-identical','generated-behavior-identical','model-behavior-data','test-behavior-identical','quarantined-blocking-divergence']);
 const VARIABLE_CLASSES=new Set(['validated-variable-data','inert-variable-asset','documentation']);
+// An owner-scoped tree belongs to exactly one agent and is not part of the shared
+// distribution. It is neither compared across repositories nor permitted to be reachable
+// from anything that is: the exemption buys absence, never silence about behaviour.
+const OWNER_SCOPED_CLASS='owner-scoped-asset';
 const EXECUTABLE_SUFFIXES=new Set(['.ts','.tsx','.js','.jsx','.mjs','.cjs','.py','.sh','.bash','.zsh','.fish','.rb','.pl','.php','.go','.rs','.java','.kt','.swift','.wasm','.node','.exe','.dll','.so','.dylib','.html','.htm','.service']);
 const SAFE_EXCLUSIONS=new Set(['.git','node_modules','tui/node_modules','scripts/trio/node_modules']);
 const VERIFIER_CONTRACT=Object.freeze({name:'trio-read-only-parity-verifier',version:'3.0.0',pathPolicyVersion:'3.0.0',symlinkPolicy:'reject-all-governed-and-exclusion-boundary-symlinks',hardLinkPolicy:'reject-multiple-links',casePolicy:'ASCII repository-relative paths with case-fold collision rejection'});
@@ -74,6 +78,17 @@ function validateManifestContract(manifest){
     if(MATCH_CLASSES.has(rule.class)&&!rule.bytesMustMatch&&rule.validation.kind!=='package-behavior')failures.push(failure('RULE_CONTRACT','Behavioral class must require byte identity unless governed by a semantic package projection',null,rule.id));
     if(rule.class==='quarantined-blocking-divergence'&&(!rule.divergenceBlocking||!rule.transitional||!rule.expiresBefore))failures.push(failure('RULE_CONTRACT','Quarantine must be blocking, transitional, and expiring',null,rule.id));
     if(variable&&rule.productionReachable)failures.push(failure('VARIABLE_BEHAVIOR','Variable content cannot be production-reachable',null,rule.id));
+    if(rule.class===OWNER_SCOPED_CLASS){
+      if(!SLOT_NAMES.includes(rule.owner))failures.push(failure('OWNER_SCOPE_CONTRACT','An owner-scoped rule names exactly one of the three agents as owner',null,rule.id,{owner:safeText(String(rule.owner))}));
+      if(rule.productionReachable!==false)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content cannot be production-reachable',null,rule.id));
+      if(rule.bytesMustMatch!==false)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content is not compared across repositories',null,rule.id));
+      if(rule.divergenceBlocking!==false)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped divergence is the declared outcome, not a blocker',null,rule.id));
+      if(typeof rule.attestation!=='string'||rule.attestation.length<16)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content requires a written attestation',null,rule.id));
+      if(typeof rule.ownerTreeDigest!=='string'||!/^sha256:[0-9a-f]{64}$/.test(rule.ownerTreeDigest))failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content requires a measured tree digest',null,rule.id));
+      if(!rule.selector.directory)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped rules select a directory, so every member file is enumerated',null,rule.id));
+    }else if(rule.owner!==undefined||rule.ownerTreeDigest!==undefined||rule.attestation!==undefined){
+      failures.push(failure('OWNER_SCOPE_CONTRACT','Only an owner-scoped rule may carry owner, attestation, or tree digest',null,rule.id));
+    }
   }
   for(let i=0;i<manifest.rules.length;i++)for(let j=i+1;j<manifest.rules.length;j++)if(selectorsOverlap(manifest.rules[i].selector,manifest.rules[j].selector))failures.push(failure('AMBIGUOUS_RULES','Classification rule domains overlap',null,null,{rules:[manifest.rules[i].id,manifest.rules[j].id]}));
   const folded=new Map();for(const x of pathKeys){const key=x.value.normalize('NFC').toLowerCase();const prior=folded.get(key);if(prior&&prior.value!==x.value)failures.push(failure('CASE_CONFUSABLE_PATH','Case-fold-confusable manifest paths',null,x.value,{other:prior.value}));else folded.set(key,x);}
@@ -201,8 +216,19 @@ function identityPreflight(slots,manifest,schemaValidator){
 
 function compare(repositories,manifest,inventory,manifestDigest){
   const failures=[];const maps=Object.fromEntries(repositories.map((r)=>[r.slot,new Map(r.governed.map((x)=>[x.path,x]))]));const inventoried=[...new Set(Object.values(inventory.rules).flat())];const allPaths=[...new Set([...repositories.flatMap((r)=>r.governed.map((x)=>x.path)),...inventoried])].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)));
-  const identical=[],divergent=[],missing=[],variableDifferences=[],quarantined=[];
+  const identical=[],divergent=[],missing=[],variableDifferences=[],quarantined=[],ownerScoped=[];
   for(const rel of allPaths){const rows=SLOT_NAMES.map((s)=>maps[s].get(rel));const classes=new Set(rows.filter(Boolean).map((x)=>x.classification));if(classes.size>1){failures.push(failure('CLASSIFICATION_MISMATCH','Corresponding path has different classifications',null,rel,{classes:[...classes].sort()}));continue;}const inventoryRule=manifest.rules.find((r)=>(inventory.rules[r.id]??[]).includes(rel));const klass=[...classes][0]??inventoryRule?.class;const present=rows.filter(Boolean);
+    if(klass===OWNER_SCOPED_CLASS){
+      // Present in its owner and absent everywhere else. Absence elsewhere is the contract,
+      // so presence elsewhere is the violation -- an owner-scoped path appearing in a second
+      // repository is an undeclared shared tree wearing an exemption.
+      const owner=inventoryRule?.owner;const ownerIndex=SLOT_NAMES.indexOf(owner);
+      const intruders=SLOT_NAMES.filter((s,i)=>rows[i]&&i!==ownerIndex);
+      if(intruders.length)failures.push(failure('OWNER_SCOPE_VIOLATION','Owner-scoped path is present outside its declared owner',null,rel,{owner:safeText(String(owner)),presentIn:intruders}));
+      else if(!rows[ownerIndex])failures.push(failure('OWNER_SCOPE_ABSENT','Owner-scoped path is absent from its declared owner',null,rel,{owner:safeText(String(owner))}));
+      else ownerScoped.push({path:rel,owner,digest:rows[ownerIndex].byteDigest,mode:rows[ownerIndex].mode});
+      continue;
+    }
     if(MATCH_CLASSES.has(klass)){
       if(present.length!==SLOT_NAMES.length){const item={path:rel,class:klass,missingIn:SLOT_NAMES.filter((_,i)=>!rows[i])};missing.push(item);failures.push(failure('MISSING_BEHAVIOR_FILE','Behavior-bearing file is missing from one or more repositories',null,rel,{missingIn:item.missingIn}));continue;}
       const values=rows.map((x)=>`${x.fileType}:${x.mode}:${x.behaviorDigest}`);if(new Set(values).size!==1){divergent.push({path:rel,class:klass,records:Object.fromEntries(SLOT_NAMES.map((s,i)=>[s,{mode:rows[i].mode,byteDigest:rows[i].byteDigest,behaviorDigest:rows[i].behaviorDigest}]))});failures.push(failure('BEHAVIOR_DIVERGENCE','Behavioral canonical record differs',null,rel,{class:klass}));}else identical.push({path:rel,class:klass,digest:rows[0].behaviorDigest,mode:rows[0].mode});
@@ -215,7 +241,95 @@ function compare(repositories,manifest,inventory,manifestDigest){
     }
   }
   const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
-  return {identical,divergent,missing,variableDifferences,quarantined,failures,blockingByClass};
+  return {identical,divergent,missing,variableDifferences,quarantined,ownerScoped,failures,blockingByClass};
+}
+
+
+/**
+ * Prove an owner-scoped tree is genuinely outside the shared distribution.
+ *
+ * Absence from the other two repositories is cheap to declare and worthless on its own: a
+ * tree that nothing shares but everything imports is still shared behaviour. These checks
+ * are what the exemption is paid for -- the tree must be unreachable from the runtime, must
+ * not overlap System A's governed set, must not carry a service unit or build output, must
+ * not be named by a package hook, and must not be loaded as model-facing prompt data.
+ */
+function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
+  const failures=[];
+  const rules=manifest.rules.filter((r)=>r.class===OWNER_SCOPED_CLASS);
+  if(!rules.length)return failures;
+  for(const rule of rules){
+    const owner=rule.owner;const ownerRoot=resolved[owner];if(!ownerRoot)continue;
+    const members=(inventory.rules[rule.id]??[]);
+    const prefix=rule.selector.directory+'/';
+
+    // (a) no overlap with System A's closure or shared inventory, in any repository
+    for(const slot of SLOT_NAMES){
+      const root=resolved[slot];if(!root)continue;
+      let closure,systemA;
+      try{closure=readStrictJson(path.join(root,'trio/runtime-closure.json'));}catch{closure=null;}
+      try{systemA=readStrictJson(path.join(root,'trio/path-inventory.json'));}catch{systemA=null;}
+      const governedSets=[];
+      if(closure)governedSets.push(closure.entryPoints??[],closure.governedCommon??[],closure.configurationData??[],closure.spawnedRuntimeFiles??[],closure.generatedRuntime?.governedCommon??[]);
+      if(systemA)governedSets.push(systemA.sharedFiles??[],systemA.configurationData??[]);
+      for(const set of governedSets)for(const p of set){
+        if(p===rule.selector.directory||p.startsWith(prefix))failures.push(failure('OWNER_SCOPE_REACHABLE','Owner-scoped path appears in the shared runtime closure or inventory',slot,p,{rule:rule.id}));
+      }
+      if(systemA)for(const dir of systemA.closedDirectories??[])if(dir===rule.selector.directory||dir.startsWith(prefix)||rule.selector.directory.startsWith(dir+'/'))failures.push(failure('OWNER_SCOPE_REACHABLE','Owner-scoped directory intersects a closed runtime directory',slot,dir,{rule:rule.id}));
+    }
+
+    // (b) nothing governed may reference the tree: imports, requires, or bare path mentions
+    const ownerRepo=repositories.find((r)=>r.slot===owner);
+    if(ownerRepo){
+      for(const record of ownerRepo.governed){
+        if(record.path===rule.selector.directory||record.path.startsWith(prefix))continue;
+        if(record.classification===OWNER_SCOPED_CLASS)continue;
+        // The governance tree necessarily names the directory in order to declare it. That
+        // is the declaration itself, not a runtime reference, and excluding it here is what
+        // keeps the check about reachability rather than about its own bookkeeping.
+        if(record.path.startsWith('trio/'))continue;
+        // The retained vulnerable fixture carries a frozen copy of a boundary manifest, so it
+        // names directories for the same declarative reason the live governance tree does.
+        if(record.path.startsWith('scripts/trio/fixtures/'))continue;
+        let text;try{text=fs.readFileSync(path.join(ownerRoot,...record.path.split('/')),'utf8');}catch{continue;}
+        // Path-shaped references only. Prose that happens to contain the directory's name is
+        // not reachability, but a quoted segment or a path prefix is how the tree would
+        // actually be reached -- `join(root, 'memories')` must fire, "fond memories" must not.
+        const d=rule.selector.directory;
+        const referenced=text.includes(d+'/')||text.includes(`'${d}'`)||text.includes(`"${d}"`)||text.includes('`'+d+'`');
+        if(referenced)failures.push(failure('OWNER_SCOPE_REFERENCED','A governed file references an owner-scoped tree',owner,record.path,{rule:rule.id}));
+      }
+    }
+
+    // (c) the tree itself may not carry a service entrypoint or compiled build output
+    for(const rel of members){
+      if(/\.service$/.test(rel))failures.push(failure('OWNER_SCOPE_ENTRYPOINT','Owner-scoped trees cannot carry a service unit',owner,rel,{rule:rule.id}));
+      if(/(^|\/)dist\//.test(rel)||/\.map$/.test(rel))failures.push(failure('OWNER_SCOPE_BUILD_OUTPUT','Owner-scoped trees cannot carry build output',owner,rel,{rule:rule.id}));
+    }
+
+    // (d) no package hook may name it
+    try{
+      const pkg=readStrictJson(path.join(ownerRoot,'package.json'));
+      for(const [name,body] of Object.entries(pkg.scripts??{}))if(typeof body==='string'&&body.includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PACKAGE_HOOK','A package script invokes an owner-scoped tree',owner,`scripts.${safeText(name)}`,{rule:rule.id}));
+      for(const field of ['main','module','types','browser','bin','exports'])if(JSON.stringify(pkg[field]??null).includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PACKAGE_HOOK','A package entrypoint field names an owner-scoped tree',owner,field,{rule:rule.id}));
+    }catch{/* package identity is already validated in the identity preflight */}
+
+    // (e) the capsule may not load it as model-facing data
+    try{
+      const capsuleText=fs.readFileSync(path.join(ownerRoot,manifest.repositories[owner].capsulePath),'utf8');
+      if(capsuleText.includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PROMPT_LOAD','A capsule loads an owner-scoped tree as model-facing data',owner,manifest.repositories[owner].capsulePath,{rule:rule.id}));
+    }catch{/* capsule validity is asserted in the identity preflight */}
+
+    // (f) the declared tree digest must equal what is on disk
+    const hash=crypto.createHash('sha256');
+    for(const rel of [...members].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)))){
+      let bytes;try{bytes=fs.readFileSync(path.join(ownerRoot,rel));}catch{continue;}
+      hash.update(`file:${Buffer.byteLength(rel)}:`).update(rel).update(`:${bytes.length}:`).update(bytes);
+    }
+    const measured=`sha256:${hash.digest('hex')}`;
+    if(measured!==rule.ownerTreeDigest)failures.push(failure('OWNER_SCOPE_DIGEST','Owner-scoped tree does not match its acknowledged digest',owner,rule.selector.directory,{expected:rule.ownerTreeDigest,actual:measured}));
+  }
+  return failures;
 }
 
 export function verify({slots,manifestPath}){
@@ -241,7 +355,7 @@ export function verify({slots,manifestPath}){
       }catch(error){manifestFailures.push(failure('MANIFEST_DIVERGENCE',error.message,slot,'trio/governance/boundary-manifest.json'));}
     }
     if(manifestFailures.length)return invalidResult('MANIFEST_DIVERGENCE',manifestFailures,{boundaryManifestDigest:manifestDigest});
-    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const failures=[...repoFailures,...compared.failures];const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
+    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const ownerScopeFailures=verifyOwnerScopedIsolation(repositories,manifest,inventory,identities.resolved);const failures=[...repoFailures,...compared.failures,...ownerScopeFailures];const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
     const packageBehaviorProjection=Object.fromEntries(repositories.map((r)=>[r.slot,{projection:r.packageProjections,digest:`sha256:${sha256(stableJson(r.packageProjections))}`} ]));
     const implementationPaths={verifier:fileURLToPath(import.meta.url),strictParser:path.join(path.dirname(fileURLToPath(import.meta.url)),'strict-json.mjs'),validator:path.join(path.dirname(fileURLToPath(import.meta.url)),'schema-validation.mjs')};
     const implementation=Object.fromEntries(Object.entries(implementationPaths).map(([key,file])=>[key,{version:key==='verifier'?VERIFIER_CONTRACT.version:key==='strictParser'?'3.0.0':SCHEMA_VALIDATOR.version,digest:`sha256:${sha256(fs.readFileSync(file))}`} ]));
@@ -252,7 +366,7 @@ export function verify({slots,manifestPath}){
     const topLevelContractDigest=framedEnvelope(contractFields);
     const repositoryIdentities=repositories.map((r)=>{const lockDigests=Object.fromEntries(['pnpm-lock.yaml','tui/pnpm-lock.yaml','scripts/trio/package-lock.json'].map((p)=>[p,fs.existsSync(path.join(r.root,p))?`sha256:${sha256(fs.readFileSync(path.join(r.root,p)))}`:null]));const snapshot={agent:r.slot,canonicalRealpath:r.root,expectedRepositoryName:manifest.repositories[r.slot].expectedRepositoryName,remoteIdentity:r.remote,packageIdentity:manifest.repositories[r.slot].packageNames,capsuleIdentity:manifest.repositories[r.slot].capsuleIdentity,head:r.head,branch:r.branch,dirty:r.dirty,dirtyStateVisible:r.dirty.length>0,digests:r.digests,lockDigests,packageProjectionDigest:packageBehaviorProjection[r.slot].digest,generatedOutputState:{digest:r.digests.compiledArtifactDigest,reproduciblyBuilt:false},knownQuarantineCount:r.governed.filter((x)=>x.classification==='quarantined-blocking-divergence').length};return {...snapshot,behavioralEnvelopeDigest:framedEnvelope({topLevelContractDigest,slot:r.slot,expectedIdentity:manifest.repositories[r.slot],snapshot:{head:r.head,branch:r.branch,dirty:r.dirty},treeDigests:r.digests,lockDigests,packageProjectionDigest:packageBehaviorProjection[r.slot].digest,generatedOutputState:snapshot.generatedOutputState})};});
     const blockingStateDigest=framedEnvelope({failures:[...failures].sort((a,b)=>stableJson(a).localeCompare(stableJson(b))),comparison:{divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences}});const observationEnvelopeDigest=framedEnvelope({topLevelContractDigest,repositorySnapshots:repositoryIdentities.map((x)=>({agent:x.agent,head:x.head,branch:x.branch,dirty:x.dirty,behavioralEnvelopeDigest:x.behavioralEnvelopeDigest,completeObservedTreeDigest:x.digests.completeObservedTreeDigest})),blockingStateDigest,status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY'});
-    const result={schemaVersion:'3.0.0',status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY',generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,identityLimitations:['Mutable Git remote/package/capsule metadata verifies labeling consistency, not cryptographic provenance.','Compiled artifacts are compared when inventoried but are not proven reproducible.','Excluded third-party dependency bytes are not individually attested; pinned lock and package-manager configuration are governed.','Identical code may still be unsafe.'],topLevelIdentity:{contractDigest:topLevelContractDigest,observationEnvelopeDigest,blockingStateDigest,contract:contractFields},boundaryManifest:{path:manifestReal,digest:manifestDigest,byteDigest:manifestByteDigest,schemaVersion:manifest.schemaVersion,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,inclusionRuleDigest:`sha256:${sha256(stableJson(manifest.rules))}`,exclusionRuleDigest:`sha256:${sha256(stableJson(manifest.exclusions))}`,completeRuleDigest,completeExclusionDigest},repositoryIdentities,packageBehaviorProjection,summary:{verdict:failures.length?'BLOCKING_DIVERGENCE':'PARITY',blockingCount:failures.length,blockingByClass,identical:compared.identical.length,behavioralDivergences:compared.divergent.length,missingBehaviorFiles:compared.missing.length,quarantined:compared.quarantined.length,variableDifferences:compared.variableDifferences.length,unclassifiedFiles:repositories.reduce((n,r)=>n+r.unknown.length,0),symlinks:repositories.reduce((n,r)=>n+r.symlinks.length,0),contentValidationFailures:repositories.reduce((n,r)=>n+r.contentInvalid.length,0)},intentionalBlockingDivergences:manifest.blockingDivergences,divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences,unclassified:repositories.flatMap((r)=>r.unknown),symlinks:repositories.flatMap((r)=>r.symlinks),contentValidationFailures:repositories.flatMap((r)=>r.contentInvalid),failures};return result;
+    const result={schemaVersion:'3.0.0',status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY',generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,identityLimitations:['Mutable Git remote/package/capsule metadata verifies labeling consistency, not cryptographic provenance.','Compiled artifacts are compared when inventoried but are not proven reproducible.','Excluded third-party dependency bytes are not individually attested; pinned lock and package-manager configuration are governed.','Identical code may still be unsafe.'],topLevelIdentity:{contractDigest:topLevelContractDigest,observationEnvelopeDigest,blockingStateDigest,contract:contractFields},boundaryManifest:{path:manifestReal,digest:manifestDigest,byteDigest:manifestByteDigest,schemaVersion:manifest.schemaVersion,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,inclusionRuleDigest:`sha256:${sha256(stableJson(manifest.rules))}`,exclusionRuleDigest:`sha256:${sha256(stableJson(manifest.exclusions))}`,completeRuleDigest,completeExclusionDigest},repositoryIdentities,packageBehaviorProjection,summary:{verdict:failures.length?'BLOCKING_DIVERGENCE':'PARITY',blockingCount:failures.length,blockingByClass,identical:compared.identical.length,behavioralDivergences:compared.divergent.length,missingBehaviorFiles:compared.missing.length,quarantined:compared.quarantined.length,variableDifferences:compared.variableDifferences.length,ownerScopedFiles:compared.ownerScoped.length,unclassifiedFiles:repositories.reduce((n,r)=>n+r.unknown.length,0),symlinks:repositories.reduce((n,r)=>n+r.symlinks.length,0),contentValidationFailures:repositories.reduce((n,r)=>n+r.contentInvalid.length,0)},intentionalBlockingDivergences:manifest.blockingDivergences,divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences,ownerScoped:compared.ownerScoped,unclassified:repositories.flatMap((r)=>r.unknown),symlinks:repositories.flatMap((r)=>r.symlinks),contentValidationFailures:repositories.flatMap((r)=>r.contentInvalid),failures};return result;
   }catch(error){const kind=error instanceof StrictJsonError?'JSON_INVALID':error?.code==='ENOENT'?'MISSING_INPUT':'VERIFIER_EXCEPTION';return invalidResult(kind,[failure(kind,error.message,null,manifestPath??null)]);}
 }
 

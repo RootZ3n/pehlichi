@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import cp from 'node:child_process';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { verify,human,SLOT_NAMES } from './verify-runtime-parity.mjs';
 import { readStrictJson } from './strict-json.mjs';
@@ -15,6 +16,11 @@ const capsule=(id)=>({$schema:'../schemas/capsule.schema.json',schemaVersion:'1.
 function fixture(){
   const top=fs.mkdtempSync(path.join(os.tmpdir(),'trio-001c-hostile-'));const governance=path.join(top,'governance');fs.mkdirSync(governance);fs.cpSync(path.join(projectRoot,'trio/governance/schemas'),path.join(governance,'schemas'),{recursive:true});
   const manifest=structuredClone(readStrictJson(path.join(projectRoot,'trio/governance/boundary-manifest.json')));const manifestPath=path.join(governance,'boundary-manifest.json');
+  // The fixture builds its own minimal world, so it does not inherit owner-scoped rules
+  // for trees it never creates: an acknowledged tree digest must be checked against the
+  // tree it was measured from, and inheriting the declaration without the bytes would
+  // force the check to be softened for everyone. ownerScopedTree() adds one deliberately.
+  manifest.rules=manifest.rules.filter((r)=>r.class!=='owner-scoped-asset');
   const slots={};for(const slot of SLOT_NAMES){const root=path.join(top,slot);slots[slot]=root;fs.mkdirSync(root);const spec=manifest.repositories[slot];
     write(path.join(root,'package.json'),JSON.stringify({name:spec.packageNames['package.json'],description:slot,version:'0.0.0',type:'module',private:true,scripts:{start:'node dist/index.js'},dependencies:{alpha:'1.0.0'},devDependencies:{test:'1.0.0'}}));
     write(path.join(root,'tui/package.json'),JSON.stringify({name:spec.packageNames['tui/package.json'],version:'0.0.0',type:'module',private:true,scripts:{start:'node src/server.ts'}}));
@@ -30,6 +36,30 @@ function fixture(){
   for(const root of Object.values(slots)){git(root,['add','.']);git(root,['commit','-qm','fixture']);}
   return {top,governance,manifest,manifestPath,inventory,inventoryPath,slots,setManifest,setInventory};
 }
+
+/**
+ * Install one owner-scoped tree into the fixture and acknowledge its measured digest.
+ *
+ * `mutate` runs after the files are written and before the digest is taken, so a test can
+ * choose whether the acknowledgement matches the bytes on disk.
+ */
+function ownerScopedTree(f,{owner='loony-luna',dir='luna-private',files={'notes.md':'# private\n','asset.txt':'inert\n'},rule={},acknowledge=true}={}){
+  for(const [rel,body] of Object.entries(files))write(path.join(f.slots[owner],dir,rel),body);
+  const members=Object.keys(files).map((r)=>`${dir}/${r}`).sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)));
+  const hash=crypto.createHash('sha256');
+  for(const rel of members){const bytes=fs.readFileSync(path.join(f.slots[owner],rel));hash.update(`file:${Buffer.byteLength(rel)}:`).update(rel).update(`:${bytes.length}:`).update(bytes);}
+  const measured=`sha256:${hash.digest('hex')}`;
+  f.manifest.rules.push({id:'owner-scoped-fixture',selector:{directory:dir,closedInventory:true},class:'owner-scoped-asset',owner,
+    attestation:'Fixture-owned private tree, unreachable from the shared runtime.',
+    ownerTreeDigest:acknowledge?measured:'sha256:'+'0'.repeat(64),
+    bytesMustMatch:false,modeMustMatch:true,allowedTypes:['file'],permittedFormats:['markdown','data'],
+    validation:{kind:'none'},productionReachable:false,divergenceBlocking:false,transitional:false,expiresBefore:null,...rule});
+  f.setManifest(f.manifest);
+  f.inventory.rules['owner-scoped-fixture']=members;
+  f.setInventory(f.inventory);
+  return {members,measured,dir,owner};
+}
+
 const clean=(f)=>fs.rmSync(f.top,{recursive:true,force:true});const run=(f)=>verify({slots:f.slots,manifestPath:f.manifestPath});
 const ERROR_STATUSES=new Set(['SCHEMA_INVALID','MANIFEST_INVALID','MANIFEST_DIVERGENCE','IDENTITY_INVALID','JSON_INVALID','MISSING_INPUT','INVALID_INPUT']);
 const expectBlocked=(r,klass,status='VERIFIER_OK_DIVERGENCE')=>{assert.equal(r.status,status);assert.equal(r.summary.verdict,status==='VERIFIER_OK_DIVERGENCE'?'BLOCKING_DIVERGENCE':'VERIFIER_ERROR');assert.notEqual(r.summary.verdict,'PARITY');if(klass)assert.ok(r.failures.some((x)=>x.failureClass===klass),`${klass} absent; got ${r.failures.map((x)=>x.failureClass)}`);if(status!=='VERIFIER_OK_DIVERGENCE')assert.ok(ERROR_STATUSES.has(status));};
@@ -92,3 +122,22 @@ for(const [label,data] of [
 ])test(`TRIO-001D asset quarantine: ${label} blocks`,()=>{const f=fixture();try{for(const root of Object.values(f.slots))write(path.join(root,'peh-hedge-knight.png'),data);expectFinding(run(f),{failureClass:'CONTENT_VALIDATION',agent:'pehlichi',affectedPath:'peh-hedge-knight.png'});expectFinding(run(f),{failureClass:'QUARANTINED_DIVERGENCE',affectedPath:'peh-hedge-knight.png'});}finally{clean(f);}});
 
 test('TRIO-001D human rendering encodes bidi, zero-width, controls, newlines, and delimiters',()=>{const f=fixture();try{const raw='spoof\u202e\u200b\n|=x.js';write(path.join(f.slots.pehlichi,raw),'attack()');const result=run(f),rendered=human(result),machine=JSON.stringify(result);assert.equal(result.status,'VERIFIER_OK_DIVERGENCE');for(const ch of ['\u202e','\u200b']){assert.equal(rendered.includes(ch),false);assert.equal(machine.includes(ch),false);}assert.equal(machine.includes('\n'),false);assert.match(rendered,/\\u\{202e\}/);assert.match(rendered,/\\u\{200b\}/);assert.match(rendered,/\\u\{a\}/);assert.match(rendered,/\\u\{7c\}/);assert.match(rendered,/\\u\{3d\}/);}finally{clean(f);}});
+
+// ── Owner-scoped trees: the exemption buys absence, never silence ─────────────
+test('owner-scoped: a tree present only in its declared owner reaches parity',()=>{const f=fixture();try{ownerScopedTree(f);const r=run(f);assert.equal(r.summary.verdict,'PARITY');assert.equal(r.summary.ownerScopedFiles,2);}finally{clean(f);}});
+test('owner-scoped hostile: the same tree appearing in a second repository blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);write(path.join(f.slots['mad-ptah'],t.members[0]),'# private\n');expectFinding(run(f),{failureClass:'OWNER_SCOPE_VIOLATION',affectedPath:t.members[0]});}finally{clean(f);}});
+test('owner-scoped hostile: absence from the declared owner blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);fs.rmSync(path.join(f.slots[t.owner],t.members[0]));expectFinding(run(f),{failureClass:'OWNER_SCOPE_ABSENT',affectedPath:t.members[0]});}finally{clean(f);}});
+test('owner-scoped hostile: a governed file referencing the tree blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);write(path.join(f.slots[t.owner],'src/main.ts'),`export const p='${t.dir}/notes.md';\n`);expectBlocked(run(f),'OWNER_SCOPE_REFERENCED');}finally{clean(f);}});
+test('owner-scoped hostile: naming the tree in the shared runtime closure blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);for(const root of Object.values(f.slots))write(path.join(root,'trio/runtime-closure.json'),JSON.stringify({governedCommon:[t.members[0]]}));expectBlocked(run(f),'OWNER_SCOPE_REACHABLE');}finally{clean(f);}});
+test('owner-scoped hostile: a package script invoking the tree blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);const pkg=readStrictJson(path.join(f.slots[t.owner],'package.json'));pkg.scripts.demo=`bash ${t.dir}/run.sh`;write(path.join(f.slots[t.owner],'package.json'),JSON.stringify(pkg));expectBlocked(run(f),'OWNER_SCOPE_PACKAGE_HOOK');}finally{clean(f);}});
+test('owner-scoped hostile: a service unit inside the tree blocks',()=>{const f=fixture();try{ownerScopedTree(f,{files:{'notes.md':'# private\n','agent.service':'[Service]\n'}});expectBlocked(run(f),'OWNER_SCOPE_ENTRYPOINT');}finally{clean(f);}});
+test('owner-scoped hostile: an unacknowledged byte change blocks',()=>{const f=fixture();try{const t=ownerScopedTree(f);write(path.join(f.slots[t.owner],t.members[0]),'# quietly changed\n');expectBlocked(run(f),'OWNER_SCOPE_DIGEST');}finally{clean(f);}});
+test('owner-scoped hostile: an unmeasured tree digest blocks',()=>{const f=fixture();try{ownerScopedTree(f,{acknowledge:false});expectBlocked(run(f),'OWNER_SCOPE_DIGEST');}finally{clean(f);}});
+test('owner-scoped hostile: claiming production reachability or byte identity is refused',()=>{
+  for(const override of [{productionReachable:true},{bytesMustMatch:true},{divergenceBlocking:true}]){
+    const f=fixture();try{ownerScopedTree(f,{rule:override});expectBlocked(run(f),'OWNER_SCOPE_CONTRACT','MANIFEST_INVALID');}finally{clean(f);}
+  }
+});
+test('owner-scoped hostile: an owner outside the three agents is refused by the schema',()=>{const f=fixture();try{ownerScopedTree(f,{rule:{owner:'nobody'}});expectBlocked(run(f),'SCHEMA_VALIDATION','SCHEMA_INVALID');}finally{clean(f);}});
+test('owner-scoped hostile: owner/attestation/digest on a non-owner-scoped rule is refused',()=>{const f=fixture();try{f.manifest.rules.find((r)=>r.id==='source-runtime').owner='loony-luna';f.setManifest(f.manifest);expectBlocked(run(f),'OWNER_SCOPE_CONTRACT','MANIFEST_INVALID');}finally{clean(f);}});
+test('owner-scoped hostile: an unknown file inside the owner tree is still fail-closed',()=>{const f=fixture();try{const t=ownerScopedTree(f);write(path.join(f.slots[t.owner],t.dir,'surprise.md'),'not enumerated\n');expectBlocked(run(f),'UNCLASSIFIED_FILE');}finally{clean(f);}});

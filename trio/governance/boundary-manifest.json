@@ -327,12 +327,15 @@
       "allowedTypes": [
         "file"
       ],
-      "bytesMustMatch": true,
-      "class": "quarantined-blocking-divergence",
-      "divergenceBlocking": true,
-      "expiresBefore": "demo fixture extraction",
+      "attestation": "Luna-owned interview demo production: briefs, captures, media and assembly scripts. Not part of any agent distribution and unreachable from the shared runtime.",
+      "bytesMustMatch": false,
+      "class": "owner-scoped-asset",
+      "divergenceBlocking": false,
+      "expiresBefore": null,
       "id": "demo-factory-quarantine",
       "modeMustMatch": true,
+      "owner": "loony-luna",
+      "ownerTreeDigest": "sha256:0a6acd5448ec4f0842adf962d634ef31d6f05dc2b419b5ac39907a970312dd6e",
       "permittedFormats": [
         "code",
         "asset",
@@ -343,9 +346,9 @@
         "closedInventory": true,
         "directory": "interview-demo-factory"
       },
-      "transitional": true,
+      "transitional": false,
       "validation": {
-        "kind": "quarantine"
+        "kind": "none"
       }
     },
     {
@@ -490,12 +493,15 @@
       "allowedTypes": [
         "file"
       ],
-      "bytesMustMatch": true,
-      "class": "quarantined-blocking-divergence",
-      "divergenceBlocking": true,
-      "expiresBefore": "overlay adjudication",
+      "attestation": "Luna-owned toy operating-system experiment. Human-only source, never loaded by the runtime and not shipped in any distribution.",
+      "bytesMustMatch": false,
+      "class": "owner-scoped-asset",
+      "divergenceBlocking": false,
+      "expiresBefore": null,
       "id": "my-os-quarantine",
       "modeMustMatch": true,
+      "owner": "loony-luna",
+      "ownerTreeDigest": "sha256:2551610ec1d83b426c143b5054a9bb39d4643475dd8881c52fd48ccec233c416",
       "permittedFormats": [
         "code",
         "asset",
@@ -506,9 +512,9 @@
         "closedInventory": true,
         "directory": "my-os"
       },
-      "transitional": true,
+      "transitional": false,
       "validation": {
-        "kind": "quarantine"
+        "kind": "none"
       }
     },
     {
@@ -846,7 +852,7 @@
       "permittedFormats": [
         "data"
       ],
-      "productionReachable": true,
+      "productionReachable": false,
       "selector": {
         "closedInventory": true,
         "directory": "memories"

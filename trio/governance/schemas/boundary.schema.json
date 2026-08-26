@@ -128,19 +128,25 @@
           "type": "array",
           "uniqueItems": true
         },
+        "attestation": {
+          "maxLength": 512,
+          "minLength": 16,
+          "type": "string"
+        },
         "bytesMustMatch": {
           "type": "boolean"
         },
         "class": {
           "enum": [
             "behavior-identical",
-            "validated-variable-data",
-            "inert-variable-asset",
-            "generated-behavior-identical",
             "documentation",
+            "generated-behavior-identical",
+            "inert-variable-asset",
             "model-behavior-data",
+            "owner-scoped-asset",
+            "quarantined-blocking-divergence",
             "test-behavior-identical",
-            "quarantined-blocking-divergence"
+            "validated-variable-data"
           ]
         },
         "divergenceBlocking": {
@@ -160,6 +166,17 @@
         },
         "modeMustMatch": {
           "const": true
+        },
+        "owner": {
+          "enum": [
+            "pehlichi",
+            "loony-luna",
+            "mad-ptah"
+          ]
+        },
+        "ownerTreeDigest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
         },
         "permittedFormats": {
           "items": {
