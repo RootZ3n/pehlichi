@@ -416,3 +416,34 @@ test('local dependency identity covers exported leaf bytes and rejects symlinked
   symlinkSync(join(root, 'outside.js'), join(nested, 'leaf.js'));
   assert.throws(() => localDependencyDigest(root, declaration), /symlink/);
 });
+
+test('a one-byte mutation of any governed shared byte is detected by the comparison parity depends on', () => {
+  // Step 10 requires the parity verifier to prove its own failure mode. Without this a
+  // green parity run is only evidence that the comparison ran, not that it can fail.
+  const { shared } = loadTrustedManifests(currentRoot);
+  assert.ok(shared.length > 0, 'no governed shared bytes to mutate');
+  const mirror = mkdtempSync(join(tmpdir(), 'trio-parity-mutation-'));
+  cleanup.push(mirror);
+  for (const path of shared) {
+    const target = join(mirror, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, readFileSync(join(currentRoot, path)));
+  }
+  // The mirror must agree before it is mutated, or the mutation proves nothing.
+  assert.deepEqual(shared.filter((path) => sha(join(mirror, path)) !== sha(join(currentRoot, path))), []);
+
+  // Every governed file, one flipped bit each, restored afterwards: a single sampled
+  // file would leave the rest of the boundary unproven.
+  for (const victim of shared) {
+    const original = readFileSync(join(mirror, victim));
+    assert.ok(original.length > 0, `${victim}: an empty governed file cannot carry a mutation`);
+    const mutated = Buffer.from(original);
+    const at = Math.floor(mutated.length / 2);
+    mutated[at] = mutated[at]! ^ 0x01;
+    writeFileSync(join(mirror, victim), mutated);
+    const mismatched = shared.filter((path) => sha(join(mirror, path)) !== sha(join(currentRoot, path)));
+    assert.deepEqual(mismatched, [victim], `${victim}: a one-byte change must be reported, and only there`);
+    writeFileSync(join(mirror, victim), original);
+  }
+  assert.deepEqual(shared.filter((path) => sha(join(mirror, path)) !== sha(join(currentRoot, path))), [], 'mirror must be restored');
+});
