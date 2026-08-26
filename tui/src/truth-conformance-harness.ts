@@ -54,15 +54,13 @@ const SELECTION_EXIT_CODE = 2;
 const CHANNELS = ['tui', 'gateway-message'] as const;
 
 /**
- * Which capsule identity belongs to which agent. Identity travels with the tree, not the
- * path -- and no longer with the private package name, which convergence deliberately made
- * common across the three distributions so that branding comes from capsule data instead.
+ * The three execution identities. Identity travels with the tree, not the path -- and no
+ * longer with the private package name, which convergence deliberately made common across
+ * the three distributions so that branding comes from capsule data instead. The runtime
+ * capsule states the execution identity directly; it is not translated here, because a
+ * translation table is somewhere a fourth name could be quietly introduced.
  */
-const CAPSULE_IDENTITY: Readonly<Record<string, string>> = {
-  pehlichi: 'pehlichi',
-  luna: 'loony-luna',
-  ptah: 'mad-ptah'
-};
+const TRIO_IDENTITIES: ReadonlySet<string> = new Set(['pehlichi', 'loony-luna', 'mad-ptah']);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TUI_ROOT = resolve(HERE, '..');
@@ -133,7 +131,7 @@ function selectIdentity(argv: readonly string[]): string {
   } catch (error) {
     refuse('profile-unknown', `the harness could not read the capsule it is running inside: ${(error as Error).message}`);
   }
-  const owner = CAPSULE_IDENTITY[capsuleId];
+  const owner = TRIO_IDENTITIES.has(capsuleId) ? capsuleId : undefined;
   if (!owner) refuse('profile-unknown', `capsule identity "${capsuleId}" is not one of the three Trio runtimes`);
   if (owner !== value) {
     // The whole point of three runs. Byte-identical code, three checkouts, and each one may
