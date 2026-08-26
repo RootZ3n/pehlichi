@@ -629,6 +629,7 @@
       "docs/trio/TRIO-001A-CONVERGENCE-PLAN.md",
       "docs/trio/TRIO-001A-DIVERGENCE-ADJUDICATION.md",
       "docs/trio/TRIO-001A-DIVERGENCE-MATRIX.json",
+      "docs/trio/TRIO-001A-RETIRED-SURFACES.md",
       "docs/trio/TRIO-001A-TARGET-BOUNDARY.md",
       "docs/trio/TRIO-001A-TRUTH-FIREWALL-CLASSIFICATION.md",
       "docs/trio/TRIO-001B-BOUNDARY-SCHEMA.json",
@@ -693,7 +694,9 @@
       "runtime/server/personality.ts",
       "runtime/server/provenance.ts",
       "runtime/server/server.ts",
-      "runtime/server/skin.ts"
+      "runtime/server/skin.ts",
+      "runtime/server/truth-agent-adapter.ts",
+      "runtime/server/truth-gate.ts"
     ],
     "shared-runtime-tests": [
       "tests/parity/runtime-parity.test.ts",
@@ -925,6 +928,7 @@
       "tui/src/lib/skin.ts",
       "tui/src/model-switch.test.ts",
       "tui/src/server.test.ts",
+      "tui/src/truth-conformance-harness.ts",
       "tui/src/workspace-override.test.ts",
       "tui/src/write-safety.test.ts"
     ],
