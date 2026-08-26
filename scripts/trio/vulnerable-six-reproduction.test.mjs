@@ -18,8 +18,8 @@ function setup(){
   const slots={};for(const slot of SLOT_NAMES){const root=path.join(top,slot),spec=manifest.repositories[slot];slots[slot]=root;fs.mkdirSync(root);
     write(path.join(root,'package.json'),JSON.stringify({name:spec.packageNames['package.json'],description:slot,version:'0.0.0',private:true,type:'module',scripts:{},dependencies:{},devDependencies:{}}));
     write(path.join(root,'tui/package.json'),JSON.stringify({name:spec.packageNames['tui/package.json'],description:slot,version:'0.0.0',private:true,type:'module',scripts:{},dependencies:{},devDependencies:{}}));
-    fs.mkdirSync(path.join(root,'trio/governance/capsules'),{recursive:true});for(const name of fs.readdirSync(path.join(retained,'capsules')))fs.cpSync(path.join(retained,'capsules',name),path.join(root,'trio/governance/capsules',name),{recursive:false});
-    write(path.join(root,'trio/governance/boundary-manifest.json'),JSON.stringify(manifest));
+    fs.mkdirSync(path.join(root,'trio/capsules'),{recursive:true});for(const name of fs.readdirSync(path.join(retained,'capsules')))fs.cpSync(path.join(retained,'capsules',name),path.join(root,'trio/capsules',name),{recursive:false});
+    write(path.join(root,'trio/boundary-manifest.json'),JSON.stringify(manifest));
     git(root,['init','-q']);git(root,['config','user.email','fixture@example.invalid']);git(root,['config','user.name','fixture']);git(root,['remote','add','origin',`https://github.com/RootZ3n/${slot}.git`]);git(root,['add','.']);git(root,['commit','-qm','fixture']);
   }
   return {top,slots,manifestPath};
@@ -30,9 +30,9 @@ const attack=(name,mutate)=>test(`retained vulnerable TRIO-001C false green: ${n
 
 attack('prototype mutation through schema input',(f)=>{
   const normal=JSON.parse(fs.readFileSync(path.join(retained,'capsules/loony-luna.json'),'utf8'));
-  write(path.join(f.slots['loony-luna'],'trio/governance/capsules/loony-luna.json'),`{"__proto__":${JSON.stringify(normal)}}`);
+  write(path.join(f.slots['loony-luna'],'trio/capsules/loony-luna.json'),`{"__proto__":${JSON.stringify(normal)}}`);
 });
-attack('variable capsule mode mismatch despite modeMustMatch',(f)=>fs.chmodSync(path.join(f.slots['loony-luna'],'trio/governance/capsules/loony-luna.json'),0o600));
+attack('variable capsule mode mismatch despite modeMustMatch',(f)=>fs.chmodSync(path.join(f.slots['loony-luna'],'trio/capsules/loony-luna.json'),0o600));
 attack('newly inherited variable Markdown containing active content',(f)=>write(path.join(f.slots['loony-luna'],'docs/new-active.md'),'<script>globalThis.compromised=true</script>\n'));
 attack('generated server JavaScript hidden under excluded .next',(f)=>{write(path.join(f.slots.pehlichi,'.next/server/route.js'),'safe()');write(path.join(f.slots['loony-luna'],'.next/server/route.js'),'unsafe()');});
 attack('browser JavaScript hidden under excluded coverage',(f)=>{write(path.join(f.slots.pehlichi,'coverage/browser.js'),'safe()');write(path.join(f.slots['mad-ptah'],'coverage/browser.js'),'unsafe()');});
