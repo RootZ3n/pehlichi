@@ -26,6 +26,7 @@
 import { join } from "node:path";
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
+import { TruthSessionGate, type ObservedToolCall } from './truth-gate.js';
 import { createToolRegistry, toolSpecs, type ToolRegistry, type ToolResult } from '../../../src/core/tools.js';
 import { createFullToolRegistry, buildMemorySnapshot, type AgentToolConfig } from '../../../src/core/agent-tools/index.js';
 import { bridgeToolSpecs, createBridgeToolHandlers } from '../../../src/tools/bridge-tools.js';
@@ -77,6 +78,11 @@ const CONTEXT_WINDOW = 128_000; // MiMo v2.5 context window
  */
 export class AgentChatSession {
   private messages: ChatMessage[] = [];
+  /**
+   * The mandatory authority boundary for this session, constructed before the model is
+   * given tools so the trusted base it captures predates any change it could make.
+   */
+  private truth!: TruthSessionGate;
   private personality: Personality;
   private skin: Skin;
   private apiKey: string | undefined;
@@ -105,6 +111,11 @@ export class AgentChatSession {
     maxIterations?: number;
   }) {
     this.personality = loadPersonality();
+    this.truth = new TruthSessionGate({
+      agent: this.personality.name?.toLowerCase() ?? 'trio-agent',
+      sessionId: `agent-${Date.now().toString(36)}`,
+      taskId: `agent-${Date.now().toString(36)}`,
+    });
     this.skin = loadSkin();
     this.apiKey = opts?.apiKey ?? process.env.MIMO_API_KEY;
     this.baseUrl = opts?.baseUrl ?? 'https://api.xiaomimimo.com/v1';
@@ -240,11 +251,14 @@ export class AgentChatSession {
    * Executes the full cache-first tool-calling loop with infrastructure.
    */
   async send(userMessage: string, onStream?: StreamCallback): Promise<ChatResponse> {
+    // The caller's callback receives transport liveness and never a model delta.
+    const contained = this.truth.containStream(onStream);
     // 1. PROMPT INJECTION SCAN — check user input
     const injectionResult = scanForInjection(userMessage, 'context');
     if (injectionResult.detected) {
       console.warn(`[security] Prompt injection detected: ${injectionResult.patterns.join(', ')}`);
       if (onStream) {
+        // Host-authored, naming only the patterns the scanner matched.
         onStream(`⚠️ Input flagged for potential injection: ${injectionResult.patterns.join(', ')}\n`);
       }
       // Return a safe response instead of processing
@@ -454,9 +468,11 @@ export class AgentChatSession {
               result,
             });
 
-            // Stream tool execution status
+            // Tool status is transport-level: a tool name and whether it succeeded. It
+            // carries no model-authored semantic content, so it is shown live. The tool's
+            // own output is deliberately not included -- that is content the model chose.
             if (onStream) {
-              onStream(`\n🔧 ${toolName}: ${result.ok ? '✅' : '❌'} ${result.output?.slice(0, 100) ?? result.error?.slice(0, 100) ?? ''}\n`);
+              onStream(`\n🔧 ${toolName}: ${result.ok ? '✅' : '❌'}\n`);
             }
           }
 
@@ -464,20 +480,30 @@ export class AgentChatSession {
           continue;
         }
 
-        // No tool calls — this is the final response
+        // No tool calls -- this is the final response. It crosses the authority boundary
+        // before it is stored or returned; writing it to history first would leave
+        // unverified prose in the transcript for a later turn to read back as ordinary
+        // assistant content. Host events come from the tool calls the dispatcher actually
+        // ran, never from what the model said about them.
         const content = assistantMessage.content ?? '';
+        const decision = this.truth.finalize({
+          userMessage,
+          candidateNarrative: content,
+          toolCalls: (allToolCalls ?? []) as ObservedToolCall[],
+          channel: 'tui',
+        });
+        const authorized = decision.deliverable();
+
         this.messages.push({
           role: 'assistant',
-          content,
+          content: authorized,
           timestamp: Date.now(),
         });
 
-        if (onStream) {
-          onStream(content);
-        }
+        contained?.(authorized);
 
         return {
-          content,
+          content: authorized,
           thinkingVerb,
           toolCalls: allToolCalls,
           cacheHit: lastCacheHit,
@@ -506,10 +532,18 @@ export class AgentChatSession {
       }
     }
 
-    // Budget exhausted
+    // Budget exhausted. This is a final answer like any other, and it is the one most
+    // likely to be a half-finished thought, so it crosses the boundary too.
     const lastAssistant = [...this.messages].reverse().find((m) => m.role === 'assistant');
+    const exhausted = this.truth.finalize({
+      userMessage,
+      candidateNarrative: lastAssistant?.content ?? '(iteration budget exhausted)',
+      toolCalls: (allToolCalls ?? []) as ObservedToolCall[],
+      channel: 'tui',
+      partial: true,
+    });
     return {
-      content: lastAssistant?.content ?? '(iteration budget exhausted)',
+      content: exhausted.deliverable(),
       thinkingVerb,
       toolCalls: allToolCalls,
       cacheHit: lastCacheHit,

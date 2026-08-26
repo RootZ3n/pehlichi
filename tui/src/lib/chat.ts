@@ -2,6 +2,7 @@
 // Maintains conversation history, loads personality, calls MiMo
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
+import { TruthSessionGate } from './truth-gate.js';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +50,13 @@ export class ChatSession {
   private apiKey: string | undefined;
   private baseUrl: string;
   private model: string;
+  /**
+   * The mandatory authority boundary for this session.
+   *
+   * Constructed here, before any message is sent, because the trusted base it captures
+   * has to predate the model's first opportunity to change anything.
+   */
+  private truth: TruthSessionGate;
 
   constructor(opts?: {
     apiKey?: string;
@@ -61,6 +69,9 @@ export class ChatSession {
      * can actually do in the full /chat lane — he'd claim "my mind" or "I don't know".
      */
     capabilities?: string;
+    /** Agent identity. The one thing that legitimately differs between the three. */
+    agent?: string;
+    sessionId?: string;
   }) {
     this.personality = loadPersonality();
     this.skin = loadSkin();
@@ -71,6 +82,10 @@ export class ChatSession {
     this.apiKey = opts?.apiKey ?? process.env.AGENT_API_KEY ?? process.env.MIMO_API_KEY ?? readMimoKeyFromBok();
     this.baseUrl = opts?.baseUrl ?? 'https://api.xiaomimimo.com/v1';
     this.model = opts?.model ?? 'mimo-v2.5';
+
+    const agent = opts?.agent ?? this.personality.name?.toLowerCase() ?? 'trio-agent';
+    const sessionId = opts?.sessionId ?? `chat-${Date.now().toString(36)}`;
+    this.truth = new TruthSessionGate({ agent, sessionId, taskId: sessionId });
 
     // Add system message
     this.messages.push({
@@ -97,6 +112,11 @@ export class ChatSession {
    * Calls MiMo directly via the OpenAI-compatible chat completions API.
    */
   async send(userMessage: string, onStream?: StreamCallback): Promise<ChatResponse> {
+    // The caller's callback receives transport liveness and never a model delta. Deltas
+    // are still consumed below so the request shape and the accumulated content are
+    // unchanged; what stops is delivery.
+    const contained = this.truth.containStream(onStream);
+
     // Add user message to history
     this.messages.push({
       role: 'user',
@@ -174,7 +194,7 @@ export class ChatSession {
               const delta = parsed.choices?.[0]?.delta?.content;
               if (delta) {
                 content += delta;
-                onStream(delta);
+                contained?.(delta);
               }
             } catch {
               // Skip malformed chunks
@@ -191,17 +211,34 @@ export class ChatSession {
         if (data.usage) usage = { in: data.usage.prompt_tokens ?? 0, out: data.usage.completion_tokens ?? 0 };
       }
 
-      // Add assistant message to history
+      // Cross the authority boundary before anything is stored or returned. Writing the
+      // raw content to history first would leave unverified prose in the transcript, where
+      // a later turn or a resume would read it back as ordinary assistant content.
+      const decision = this.truth.finalize({
+        userMessage,
+        candidateNarrative: content,
+        channel: 'tui',
+      });
+      const authorized = decision.deliverable();
+
       this.messages.push({
         role: 'assistant',
-        content,
+        content: authorized,
         timestamp: Date.now(),
       });
 
-      return { content, thinkingVerb, ...(usage ? { usage } : {}) };
+      return { content: authorized, thinkingVerb, ...(usage ? { usage } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Chat failed: ${message}`);
+      // Even a transport failure goes through the boundary: an error path is exactly where
+      // a half-formed model answer would otherwise be handed back unchecked.
+      const decision = this.truth.finalize({
+        userMessage,
+        candidateNarrative: `Chat failed: ${message}`,
+        channel: 'tui',
+        partial: true,
+      });
+      throw new Error(decision.deliverable());
     }
   }
 
