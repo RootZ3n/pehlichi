@@ -4,12 +4,16 @@
   "closedInventorySource": "trio/path-inventory.json",
   "closedInventorySha256": "6a10e2e3c43cd8697fbb20df29a791ec1344a74b758d0c68b410398fb1de0cf8",
   "runtimeClosureSource": "trio/runtime-closure.json",
-  "runtimeClosureSha256": "b8c0202659aeda3a95189b45e37857983ed7e2bf5c0dc3903484845f8b673d76",
+  "runtimeClosureSha256": "3784a005cf0824620558b39b861ad2057de62d416abc2e68923f4617c79d9927",
   "securityInvariants": {
     "toolAuthority": "configured request intersected with trusted deployment ceiling",
     "toolOutputGuard": "mandatory",
     "hostileRawEvidence": "restricted-store-only",
-    "chatModes": ["agent", "converse", "auto"],
+    "chatModes": [
+      "agent",
+      "converse",
+      "auto"
+    ],
     "cancellation": "not-started"
   },
   "provenance": {

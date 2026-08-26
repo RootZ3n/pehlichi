@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ const roots = (process.env.TRIO_REPOSITORIES ?? [
 // Independent code-level trust anchor for the architecture-controlled shape.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;
 // doing so also requires an explicit, review-visible verifier change.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'e8af80ab92fd1dbf239112f672d117e5ac4cda665550b496175046afbf5c7ed5';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '7f59bb1d95aef112315bb4ee2f2a5f5eef01ec800d79baf5cd6d6990e32140f7';
 
 interface Inventory {
   schemaVersion: 3;
@@ -37,6 +38,8 @@ interface Closure {
   legitimateExternalDependencies: readonly {
     specifier: string; kind: string; digest?: string; root?: string; files?: readonly string[];
     trees?: readonly string[]; dynamicEntrypoints?: readonly string[]; optional?: boolean;
+    releaseId?: string; packageClosureSha256?: string; packageClosureFileCount?: number;
+    attestation?: string;
   }[];
   spawnedRuntimeFiles: readonly string[];
   generatedRuntime: {
@@ -335,6 +338,27 @@ test('external dependencies have explicit lock/platform/local-content integrity 
     assert.deepEqual(pkg.devDependencies, packages[0]!.devDependencies);
   }
   for (const item of closure.legitimateExternalDependencies) {
+    if (item.kind === 'activated-truth-release') {
+      // The verifier is an activated immutable release, so it is pinned by the identity it
+      // reports about itself and by its own release manifest -- not by hashing a directory.
+      // The previous pin covered a gitignored development dist/, which changed whenever
+      // anyone rebuilt and made the check fire for maintenance rather than for tampering.
+      const probe = spawnSync('truth', ['runtime-id', '--json'], { encoding: 'utf8' });
+      assert.equal(probe.status, 0, `${item.specifier}: the activated verifier did not answer runtime-id`);
+      const identity = JSON.parse(probe.stdout) as {
+        protocol: string; packageRoot: string; packageClosureSha256: string; packageClosureFileCount: number;
+      };
+      assert.equal(identity.protocol, 'truth-firewall/runtime-identity/1');
+      assert.equal(identity.packageClosureSha256, item.packageClosureSha256, `${item.specifier}: activated closure differs from the acknowledged pin`);
+      assert.equal(identity.packageClosureFileCount, item.packageClosureFileCount);
+      const manifest = JSON.parse(readFileSync(join(identity.packageRoot, 'release-manifest.json'), 'utf8')) as {
+        releaseId: string; packageClosureSha256: string; packageClosureFileCount: number;
+      };
+      assert.equal(manifest.releaseId, item.releaseId, `${item.specifier}: activated release is not the acknowledged one`);
+      assert.equal(manifest.packageClosureSha256, item.packageClosureSha256, `${item.specifier}: release manifest disagrees with the measured runtime`);
+      assert.equal(manifest.packageClosureFileCount, item.packageClosureFileCount);
+      continue;
+    }
     if (item.kind !== 'local-runtime-tree') continue;
     const dependencyRoot = realpathSync(resolve(currentRoot, item.root!));
     assert.equal(localDependencyDigest(dependencyRoot, item), item.digest, `${item.specifier}: local shipped runtime changed without acknowledgement`);

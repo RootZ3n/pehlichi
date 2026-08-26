@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "trustedInventory": {
     "pathInventorySha256": "6a10e2e3c43cd8697fbb20df29a791ec1344a74b758d0c68b410398fb1de0cf8",
-    "runtimeClosureSha256": "b8c0202659aeda3a95189b45e37857983ed7e2bf5c0dc3903484845f8b673d76"
+    "runtimeClosureSha256": "3784a005cf0824620558b39b861ad2057de62d416abc2e68923f4617c79d9927"
   },
   "sharedImplementation": [
     "runtime/**",
@@ -25,11 +25,20 @@
     "tests/parity/runtime-parity.test.ts",
     "trio/boundary-manifest.json",
     "trio/path-inventory.json",
-    "trio/runtime-manifest.characterization.json"
-    ,"trio/runtime-closure.json"
+    "trio/runtime-manifest.characterization.json",
+    "trio/runtime-closure.json"
   ],
-  "configurationData": ["capsule/agent.json", "deployment/agent.env.json", "personality", "tui/skin.yaml"],
-  "allowedPackageMetadataDifferences": ["name", "description", "agent-specific scripts"],
+  "configurationData": [
+    "capsule/agent.json",
+    "deployment/agent.env.json",
+    "personality",
+    "tui/skin.yaml"
+  ],
+  "allowedPackageMetadataDifferences": [
+    "name",
+    "description",
+    "agent-specific scripts"
+  ],
   "allowedDifferencePointers": [
     "/capsule/identity",
     "/capsule/providerDefaults",
@@ -47,5 +56,9 @@
     "/deployment/capabilityPackCeiling",
     "/deployment/secretEnvironmentReferences"
   ],
-  "prohibitedRuntimeIdentityBranches": ["pehlichi", "loony-luna", "mad-ptah"]
+  "prohibitedRuntimeIdentityBranches": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+  ]
 }

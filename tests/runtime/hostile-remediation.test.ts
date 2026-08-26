@@ -497,7 +497,19 @@ test('legacy AgentChatSession contract delegates to the governed kernel without 
   assert.equal(typeof session.getCacheStats().hitRate, 'string');
   assert.equal(typeof session.getInfrastructureStatus().circuit.state, 'string');
   const chunks: string[] = [];
-  assert.equal((await session.send('hello', (chunk) => chunks.push(chunk))).content, 'compatibility response\nnone\ndeterministic');
+  const delivered = (await session.send('hello', (chunk) => chunks.push(chunk))).content;
+  // Enforcement is mandatory on this path, so the facade delivers the verifier's authorized
+  // bytes rather than the kernel's text. The kernel text must still be present -- containment
+  // quarantines model output, it does not discard it -- but only inside the inert narrative,
+  // never at column 0 where a reader would take it for a verified statement.
+  assert.notEqual(delivered, 'compatibility response\nnone\ndeterministic');
+  assert.match(delivered, /^Outcome: /);
+  assert.match(delivered, /BEGIN INERT MODEL NARRATIVE/);
+  const columnZero = delivered.split('\n').filter((line) => line.length > 0 && !line.startsWith('\u2502'));
+  for (const text of ['compatibility response', 'none', 'deterministic']) {
+    assert.ok(delivered.includes(text), `kernel text must survive containment: ${text}`);
+    assert.equal(columnZero.some((line) => line === text), false, `unverified kernel text at column 0: ${text}`);
+  }
   assert.ok(chunks.length > 0);
   session.reset();
   assert.equal(session.getHistory().length, 0);
