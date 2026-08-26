@@ -178,6 +178,30 @@
         "file"
       ],
       "bytesMustMatch": false,
+      "class": "documentation",
+      "divergenceBlocking": false,
+      "expiresBefore": null,
+      "id": "agent-identity-documentation",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "markdown"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "paths": [
+          "AGENTS.md"
+        ]
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "documentation"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
+      "bytesMustMatch": false,
       "class": "validated-variable-data",
       "divergenceBlocking": false,
       "expiresBefore": null,

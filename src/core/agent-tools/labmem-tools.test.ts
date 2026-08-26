@@ -18,7 +18,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -28,8 +28,11 @@ import type { ToolContext, ToolResult } from '../tools.js';
 const AGENT = process.env.AGENT_ID ?? 'lab-agent';
 // Portable: the in-ecosystem vendored labmem (CODE) — override with LABMEM_REAL.
 const REAL_LABMEM = process.env['LABMEM_REAL'] ?? (() => {
+  // Find the checkout that actually holds lab-utilities rather than assuming this
+  // repository sits under a directory named `ecosystem`: the trio distributions are
+  // also checked out for convergence and parity work, where that name does not hold.
   let d = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) { if (basename(d) === 'ecosystem') return join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem'); const p = dirname(d); if (p === d) break; d = p; }
+  for (let i = 0; i < 12; i++) { const sibling = join(dirname(d), 'lab-utilities', 'lab-memory', 'labmem'); if (existsSync(sibling)) return sibling; const p = dirname(d); if (p === d) break; d = p; }
   return join(process.cwd(), 'lab-memory', 'labmem');
 })();
 
