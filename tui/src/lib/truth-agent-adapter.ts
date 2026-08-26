@@ -37,7 +37,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export const ENFORCEMENT_PROTOCOL = 'truth-agent-enforcement/v1' as const;
 export const ADAPTER_VERSION = '1.0.0' as const;
@@ -167,6 +167,41 @@ export interface ResolvedRuntime {
 }
 
 /**
+ * Split one `exec` line the way a POSIX shell would, honouring single and double quotes.
+ *
+ * A naive whitespace split is wrong here: an installed wrapper may quote its module path
+ * (`exec node '/path/to/cli.js' "$@"`), and a parser that keeps the quote characters
+ * concludes the path is not absolute and silently resolves nothing. Silently resolving
+ * nothing is the dangerous outcome — the host then behaves as if no verifier is installed.
+ *
+ * Returns null for an unterminated quote rather than guessing at the author's intent.
+ */
+function shellTokens(line: string): string[] | null {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let started = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; started = true; continue; }
+    if (ch === ' ' || ch === '\t') {
+      if (started) { tokens.push(current); current = ''; started = false; }
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (quote) return null;
+  if (started) tokens.push(current);
+  return tokens;
+}
+
+/**
  * Locate the installed Truth entrypoint and hash it locally.
  *
  * Never ask the CLI to describe itself: a compromised installation reports whatever it is
@@ -187,8 +222,10 @@ export function resolveTruthRuntime(config: AdapterConfig): ResolvedRuntime | nu
     const exec = readFileSync(modulePath, 'utf8')
       .split('\n').map((line) => line.trim()).find((line) => line.startsWith('exec '));
     if (!exec) return null;
-    const tokens = exec.split(/\s+/);
-    if (tokens.length < 3 || !tokens[2].startsWith('/') || !existsSync(tokens[2])) return null;
+    const tokens = shellTokens(exec);
+    if (!tokens || tokens.length < 3) return null;
+    if (tokens[0] !== 'exec' || basename(tokens[1]) !== 'node') return null;
+    if (!tokens[2].startsWith('/') || !existsSync(tokens[2])) return null;
     modulePath = realpathSync(tokens[2]);
   }
 
