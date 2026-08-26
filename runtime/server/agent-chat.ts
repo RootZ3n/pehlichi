@@ -15,6 +15,7 @@ import {
 } from './kernel-session.js';
 import { loadPersonality, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
+import { TruthSessionGate, type ObservedToolCall } from './truth-gate.js';
 
 export interface ChatMessage {
   readonly role: 'user' | 'assistant' | 'system' | 'tool';
@@ -67,6 +68,15 @@ export class AgentChatSession {
   private readonly skin: Skin;
   private readonly lane: readonly string[];
   private readonly startedAt = Date.now();
+  /**
+   * The mandatory authority boundary for this session, constructed before the model is
+   * given tools so the trusted base it captures predates any change it could make.
+   */
+  private readonly truth: TruthSessionGate = new TruthSessionGate({
+    agent: process.env.AGENT_ID ?? 'trio-agent',
+    sessionId: `agent-${Date.now().toString(36)}`,
+    taskId: `agent-${Date.now().toString(36)}`,
+  });
 
   constructor(options: LegacyAgentChatOptions | KernelChatSessionOptions = {}) {
     if (isKernelOptions(options)) {
@@ -145,13 +155,30 @@ export class AgentChatSession {
   }
 
   async send(userMessage: string, onStream?: StreamCallback): Promise<ChatResponse> {
+    // The caller's callback receives transport liveness and never a model delta.
+    const contained = this.truth.containStream(onStream);
     const response = await this.kernel.send(userMessage, onStream === undefined ? undefined : (event: AgentEvent) => {
-      if (event.kind === 'narrate') onStream(event.text);
-      else if (event.kind === 'tool-result') onStream(`\n${event.tool}: ${event.ok ? 'ok' : 'failed'} ${event.output || event.error || ''}\n`);
+      // `narrate` is model-authored, so it goes through containment. Tool status is
+      // transport-level -- a tool name and whether it succeeded -- and carries no content
+      // the model chose, so it is shown live. The tool's own output is deliberately not
+      // included: that is content the model can influence.
+      if (event.kind === 'narrate') contained?.(event.text);
+      else if (event.kind === 'tool-result') onStream(`\n${event.tool}: ${event.ok ? 'ok' : 'failed'}\n`);
     });
-    if (onStream) onStream(response.content);
+    // The final answer crosses the boundary before it is streamed or returned. Host
+    // events come from the tool calls the kernel actually ran, never from what the model
+    // said about them.
+    const decision = this.truth.finalize({
+      userMessage,
+      candidateNarrative: response.content,
+      toolCalls: (response.toolCalls ?? []) as unknown as ObservedToolCall[],
+      channel: 'tui',
+      ...(response.partial === true ? { partial: true } : {}),
+    });
+    const authorized = decision.deliverable();
+    contained?.(authorized);
     return {
-      content: response.content,
+      content: authorized,
       toolCalls: response.toolCalls.map((call: KernelToolCall) => ({
         name: call.name,
         args: (typeof call.args === 'object' && call.args !== null ? call.args : {}) as Record<string, unknown>,
