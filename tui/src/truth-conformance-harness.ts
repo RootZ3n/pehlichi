@@ -544,6 +544,10 @@ function main(): void {
   }
 
   if (message.action === 'capabilities') {
+    // Cleanup on this path too. The trust directory is created at module load, so a
+    // capabilities probe that returned without it left one directory behind per run —
+    // which is exactly the kind of quiet accumulation a conformance run must not produce.
+    cleanup();
     process.stdout.write(JSON.stringify({ protocol: PROTOCOL, identity, agent, runtime: 'ts-trio-tui', channels: CHANNELS }));
     return;
   }
