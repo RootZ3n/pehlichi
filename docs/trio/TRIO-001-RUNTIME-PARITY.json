@@ -1,0 +1,843 @@
+{
+  "generatedAt": "2026-08-15T16:17:03.668Z",
+  "algorithm": "sha256",
+  "candidateBoundary": [
+    "src/core/**/*.{ts,json} excluding tests",
+    "tui/src/server.ts",
+    "tui/src/lib/**/*.ts excluding tests",
+    "root and tui package manifests, lockfiles, workspace files, tsconfig"
+  ],
+  "verdict": "NOT_BYTE_IDENTICAL",
+  "summary": {
+    "identical": 82,
+    "divergent": 5,
+    "missing": 0
+  },
+  "knownBehavioralDivergence": [
+    {
+      "file": "tui/src/server.ts",
+      "repo": "mad-ptah",
+      "details": [
+        "enables work-order tools",
+        "enables Occasio tools",
+        "enables guardToolOutput in KernelChatSession"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "file": "package.json",
+      "status": "divergent",
+      "hashes": {
+        "pehlichi": "91b7b29b6bad4ebc4f63a9035f3b09b7479d8155095bfe38a51a0fdca55d441a",
+        "loony-luna": "b3895837b03917e6693e8a87abd91e1d0b39606506159f1ac555cc364b7a8dc6",
+        "mad-ptah": "f2852a6e51a2607faaaba01f37138aef86473fc3f51f140e687b554449e92e73"
+      }
+    },
+    {
+      "file": "pnpm-lock.yaml",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "575bbba2dbfc75c2461f45980e3c483fccccbb528d20c9cdf0162da14193a8f5",
+        "loony-luna": "575bbba2dbfc75c2461f45980e3c483fccccbb528d20c9cdf0162da14193a8f5",
+        "mad-ptah": "575bbba2dbfc75c2461f45980e3c483fccccbb528d20c9cdf0162da14193a8f5"
+      }
+    },
+    {
+      "file": "pnpm-workspace.yaml",
+      "status": "divergent",
+      "hashes": {
+        "pehlichi": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
+        "loony-luna": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
+        "mad-ptah": "368dded5425b3a78b32746cf765a5b0e1efc51cad98903ad4a9d0561cd956e02"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/brain-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "5a9dbfec82f9a96c5c580ad41c061d8665346d723afa8079307ebd8e32158bb3",
+        "loony-luna": "5a9dbfec82f9a96c5c580ad41c061d8665346d723afa8079307ebd8e32158bb3",
+        "mad-ptah": "5a9dbfec82f9a96c5c580ad41c061d8665346d723afa8079307ebd8e32158bb3"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/browser-manager.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "cafa37b17e1bfe32338f61a675d60270d861e6c3ae52412845283f5f31d50d33",
+        "loony-luna": "cafa37b17e1bfe32338f61a675d60270d861e6c3ae52412845283f5f31d50d33",
+        "mad-ptah": "cafa37b17e1bfe32338f61a675d60270d861e6c3ae52412845283f5f31d50d33"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/browser-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "efdf5e469638951e30c85defb776eac30d2cce9dc6263142210856850f437819",
+        "loony-luna": "efdf5e469638951e30c85defb776eac30d2cce9dc6263142210856850f437819",
+        "mad-ptah": "efdf5e469638951e30c85defb776eac30d2cce9dc6263142210856850f437819"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/circuit-breaker.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "05880bfbedf85f774ea0fcaa317162c40eb554998548bc4d2f5d1bb23190190a",
+        "loony-luna": "05880bfbedf85f774ea0fcaa317162c40eb554998548bc4d2f5d1bb23190190a",
+        "mad-ptah": "05880bfbedf85f774ea0fcaa317162c40eb554998548bc4d2f5d1bb23190190a"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/clarify-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "c9cac8f5ab5c1425c93ec53f3bc60fe052c74c23efac788fb63b188ec6c4044a",
+        "loony-luna": "c9cac8f5ab5c1425c93ec53f3bc60fe052c74c23efac788fb63b188ec6c4044a",
+        "mad-ptah": "c9cac8f5ab5c1425c93ec53f3bc60fe052c74c23efac788fb63b188ec6c4044a"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/coordination-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "9e78bed9e9df61381e73855a16f61b1e12f9999ba5aa2a71f1841d59b8911341",
+        "loony-luna": "9e78bed9e9df61381e73855a16f61b1e12f9999ba5aa2a71f1841d59b8911341",
+        "mad-ptah": "9e78bed9e9df61381e73855a16f61b1e12f9999ba5aa2a71f1841d59b8911341"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/cron-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "d6d12fd43143e32cf4a91e98e8956e7fab8fef9152076be1c916fb25c18947e4",
+        "loony-luna": "d6d12fd43143e32cf4a91e98e8956e7fab8fef9152076be1c916fb25c18947e4",
+        "mad-ptah": "d6d12fd43143e32cf4a91e98e8956e7fab8fef9152076be1c916fb25c18947e4"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/delegate-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "4ca8d18bf44e2e54d6924a4ec24008aaad88e219a675b59e33139ee785f97f45",
+        "loony-luna": "4ca8d18bf44e2e54d6924a4ec24008aaad88e219a675b59e33139ee785f97f45",
+        "mad-ptah": "4ca8d18bf44e2e54d6924a4ec24008aaad88e219a675b59e33139ee785f97f45"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/enhanced-file-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "4da9b19c6724b843d57738de99abc7c590dfe280844719fc916307d76a83c755",
+        "loony-luna": "4da9b19c6724b843d57738de99abc7c590dfe280844719fc916307d76a83c755",
+        "mad-ptah": "4da9b19c6724b843d57738de99abc7c590dfe280844719fc916307d76a83c755"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/error-classifier.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "8606341f70d5513b87c231b29158ef0e95c68c20ead80cc2cfb07d124f8f22e6",
+        "loony-luna": "8606341f70d5513b87c231b29158ef0e95c68c20ead80cc2cfb07d124f8f22e6",
+        "mad-ptah": "8606341f70d5513b87c231b29158ef0e95c68c20ead80cc2cfb07d124f8f22e6"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/execute-code-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "c0598ed8450d817d8c4f1b1f91a740fbdae3ff69dfdee6b078e6716327ffbbd3",
+        "loony-luna": "c0598ed8450d817d8c4f1b1f91a740fbdae3ff69dfdee6b078e6716327ffbbd3",
+        "mad-ptah": "c0598ed8450d817d8c4f1b1f91a740fbdae3ff69dfdee6b078e6716327ffbbd3"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/git-ops-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "d275dba567387cf22d21382f78e1472ccea61a8050de3ba4795ecefcf095d9d8",
+        "loony-luna": "d275dba567387cf22d21382f78e1472ccea61a8050de3ba4795ecefcf095d9d8",
+        "mad-ptah": "d275dba567387cf22d21382f78e1472ccea61a8050de3ba4795ecefcf095d9d8"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/ikbi-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "c504538a905704abf50e8245f327555d9a44ddfe48531159bc7138d9f6ee06b8",
+        "loony-luna": "c504538a905704abf50e8245f327555d9a44ddfe48531159bc7138d9f6ee06b8",
+        "mad-ptah": "c504538a905704abf50e8245f327555d9a44ddfe48531159bc7138d9f6ee06b8"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/index.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "aacba31d25f5b7c1321a93173f5ad42de89e9ab7c3d32390f626766177ea9727",
+        "loony-luna": "aacba31d25f5b7c1321a93173f5ad42de89e9ab7c3d32390f626766177ea9727",
+        "mad-ptah": "aacba31d25f5b7c1321a93173f5ad42de89e9ab7c3d32390f626766177ea9727"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/infrastructure.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "22c9a570a3ff9f0a9be4c3b2e67b3df0a08a6526659c0cd92cf8269a9c6528a1",
+        "loony-luna": "22c9a570a3ff9f0a9be4c3b2e67b3df0a08a6526659c0cd92cf8269a9c6528a1",
+        "mad-ptah": "22c9a570a3ff9f0a9be4c3b2e67b3df0a08a6526659c0cd92cf8269a9c6528a1"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/input-sanitization.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "04f0ba73b2bb30323effe675d767998a8e7a416b0a13560d254b1fc44cacffe7",
+        "loony-luna": "04f0ba73b2bb30323effe675d767998a8e7a416b0a13560d254b1fc44cacffe7",
+        "mad-ptah": "04f0ba73b2bb30323effe675d767998a8e7a416b0a13560d254b1fc44cacffe7"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/iteration-budget.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "89f80ec487d0b1f59fd257d1be38c8cbf6491d75ed882c700f03507347576009",
+        "loony-luna": "89f80ec487d0b1f59fd257d1be38c8cbf6491d75ed882c700f03507347576009",
+        "mad-ptah": "89f80ec487d0b1f59fd257d1be38c8cbf6491d75ed882c700f03507347576009"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/lab-context-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "a1944354ff0c5254df935ec0425d12e8785a31bae9e0792b6b53a4ffbf975886",
+        "loony-luna": "a1944354ff0c5254df935ec0425d12e8785a31bae9e0792b6b53a4ffbf975886",
+        "mad-ptah": "a1944354ff0c5254df935ec0425d12e8785a31bae9e0792b6b53a4ffbf975886"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/lab-conversation-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "f63af59bee4aa626347d523d244a938a10b539bc3ea8866bc7c1d2a83ee7035d",
+        "loony-luna": "f63af59bee4aa626347d523d244a938a10b539bc3ea8866bc7c1d2a83ee7035d",
+        "mad-ptah": "f63af59bee4aa626347d523d244a938a10b539bc3ea8866bc7c1d2a83ee7035d"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/lab-shell-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "86934bfe8bed4b6504a85e84dcc6d00f90471b057e5c77b4df587d6f138c3559",
+        "loony-luna": "86934bfe8bed4b6504a85e84dcc6d00f90471b057e5c77b4df587d6f138c3559",
+        "mad-ptah": "86934bfe8bed4b6504a85e84dcc6d00f90471b057e5c77b4df587d6f138c3559"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/labmem-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "9308cdd6c315eb376d347bc8c54ca8f0da463a6e49df8dc4b930baa9c12f7a66",
+        "loony-luna": "9308cdd6c315eb376d347bc8c54ca8f0da463a6e49df8dc4b930baa9c12f7a66",
+        "mad-ptah": "9308cdd6c315eb376d347bc8c54ca8f0da463a6e49df8dc4b930baa9c12f7a66"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/luak-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "721ccf6eda8bb22a012ba0c73abe84d7b433031099a53cfd90f77057c1214781",
+        "loony-luna": "721ccf6eda8bb22a012ba0c73abe84d7b433031099a53cfd90f77057c1214781",
+        "mad-ptah": "721ccf6eda8bb22a012ba0c73abe84d7b433031099a53cfd90f77057c1214781"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/memory-governance.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "5713ad2744e807034f5f20f2281212f9e07ca35e01497e467a9c68c35bdda86d",
+        "loony-luna": "5713ad2744e807034f5f20f2281212f9e07ca35e01497e467a9c68c35bdda86d",
+        "mad-ptah": "5713ad2744e807034f5f20f2281212f9e07ca35e01497e467a9c68c35bdda86d"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/memory-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "5880cd4a5fc2162e4cbe7cf801b63eea0921c6b25b65b21ae4f44d7b8bc51d67",
+        "loony-luna": "5880cd4a5fc2162e4cbe7cf801b63eea0921c6b25b65b21ae4f44d7b8bc51d67",
+        "mad-ptah": "5880cd4a5fc2162e4cbe7cf801b63eea0921c6b25b65b21ae4f44d7b8bc51d67"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/music-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "62d136de7b486b6ce83d9f003e5d287ed6a471c0023a88cff1c7ceddaf516b86",
+        "loony-luna": "62d136de7b486b6ce83d9f003e5d287ed6a471c0023a88cff1c7ceddaf516b86",
+        "mad-ptah": "62d136de7b486b6ce83d9f003e5d287ed6a471c0023a88cff1c7ceddaf516b86"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/openrouter-driver.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "cddc1a80c9922ed26fe662f5f7459cb7566ccdcfd1648dbff7fddac50cf9e8b3",
+        "loony-luna": "cddc1a80c9922ed26fe662f5f7459cb7566ccdcfd1648dbff7fddac50cf9e8b3",
+        "mad-ptah": "cddc1a80c9922ed26fe662f5f7459cb7566ccdcfd1648dbff7fddac50cf9e8b3"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/phone-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "2e52bd7dd2d31f74243d73407db6dfedd95dd9ee99ab5c79faa5b6ed97819330",
+        "loony-luna": "2e52bd7dd2d31f74243d73407db6dfedd95dd9ee99ab5c79faa5b6ed97819330",
+        "mad-ptah": "2e52bd7dd2d31f74243d73407db6dfedd95dd9ee99ab5c79faa5b6ed97819330"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/prompt-injection.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "63ba1adec41699247d20e9cea66d3f037aa1e55449dbfa300811d60645dd001f",
+        "loony-luna": "63ba1adec41699247d20e9cea66d3f037aa1e55449dbfa300811d60645dd001f",
+        "mad-ptah": "63ba1adec41699247d20e9cea66d3f037aa1e55449dbfa300811d60645dd001f"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/provider-chain.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "587403e04253f1866eeabbdf18ca03830ffa913b8ea2cd366496aeeea8eec514",
+        "loony-luna": "587403e04253f1866eeabbdf18ca03830ffa913b8ea2cd366496aeeea8eec514",
+        "mad-ptah": "587403e04253f1866eeabbdf18ca03830ffa913b8ea2cd366496aeeea8eec514"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/retry.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "9ae297c1e2cb81830e9962c06914ce3e3756ad8c13a0ef68ddee9988fa9dbce7",
+        "loony-luna": "9ae297c1e2cb81830e9962c06914ce3e3756ad8c13a0ef68ddee9988fa9dbce7",
+        "mad-ptah": "9ae297c1e2cb81830e9962c06914ce3e3756ad8c13a0ef68ddee9988fa9dbce7"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/schema-sanitizer.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "87d524fafc50b4f061c5d0f34caa35eea389061504eeb1d1a57c22bb46fe5087",
+        "loony-luna": "87d524fafc50b4f061c5d0f34caa35eea389061504eeb1d1a57c22bb46fe5087",
+        "mad-ptah": "87d524fafc50b4f061c5d0f34caa35eea389061504eeb1d1a57c22bb46fe5087"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/skill-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "46c169a45ba2305bea6fe886d208c6549a9b6b76a11d21da688f481f6e5a47e3",
+        "loony-luna": "46c169a45ba2305bea6fe886d208c6549a9b6b76a11d21da688f481f6e5a47e3",
+        "mad-ptah": "46c169a45ba2305bea6fe886d208c6549a9b6b76a11d21da688f481f6e5a47e3"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/teaching-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "c722b08e24d9e27e6e30ff85f7a2f20c5b3efe281d2efd16f02ef4764a3da969",
+        "loony-luna": "c722b08e24d9e27e6e30ff85f7a2f20c5b3efe281d2efd16f02ef4764a3da969",
+        "mad-ptah": "c722b08e24d9e27e6e30ff85f7a2f20c5b3efe281d2efd16f02ef4764a3da969"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/todo-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "5e70e68facd7dfa253d27a64ec63a1e806cac372aad1dd7bc76f710614f24d62",
+        "loony-luna": "5e70e68facd7dfa253d27a64ec63a1e806cac372aad1dd7bc76f710614f24d62",
+        "mad-ptah": "5e70e68facd7dfa253d27a64ec63a1e806cac372aad1dd7bc76f710614f24d62"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/token-monitor.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "605c535a655a77cb555be855c534835136810f47a3e94bc37dbf6b3c52b4c7e2",
+        "loony-luna": "605c535a655a77cb555be855c534835136810f47a3e94bc37dbf6b3c52b4c7e2",
+        "mad-ptah": "605c535a655a77cb555be855c534835136810f47a3e94bc37dbf6b3c52b4c7e2"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/tool-arg-repair.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "f8613e30589f1bb450abacb36f9d889418b22785723a41101b21580469875655",
+        "loony-luna": "f8613e30589f1bb450abacb36f9d889418b22785723a41101b21580469875655",
+        "mad-ptah": "f8613e30589f1bb450abacb36f9d889418b22785723a41101b21580469875655"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/tool-governor.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "e21089e0078b9b79bdf47f5445f41a6a9239e1faf0fa2c3b973f9d2cf6fc0da7",
+        "loony-luna": "e21089e0078b9b79bdf47f5445f41a6a9239e1faf0fa2c3b973f9d2cf6fc0da7",
+        "mad-ptah": "e21089e0078b9b79bdf47f5445f41a6a9239e1faf0fa2c3b973f9d2cf6fc0da7"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/unattended.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "baed83a1a0767cf0bffcaebd9d860b2e85ecac03a89cfd251864cc610558c5f1",
+        "loony-luna": "baed83a1a0767cf0bffcaebd9d860b2e85ecac03a89cfd251864cc610558c5f1",
+        "mad-ptah": "baed83a1a0767cf0bffcaebd9d860b2e85ecac03a89cfd251864cc610558c5f1"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/velum-scan.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "373b24df1e6c5e01a54a55f58660f2ca1289ef0ded79702182e22dfd5f9af897",
+        "loony-luna": "373b24df1e6c5e01a54a55f58660f2ca1289ef0ded79702182e22dfd5f9af897",
+        "mad-ptah": "373b24df1e6c5e01a54a55f58660f2ca1289ef0ded79702182e22dfd5f9af897"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/vision-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "4db2e8ae05154caab6c1cab39cd8fbf34f951732c1f7b8696a139a46f6669e73",
+        "loony-luna": "4db2e8ae05154caab6c1cab39cd8fbf34f951732c1f7b8696a139a46f6669e73",
+        "mad-ptah": "4db2e8ae05154caab6c1cab39cd8fbf34f951732c1f7b8696a139a46f6669e73"
+      }
+    },
+    {
+      "file": "src/core/agent-tools/web-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "c24257f41263ab24b7fc1712a046b36df0017e1de1b54e57971bfb112d6a19c9",
+        "loony-luna": "c24257f41263ab24b7fc1712a046b36df0017e1de1b54e57971bfb112d6a19c9",
+        "mad-ptah": "c24257f41263ab24b7fc1712a046b36df0017e1de1b54e57971bfb112d6a19c9"
+      }
+    },
+    {
+      "file": "src/core/approval-policy.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "3512ce203ce9c0e51f641cd4d935cc911f338eb43bbd4c1116b61220d5dd562e",
+        "loony-luna": "3512ce203ce9c0e51f641cd4d935cc911f338eb43bbd4c1116b61220d5dd562e",
+        "mad-ptah": "3512ce203ce9c0e51f641cd4d935cc911f338eb43bbd4c1116b61220d5dd562e"
+      }
+    },
+    {
+      "file": "src/core/bridge-adapter.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "2afaac19bb81a8bc7e78c7808cc4693abc9162ce6f54c9818f2a89d78d98761a",
+        "loony-luna": "2afaac19bb81a8bc7e78c7808cc4693abc9162ce6f54c9818f2a89d78d98761a",
+        "mad-ptah": "2afaac19bb81a8bc7e78c7808cc4693abc9162ce6f54c9818f2a89d78d98761a"
+      }
+    },
+    {
+      "file": "src/core/bridges/bridge-tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "587aede6fe9a5276edd14d7a122c7e1a763a290c4de7e5d5b23a19c344faaa7a",
+        "loony-luna": "587aede6fe9a5276edd14d7a122c7e1a763a290c4de7e5d5b23a19c344faaa7a",
+        "mad-ptah": "587aede6fe9a5276edd14d7a122c7e1a763a290c4de7e5d5b23a19c344faaa7a"
+      }
+    },
+    {
+      "file": "src/core/bridges/host.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "eeca90f21d4798b8b1f004d0a39f90402279ecabf26967bce36cd5c9ec329526",
+        "loony-luna": "eeca90f21d4798b8b1f004d0a39f90402279ecabf26967bce36cd5c9ec329526",
+        "mad-ptah": "eeca90f21d4798b8b1f004d0a39f90402279ecabf26967bce36cd5c9ec329526"
+      }
+    },
+    {
+      "file": "src/core/bridges/http-bridge.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "573e988558a0354a203456cc4d4472f23391b6ee356cf0dc4fb266f58aca8d50",
+        "loony-luna": "573e988558a0354a203456cc4d4472f23391b6ee356cf0dc4fb266f58aca8d50",
+        "mad-ptah": "573e988558a0354a203456cc4d4472f23391b6ee356cf0dc4fb266f58aca8d50"
+      }
+    },
+    {
+      "file": "src/core/bridges/registry.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "9da24eaaada2ad3ffa2c40100297b38c7ae5f0f1018ef264fb1f2cd606908b0c",
+        "loony-luna": "9da24eaaada2ad3ffa2c40100297b38c7ae5f0f1018ef264fb1f2cd606908b0c",
+        "mad-ptah": "9da24eaaada2ad3ffa2c40100297b38c7ae5f0f1018ef264fb1f2cd606908b0c"
+      }
+    },
+    {
+      "file": "src/core/checkpoint.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "ca8ccca96d4026375040a470ae0e9814a0c3b50846345a61745e3cd7756d9269",
+        "loony-luna": "ca8ccca96d4026375040a470ae0e9814a0c3b50846345a61745e3cd7756d9269",
+        "mad-ptah": "ca8ccca96d4026375040a470ae0e9814a0c3b50846345a61745e3cd7756d9269"
+      }
+    },
+    {
+      "file": "src/core/context-compressor.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "89128dbeb3e7e3c72ca78cc6f2ffae74d4d4a7488fcc7a38cbda830bf842042e",
+        "loony-luna": "89128dbeb3e7e3c72ca78cc6f2ffae74d4d4a7488fcc7a38cbda830bf842042e",
+        "mad-ptah": "89128dbeb3e7e3c72ca78cc6f2ffae74d4d4a7488fcc7a38cbda830bf842042e"
+      }
+    },
+    {
+      "file": "src/core/driver.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "7bdc2855798830447db214856ac5d8e04a9ed39ff552c5796f38ede218de020d",
+        "loony-luna": "7bdc2855798830447db214856ac5d8e04a9ed39ff552c5796f38ede218de020d",
+        "mad-ptah": "7bdc2855798830447db214856ac5d8e04a9ed39ff552c5796f38ede218de020d"
+      }
+    },
+    {
+      "file": "src/core/drivers/llamacpp.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "f9c3c9bff8024b6f9205866b1807ced173fcce04f524eb291953a129921a0b35",
+        "loony-luna": "f9c3c9bff8024b6f9205866b1807ced173fcce04f524eb291953a129921a0b35",
+        "mad-ptah": "f9c3c9bff8024b6f9205866b1807ced173fcce04f524eb291953a129921a0b35"
+      }
+    },
+    {
+      "file": "src/core/drivers/mimo.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "6cca28b36c74dc4596bf6d057b81365b2be2d34f35ed49f7634062e7b7170cf9",
+        "loony-luna": "6cca28b36c74dc4596bf6d057b81365b2be2d34f35ed49f7634062e7b7170cf9",
+        "mad-ptah": "6cca28b36c74dc4596bf6d057b81365b2be2d34f35ed49f7634062e7b7170cf9"
+      }
+    },
+    {
+      "file": "src/core/drivers/ollama.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "3621fc3d2d2ffaad6d9eca927bd4a0ea44afcd7778809d2f8f9a346b67e4b26d",
+        "loony-luna": "3621fc3d2d2ffaad6d9eca927bd4a0ea44afcd7778809d2f8f9a346b67e4b26d",
+        "mad-ptah": "3621fc3d2d2ffaad6d9eca927bd4a0ea44afcd7778809d2f8f9a346b67e4b26d"
+      }
+    },
+    {
+      "file": "src/core/events.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "8be136b5967679c21954ad72e71899fd346cbf4f0fa7af2251b630632c6479a6",
+        "loony-luna": "8be136b5967679c21954ad72e71899fd346cbf4f0fa7af2251b630632c6479a6",
+        "mad-ptah": "8be136b5967679c21954ad72e71899fd346cbf4f0fa7af2251b630632c6479a6"
+      }
+    },
+    {
+      "file": "src/core/gbrain-bridge.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "614db35da8548c1d2a3e8fe0ab71abef4459a57929dbe3e498ffb09bd98f627c",
+        "loony-luna": "614db35da8548c1d2a3e8fe0ab71abef4459a57929dbe3e498ffb09bd98f627c",
+        "mad-ptah": "614db35da8548c1d2a3e8fe0ab71abef4459a57929dbe3e498ffb09bd98f627c"
+      }
+    },
+    {
+      "file": "src/core/index.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "da1a28d3566306ede1e76a0a470eb1702b12a83ff9d57f3ba3057e3c9a36399d",
+        "loony-luna": "da1a28d3566306ede1e76a0a470eb1702b12a83ff9d57f3ba3057e3c9a36399d",
+        "mad-ptah": "da1a28d3566306ede1e76a0a470eb1702b12a83ff9d57f3ba3057e3c9a36399d"
+      }
+    },
+    {
+      "file": "src/core/lab-transcript.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "58b446c2503619e1611c263ce9b51a621b8f9667fb24d9c7fd33e8e38e583776",
+        "loony-luna": "58b446c2503619e1611c263ce9b51a621b8f9667fb24d9c7fd33e8e38e583776",
+        "mad-ptah": "58b446c2503619e1611c263ce9b51a621b8f9667fb24d9c7fd33e8e38e583776"
+      }
+    },
+    {
+      "file": "src/core/loop.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "6fba65b8c86610fe487d3e90e7b9f12f9b979ba16d49503564995e7f8868968b",
+        "loony-luna": "6fba65b8c86610fe487d3e90e7b9f12f9b979ba16d49503564995e7f8868968b",
+        "mad-ptah": "6fba65b8c86610fe487d3e90e7b9f12f9b979ba16d49503564995e7f8868968b"
+      }
+    },
+    {
+      "file": "src/core/occasio-bridge.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "ccb2a0553df277ee21cbf3bce0535a594c3ca1dbcf2e5285853dc63fc9bdf0ac",
+        "loony-luna": "ccb2a0553df277ee21cbf3bce0535a594c3ca1dbcf2e5285853dc63fc9bdf0ac",
+        "mad-ptah": "ccb2a0553df277ee21cbf3bce0535a594c3ca1dbcf2e5285853dc63fc9bdf0ac"
+      }
+    },
+    {
+      "file": "src/core/process-registry.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "dfc8c2f3c4b80a1d6d1b20191cd148fa1de0c91376acb7209115c3de57ac1f60",
+        "loony-luna": "dfc8c2f3c4b80a1d6d1b20191cd148fa1de0c91376acb7209115c3de57ac1f60",
+        "mad-ptah": "dfc8c2f3c4b80a1d6d1b20191cd148fa1de0c91376acb7209115c3de57ac1f60"
+      }
+    },
+    {
+      "file": "src/core/profile.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "58ef1d1ef0bd2973961d93944dae058e7e051e6582fc88d2817c1f62b0b1a242",
+        "loony-luna": "58ef1d1ef0bd2973961d93944dae058e7e051e6582fc88d2817c1f62b0b1a242",
+        "mad-ptah": "58ef1d1ef0bd2973961d93944dae058e7e051e6582fc88d2817c1f62b0b1a242"
+      }
+    },
+    {
+      "file": "src/core/prompt.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "71b0c683cecb287c3ebbb48663645907eedfe45e299482fa1a7fcb398f0e1c69",
+        "loony-luna": "71b0c683cecb287c3ebbb48663645907eedfe45e299482fa1a7fcb398f0e1c69",
+        "mad-ptah": "71b0c683cecb287c3ebbb48663645907eedfe45e299482fa1a7fcb398f0e1c69"
+      }
+    },
+    {
+      "file": "src/core/receipt-store.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "35ca3ba1c6001b9dbb031b61fe1bb9fac7b7fa80e015bc1003f8714b8ebcc46a",
+        "loony-luna": "35ca3ba1c6001b9dbb031b61fe1bb9fac7b7fa80e015bc1003f8714b8ebcc46a",
+        "mad-ptah": "35ca3ba1c6001b9dbb031b61fe1bb9fac7b7fa80e015bc1003f8714b8ebcc46a"
+      }
+    },
+    {
+      "file": "src/core/report-store.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "535ce4d752f95d33f837fc5b384cbd26b030457bb0727d205254581d0f0b3298",
+        "loony-luna": "535ce4d752f95d33f837fc5b384cbd26b030457bb0727d205254581d0f0b3298",
+        "mad-ptah": "535ce4d752f95d33f837fc5b384cbd26b030457bb0727d205254581d0f0b3298"
+      }
+    },
+    {
+      "file": "src/core/runtime-capabilities.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "684852f8cd50db33de81cebe689c8dba5482ce6f14ec7ebef5127ede7ca4404e",
+        "loony-luna": "684852f8cd50db33de81cebe689c8dba5482ce6f14ec7ebef5127ede7ca4404e",
+        "mad-ptah": "684852f8cd50db33de81cebe689c8dba5482ce6f14ec7ebef5127ede7ca4404e"
+      }
+    },
+    {
+      "file": "src/core/scenario.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "381b92398b0839db99a8a3e49cc2b72aa5be64fb8c89cc0906ed809c009378d1",
+        "loony-luna": "381b92398b0839db99a8a3e49cc2b72aa5be64fb8c89cc0906ed809c009378d1",
+        "mad-ptah": "381b92398b0839db99a8a3e49cc2b72aa5be64fb8c89cc0906ed809c009378d1"
+      }
+    },
+    {
+      "file": "src/core/shadow.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "4fd055e0833aa21d4bd20ba931c0d99dc3153468eddcfdb42d4e183191491b33",
+        "loony-luna": "4fd055e0833aa21d4bd20ba931c0d99dc3153468eddcfdb42d4e183191491b33",
+        "mad-ptah": "4fd055e0833aa21d4bd20ba931c0d99dc3153468eddcfdb42d4e183191491b33"
+      }
+    },
+    {
+      "file": "src/core/sinks/stdout.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "0a40b44ad156bb46db45910baa70a3be02c79fc1bbfeb42c844d1ae2920b69d2",
+        "loony-luna": "0a40b44ad156bb46db45910baa70a3be02c79fc1bbfeb42c844d1ae2920b69d2",
+        "mad-ptah": "0a40b44ad156bb46db45910baa70a3be02c79fc1bbfeb42c844d1ae2920b69d2"
+      }
+    },
+    {
+      "file": "src/core/subagent-entry.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "28acb8f48ea0ace9cbc0b77e70590d8eca07fecc901761e49dbbd4d33fd4b2f0",
+        "loony-luna": "28acb8f48ea0ace9cbc0b77e70590d8eca07fecc901761e49dbbd4d33fd4b2f0",
+        "mad-ptah": "28acb8f48ea0ace9cbc0b77e70590d8eca07fecc901761e49dbbd4d33fd4b2f0"
+      }
+    },
+    {
+      "file": "src/core/tools.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "3996230ed16c67201967b3f07932cc25f44b3eca85dec0a2178b58e5854b0d91",
+        "loony-luna": "3996230ed16c67201967b3f07932cc25f44b3eca85dec0a2178b58e5854b0d91",
+        "mad-ptah": "3996230ed16c67201967b3f07932cc25f44b3eca85dec0a2178b58e5854b0d91"
+      }
+    },
+    {
+      "file": "src/core/truth-bridge.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "9f804178ebb40d60687a9c7e97aeecd7a291641d9e8a5d4bacea0b5a63fad180",
+        "loony-luna": "9f804178ebb40d60687a9c7e97aeecd7a291641d9e8a5d4bacea0b5a63fad180",
+        "mad-ptah": "9f804178ebb40d60687a9c7e97aeecd7a291641d9e8a5d4bacea0b5a63fad180"
+      }
+    },
+    {
+      "file": "src/core/workspace.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "354866f4ce092a75f3fa6486a53c9e2b5c2a7865fb36ff3826e98551ef2d2ac4",
+        "loony-luna": "354866f4ce092a75f3fa6486a53c9e2b5c2a7865fb36ff3826e98551ef2d2ac4",
+        "mad-ptah": "354866f4ce092a75f3fa6486a53c9e2b5c2a7865fb36ff3826e98551ef2d2ac4"
+      }
+    },
+    {
+      "file": "tsconfig.json",
+      "status": "divergent",
+      "hashes": {
+        "pehlichi": "dd1178504a1b818451ebbebd3cee8927a1d84e29fb427613e4937850c1c61f22",
+        "loony-luna": "dd1178504a1b818451ebbebd3cee8927a1d84e29fb427613e4937850c1c61f22",
+        "mad-ptah": "95b105f7f494a209b4db5d40b2da43535da24fe95a9ddc46685903f34d571a1f"
+      }
+    },
+    {
+      "file": "tui/package.json",
+      "status": "divergent",
+      "hashes": {
+        "pehlichi": "087de9c500c769969e8b8651a5e8c2ac21f68a9b3064309b1b5ccefaee7393b9",
+        "loony-luna": "ece9a7ac3665c2db159056429a49b5de6ddfa456dc99fb11c23f3e5214214e7d",
+        "mad-ptah": "1289f8a17100245cc2a4c9306c0fbc9e61e4ac8696eff3ff821695efb2c1d975"
+      }
+    },
+    {
+      "file": "tui/pnpm-lock.yaml",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "6ccf0df8c4ef228ff513d76a4c4fe2ded19ea7d681066f8d770641ac1fb7d11b",
+        "loony-luna": "6ccf0df8c4ef228ff513d76a4c4fe2ded19ea7d681066f8d770641ac1fb7d11b",
+        "mad-ptah": "6ccf0df8c4ef228ff513d76a4c4fe2ded19ea7d681066f8d770641ac1fb7d11b"
+      }
+    },
+    {
+      "file": "tui/pnpm-workspace.yaml",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
+        "loony-luna": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
+        "mad-ptah": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353"
+      }
+    },
+    {
+      "file": "tui/src/lib/agent-chat.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "82aabae0ff472f312f4f0ca62ed51ea8d7d22dfe824910233d237c75a0b669de",
+        "loony-luna": "82aabae0ff472f312f4f0ca62ed51ea8d7d22dfe824910233d237c75a0b669de",
+        "mad-ptah": "82aabae0ff472f312f4f0ca62ed51ea8d7d22dfe824910233d237c75a0b669de"
+      }
+    },
+    {
+      "file": "tui/src/lib/chat.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "06175a669eee2d84891bcb0364e2ab99f56be2acfef57bc205d804789e54f953",
+        "loony-luna": "06175a669eee2d84891bcb0364e2ab99f56be2acfef57bc205d804789e54f953",
+        "mad-ptah": "06175a669eee2d84891bcb0364e2ab99f56be2acfef57bc205d804789e54f953"
+      }
+    },
+    {
+      "file": "tui/src/lib/kernel-session.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "7625a6c85489d8b9d63b12cdf0976010b4dbd783f535df40ef428193c98909cc",
+        "loony-luna": "7625a6c85489d8b9d63b12cdf0976010b4dbd783f535df40ef428193c98909cc",
+        "mad-ptah": "7625a6c85489d8b9d63b12cdf0976010b4dbd783f535df40ef428193c98909cc"
+      }
+    },
+    {
+      "file": "tui/src/lib/model-switch.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "e033574fb85f70b9af3690336b3cb6de44d1a720b87b12945585bd62ed673557",
+        "loony-luna": "e033574fb85f70b9af3690336b3cb6de44d1a720b87b12945585bd62ed673557",
+        "mad-ptah": "e033574fb85f70b9af3690336b3cb6de44d1a720b87b12945585bd62ed673557"
+      }
+    },
+    {
+      "file": "tui/src/lib/personality.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "370c1d569c59565001fa3b43ee8249137f17fb88d58f29fd784129badaa45df7",
+        "loony-luna": "370c1d569c59565001fa3b43ee8249137f17fb88d58f29fd784129badaa45df7",
+        "mad-ptah": "370c1d569c59565001fa3b43ee8249137f17fb88d58f29fd784129badaa45df7"
+      }
+    },
+    {
+      "file": "tui/src/lib/skin.ts",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "7e423b72c9749fa674aad33a334d7de9f581600df6a25dc53c49116c6de1da74",
+        "loony-luna": "7e423b72c9749fa674aad33a334d7de9f581600df6a25dc53c49116c6de1da74",
+        "mad-ptah": "7e423b72c9749fa674aad33a334d7de9f581600df6a25dc53c49116c6de1da74"
+      }
+    },
+    {
+      "file": "tui/src/server.ts",
+      "status": "divergent",
+      "hashes": {
+        "pehlichi": "60942de02e31add3c28562ea3b030409ded7e172403aba41764fcbdfe0a0cac1",
+        "loony-luna": "acbb2a3031f4b84fe6ead611f8d33dd217432ec3784f194deb181bef3b369f07",
+        "mad-ptah": "852546ec439a60ec1ee51d83ad0c4549f72af102004127e99d13708f98bd7b7a"
+      }
+    },
+    {
+      "file": "tui/tsconfig.json",
+      "status": "identical",
+      "hashes": {
+        "pehlichi": "2fca107b34e4e87409e3c682772d74b9e3a9071c852be0bbf95c3538210726dc",
+        "loony-luna": "2fca107b34e4e87409e3c682772d74b9e3a9071c852be0bbf95c3538210726dc",
+        "mad-ptah": "2fca107b34e4e87409e3c682772d74b9e3a9071c852be0bbf95c3538210726dc"
+      }
+    }
+  ],
+  "classifications": {
+    "capsuleData": [
+      "src/profiles/agent.ts",
+      "src/profiles/agent.test.ts",
+      "src/profile.ts",
+      "tui/src/lib/skin.ts (branding values only)",
+      "UI assets",
+      "deployment unit/env configuration"
+    ],
+    "runtime": [
+      "src/core/**",
+      "tui/src/server.ts",
+      "tui/src/lib/kernel-session.ts",
+      "package/lock/workspace/tsconfig inputs"
+    ],
+    "identityContamination": [
+      "package.json",
+      "tui/package.json",
+      "tui/src/server.ts"
+    ]
+  },
+  "repositoryTreeHashes": {
+    "pehlichi": "7dd9f8317a2b8d3e582f5e291b7e8c3c21cd3dad7918b05aff7b50aa5c486925",
+    "loony-luna": "8a2a333c0e02b954bf98a610563b6a2d05a65af87e033dd915fdbcd6e6b41916",
+    "mad-ptah": "6772569af9f112e3811c7f052c19bbf8c0cfee72825f15aa76d0f02f927482ae"
+  },
+  "hostileDetectorSelfTest": {
+    "method": "copied two identical byte fixtures under /tmp, changed one byte, compared SHA-256",
+    "identicalBefore": true,
+    "divergenceDetectedAfter": true
+  }
+}

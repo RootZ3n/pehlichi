@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pehverse.local/schemas/capability-pack-v1.json",
+  "title": "Capability Pack Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "packId", "version", "status", "base", "defaultActivation", "tools", "implementationDigest", "declaredEffects", "requiredRuntimeApi", "externalDependencies", "configurationSchemaRef", "authorityRequirements", "evidenceRequirements", "receiptRequirements", "availabilityStates"],
+  "properties": {
+    "$schema":{"type":"string","maxLength":256},
+    "schemaVersion":{"const":"1.0.0"},
+    "packId":{"type":"string","pattern":"^[a-z][a-z0-9-]*$"},
+    "version":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "status":{"enum":["characterization","planned","implemented"]},
+    "base":{"type":"boolean"},
+    "defaultActivation":{"type":"boolean"},
+    "tools":{"type":"array","items":{"type":"object","required":["id","schemaRef"],"properties":{"id":{"type":"string"},"schemaRef":{"type":["string","null"]}},"additionalProperties":false}},
+    "implementationDigest":{"type":["string","null"],"pattern":"^sha256:[0-9a-f]{64}$"},
+    "declaredEffects":{"type":"array","items":{"enum":["read","filesystem-write","durable-write","network-read","network-write","credential-use","subprocess","account-mutation"]},"uniqueItems":true},
+    "requiredRuntimeApi":{"type":"string"},
+    "externalDependencies":{"type":"array","items":{"type":"object","required":["id","optional"],"properties":{"id":{"type":"string"},"optional":{"type":"boolean"}},"additionalProperties":false}},
+    "configurationSchemaRef":{"type":["string","null"]},
+    "authorityRequirements":{"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "evidenceRequirements":{"type":"array","items":{"type":"string"}},
+    "receiptRequirements":{"type":"array","items":{"type":"string"}},
+    "availabilityStates":{"type":"array","items":{"enum":["inactive","available","degraded","unavailable"]},"uniqueItems":true}
+  },
+  "allOf":[{"if":{"properties":{"base":{"const":false}}},"then":{"properties":{"defaultActivation":{"const":false}}}}],
+  "additionalProperties": false
+}

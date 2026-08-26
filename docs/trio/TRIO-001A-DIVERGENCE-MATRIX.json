@@ -1,0 +1,165 @@
+{
+  "workOrder": "TRIO-001A",
+  "generatedAt": "2026-08-15T00:00:00-05:00",
+  "parityBaseline": {
+    "source": "TRIO-001-RUNTIME-PARITY.json",
+    "candidateFiles": 87,
+    "identical": 82,
+    "divergent": 5,
+    "verdict": "NOT_BYTE_IDENTICAL"
+  },
+  "classificationLegend": {
+    "a": "generic runtime mechanism",
+    "b": "safety invariant",
+    "c": "optional capability mechanism",
+    "d": "identity/personality",
+    "e": "skill/workflow",
+    "f": "deployment configuration",
+    "g": "obsolete or accidental drift"
+  },
+  "files": [
+    {
+      "logicalPath": "package.json",
+      "paths": {
+        "pehlichi": "/pehverse/repos/ecosystem/pehlichi/package.json",
+        "loony-luna": "/pehverse/repos/ecosystem/loony-luna/package.json",
+        "mad-ptah": "/pehverse/repos/ecosystem/mad-ptah/package.json"
+      },
+      "gitBlobHashes": {
+        "pehlichi": "fa24b3bd9282e3ac764aca47c5638c34259332b7",
+        "loony-luna": "2295ef6804f22a646cd6c1d77b247f777b9f03c6",
+        "mad-ptah": "ee99fdcef41483efe1fc9aa8559967f6edf034fb"
+      },
+      "semanticDifferences": [
+        {"difference":"package name and description","classification":["d"],"behavior":"package identity/consumer metadata; packages are private"},
+        {"difference":"agent-specific sanity script names and targets","classification":["d","e"],"behavior":"developer/operator workflow; Luna target is repository-root sanity-luna.ts while Peh/Ptah target src files"},
+        {"difference":"Ptah alone exposes root start and repl scripts","classification":["f","g"],"behavior":"adds npm startup/direct-CLI entrypoints; underlying files exist independently"},
+        {"difference":"Peh test list alone includes tui/src/workspace-override.test.ts; remaining 38 test files are common, with order differences only","classification":["b","f","g"],"behavior":"CI coverage differs; runtime behavior does not change until tests run"}
+      ],
+      "callersAndSurfaces":["npm/pnpm scripts","CI and operator commands","Node package consumers through main/types/exports","deployment scripts invoking npm start/repl"],
+      "associatedTests":["all 38 common test paths in scripts.test","/pehverse/repos/ecosystem/pehlichi/tui/src/workspace-override.test.ts"],
+      "publicContractChange":"Renaming the private package or scripts can break local automation; removing Ptah start/repl breaks operator commands; normalizing the test list changes CI coverage, not application API.",
+      "migrationRisks":["hidden scripts may invoke agent-specific names","sanity targets are not structurally aligned","root file: dependencies currently violate the proposed standalone runtime rule"],
+      "target":"deployment/package.json plus capsule metadata; identical runtime dependency manifest under runtime/manifest.json",
+      "bytesMustBeIdentical":false,
+      "identicalSubcontract":"runtime-affecting dependency versions, exports, build/typecheck/test harness, and runtime manifest must be identical or verified semantically"
+    },
+    {
+      "logicalPath": "pnpm-workspace.yaml",
+      "paths": {
+        "pehlichi": "/pehverse/repos/ecosystem/pehlichi/pnpm-workspace.yaml",
+        "loony-luna": "/pehverse/repos/ecosystem/loony-luna/pnpm-workspace.yaml",
+        "mad-ptah": "/pehverse/repos/ecosystem/mad-ptah/pnpm-workspace.yaml"
+      },
+      "gitBlobHashes": {
+        "pehlichi": "5ed0b5af0d45919f64c66edfb16a5f4512461fa1",
+        "loony-luna": "5ed0b5af0d45919f64c66edfb16a5f4512461fa1",
+        "mad-ptah": "09a02ca1c8b9650ce61f307060c4bbb24a9f7c33"
+      },
+      "semanticDifferences": [
+        {"difference":"Ptah adds onlyBuiltDependencies: [esbuild] while all three already set allowBuilds.esbuild=true","classification":["f","g"],"behavior":"package-manager install/build-script policy differs; likely redundant compatibility drift"}
+      ],
+      "callersAndSurfaces":["pnpm install","pnpm workspace/build lifecycle","CI dependency installation"],
+      "associatedTests":["no direct test; lockfile/install and build are the characterization surfaces"],
+      "publicContractChange":"Normalizing may change whether pnpm permits esbuild's install script under a particular pnpm version.",
+      "migrationRisks":["pnpm version-dependent semantics","native/esbuild binary availability"],
+      "target":"deployment/pnpm-workspace.yaml",
+      "bytesMustBeIdentical":true
+    },
+    {
+      "logicalPath": "tsconfig.json",
+      "paths": {
+        "pehlichi": "/pehverse/repos/ecosystem/pehlichi/tsconfig.json",
+        "loony-luna": "/pehverse/repos/ecosystem/loony-luna/tsconfig.json",
+        "mad-ptah": "/pehverse/repos/ecosystem/mad-ptah/tsconfig.json"
+      },
+      "gitBlobHashes": {
+        "pehlichi": "7062a1e7c0f2225de75787a242091b20f3ee5c5f",
+        "loony-luna": "7062a1e7c0f2225de75787a242091b20f3ee5c5f",
+        "mad-ptah": "aee740bd896204398968367b954f2b21637767a3"
+      },
+      "semanticDifferences": [
+        {"difference":"Ptah adds comments and blank lines only; parsed TypeScript compiler options/include/exclude are identical","classification":["g"],"behavior":"no compiler behavior difference"}
+      ],
+      "callersAndSurfaces":["npm run build","npm run typecheck","editor TypeScript service","declaration/source-map emit"],
+      "associatedTests":["all three npm run typecheck commands","all three build commands when later run in a clean fixture"],
+      "publicContractChange":"None if normalized without option changes; emitted bytes can still vary from source inputs.",
+      "migrationRisks":["comment-preserving tooling may report churn only"],
+      "target":"deployment/tsconfig.json",
+      "bytesMustBeIdentical":true
+    },
+    {
+      "logicalPath": "tui/package.json",
+      "paths": {
+        "pehlichi": "/pehverse/repos/ecosystem/pehlichi/tui/package.json",
+        "loony-luna": "/pehverse/repos/ecosystem/loony-luna/tui/package.json",
+        "mad-ptah": "/pehverse/repos/ecosystem/mad-ptah/tui/package.json"
+      },
+      "gitBlobHashes": {
+        "pehlichi": "4718e1695d502b2b79dc06817c544f79fda2bfdf",
+        "loony-luna": "c855b180ac1f833a217163bb165161994854efa1",
+        "mad-ptah": "a38df7b6340bdce31d2f3cc40853b5e0cca78695"
+      },
+      "semanticDifferences": [
+        {"difference":"name is peh-tui, luna-tui, or ptah-tui; version, scripts, dependencies and devDependencies are byte-equivalent","classification":["d"],"behavior":"package identity only; private package"}
+      ],
+      "callersAndSurfaces":["TUI npm/pnpm scripts","UI build script","workspace/package tooling"],
+      "associatedTests":["tui type-check","tui build characterization; HTTP tests live in the root test script"],
+      "publicContractChange":"Package-name consumers may break even though private; application runtime behavior is unchanged.",
+      "migrationRisks":["local automation may key on package name"],
+      "target":"ui/package.json with a common package name; visible agent name comes from capsule branding",
+      "bytesMustBeIdentical":true
+    },
+    {
+      "logicalPath": "tui/src/server.ts",
+      "paths": {
+        "pehlichi": "/pehverse/repos/ecosystem/pehlichi/tui/src/server.ts",
+        "loony-luna": "/pehverse/repos/ecosystem/loony-luna/tui/src/server.ts",
+        "mad-ptah": "/pehverse/repos/ecosystem/mad-ptah/tui/src/server.ts"
+      },
+      "gitBlobHashes": {
+        "pehlichi": "c93ee145d0d772d091eac3b71267e3344ab4be09",
+        "loony-luna": "5141e4f8af4a5174a6feb3f6daab16ebf788af5c",
+        "mad-ptah": "da023403c46747bde99cf702fa212c2e1225f461"
+      },
+      "semanticDifferences": [
+        {"difference":"agent-specific comments and service examples","classification":["d","f"],"behavior":"none"},
+        {"difference":"PEHLICHI_/LUNA_/PTAH_ port, host, commit, workspace and workspace-roots environment names","classification":["f"],"behavior":"selects listener, deployment identity, default workspace, reported commit, and workspace authorization configuration"},
+        {"difference":"default ports 18830/18792/18810 and default repo paths","classification":["f"],"behavior":"changes network binding and filesystem authority root"},
+        {"difference":"PehServerOptions/createPehServer, LunaServerOptions/createLunaServer, PtahServerOptions/createPtahServer","classification":["d","g"],"behavior":"different TypeScript/public import symbols despite identical server mechanism"},
+        {"difference":"checkpoint directories pehlichi/luna/ptah","classification":["d","f"],"behavior":"separates durable conversation state"},
+        {"difference":"task IDs and generated correlation IDs carry pehlichi/luna/ptah prefixes","classification":["d"],"behavior":"changes observable identifiers, receipt/task correlation and log/API values"},
+        {"difference":"startup emoji and identity wording","classification":["d"],"behavior":"operator output only"},
+        {"difference":"Ptah passes enableWorkOrders:true for default and override-workspace registries","classification":["c","e"],"behavior":"advertises and executes wo_list, wo_get and wo_transition only in Ptah; transition can persist mutations"},
+        {"difference":"Ptah passes enableOccasio:true for both registries","classification":["c","e"],"behavior":"advertises and executes wo_file_finding only in Ptah; creates durable work orders and sends bridge requests"},
+        {"difference":"Ptah passes guardToolOutput:true to every KernelChatSession","classification":["b"],"behavior":"sanitizes/scans/wraps tool output before it re-enters model context and counts injection findings; Peh/Luna leave the generic mechanism off"}
+      ],
+      "callersAndSurfaces":["systemd direct tsx server startup","root Ptah npm start","Matrix bridges via HTTP","Howa adapters via HTTP","HTTP chat/converse/stream/UI clients","direct test/library imports","CLI REPL HTTP client"],
+      "associatedTests": {
+        "serverTests": {
+          "pehlichiBlob":"29609537a3668a5dc3c972abfa56b765f09f0da7",
+          "loonyLunaBlob":"490f678d8c4c64c3f0b876945a30b8719a9f5094",
+          "madPtahBlob":"c626137495774155f9e6be3b5f8898524b35e2a8"
+        },
+        "shared":["tui/src/audit-fixes.test.ts","tui/src/write-safety.test.ts","tui/src/lab-cohesion.test.ts","src/core/agent-tools/velum-scan.test.ts","src/core/occasio-bridge.test.ts","src/tools/work-order-store.test.ts"],
+        "pehOnly":["tui/src/workspace-override.test.ts"],
+        "ptahOnlyServerContracts":["WO REST contract","model-report trends route","onboarding route","Velum injectionFindings response field"]
+      },
+      "publicContractChange":"Genericizing exported names and env variables affects TypeScript importers, tests, systemd/env configuration, task/correlation ID consumers, checkpoint locations, and workspace-root configuration. Capability removal changes /tools and model tool schemas. Making the guard universal changes model-visible tool history and may change responses.",
+      "migrationRisks":["checkpoint/session continuity","service env rollout","Matrix/Howa assumptions","tool-list and prompt changes","work-order persistence/routing side effects","guard false positives and token expansion","compatibility aliases accidentally remaining in runtime bytes"],
+      "target":"runtime/server/server.ts plus capsule/agent.json and deployment/env.json; capability activation declared by capsule and resolved by identical generic loader",
+      "bytesMustBeIdentical":true
+    }
+  ],
+  "ptahFailingContracts": [
+    {"test":"WO. GET /work-orders lists with age + stats; POST creates; transition validates","current":"FAIL: first POST receives 404 instead of 201","cause":"server options ignore workOrderStore and no REST routes exist; tool activation does not create HTTP routes","disposition":"characterize current 404, then either implement a generic versioned work-orders pack HTTP adapter in all distributions or explicitly retire the aspirational HTTP contract"},
+    {"test":"REPORTS. GET /reports/models returns per-model trends filtered by role","current":"FAIL: 404 payload has no reportCount","cause":"server options ignore reportStore and no route exists","disposition":"move to a generic optional reports capability contract or retire; not Ptah runtime control flow"},
+    {"test":"ONBOARDING. GET /onboarding returns a service health board + WO stats","current":"FAIL: 404 payload has no total","cause":"no route or injected work-order store support exists","disposition":"move operator presentation to UI/capability pack or retire the server contract"},
+    {"test":"VELUM. injection in tool output is flagged in /chat response","current":"FAIL: response has no injectionFindings field","cause":"loop counts findings, but KernelChatSession drops the count and HTTP serialization omits it; emitted tool-call output remains the pre-guard raw value","disposition":"retain as a generic safety characterization and later make guard invocation plus safe evidence reporting universal"}
+  ],
+  "confidenceLimits": [
+    "Git blob hashes are git hash-object values for the preserved working-tree bytes.",
+    "Semantic classification is based on source call tracing; no runtime code, services or external systems were changed.",
+    "Package-manager install behavior was not re-executed because this work order is architecture preparation only."
+  ]
+}

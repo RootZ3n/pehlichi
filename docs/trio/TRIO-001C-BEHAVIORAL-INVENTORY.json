@@ -1,0 +1,939 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "characterization",
+  "trusted": false,
+  "source": {
+    "path": "trio/boundary-manifest.json",
+    "semanticDigest": "sha256:b77598636fb41a4ece82154493683a44c8eb14a880603f36ef7af9ec3fd3cde2",
+    "boundarySchemaVersion": "2.0.0"
+  },
+  "classSemantics": {
+    "behavior-identical": {
+      "bytesOrSemanticProjectionMustMatch": true,
+      "modeAndTypeMustMatch": true,
+      "divergenceBlocking": true
+    },
+    "validated-variable-data": {
+      "bytesMustMatch": false,
+      "modeAndTypeMustMatch": true,
+      "schemaRequired": true,
+      "productionReachable": false,
+      "divergenceBlocking": false
+    },
+    "inert-variable-asset": {
+      "bytesMustMatch": false,
+      "modeAndTypeMustMatch": true,
+      "magicValidationRequired": true,
+      "productionReachable": false,
+      "divergenceBlocking": false
+    },
+    "generated-behavior-identical": {
+      "bytesMustMatch": true,
+      "modeAndTypeMustMatch": true,
+      "divergenceBlocking": true
+    },
+    "documentation": {
+      "bytesMustMatch": false,
+      "modeAndTypeMustMatch": true,
+      "contentValidationRequired": true,
+      "productionReachable": false,
+      "divergenceBlocking": false
+    },
+    "test-behavior-identical": {
+      "bytesMustMatch": true,
+      "modeAndTypeMustMatch": true,
+      "divergenceBlocking": true
+    },
+    "quarantined-blocking-divergence": {
+      "bytesMustMatch": true,
+      "modeAndTypeMustMatch": true,
+      "alwaysBlockingUntilExpiry": true
+    }
+  },
+  "repositories": {
+    "pehlichi": {
+      "expectedRepositoryName": "pehlichi",
+      "remoteIdentity": "github.com/RootZ3n/pehlichi",
+      "capsulePath": "trio/capsules/pehlichi.json",
+      "capsuleIdentity": "pehlichi",
+      "packageNames": {
+        "package.json": "pehlichi",
+        "tui/package.json": "peh-tui"
+      }
+    },
+    "loony-luna": {
+      "expectedRepositoryName": "loony-luna",
+      "remoteIdentity": "github.com/RootZ3n/loony-luna",
+      "capsulePath": "trio/capsules/loony-luna.json",
+      "capsuleIdentity": "luna",
+      "packageNames": {
+        "package.json": "loony-luna",
+        "tui/package.json": "luna-tui"
+      }
+    },
+    "mad-ptah": {
+      "expectedRepositoryName": "mad-ptah",
+      "remoteIdentity": "github.com/RootZ3n/mad-ptah",
+      "capsulePath": "trio/capsules/mad-ptah.json",
+      "capsuleIdentity": "ptah",
+      "packageNames": {
+        "package.json": "mad-ptah",
+        "tui/package.json": "ptah-tui"
+      }
+    }
+  },
+  "pathPolicy": {
+    "unicodeNormalization": "NFC",
+    "caseSensitivity": "case-sensitive-with-casefold-collision-rejection",
+    "symlinks": "reject-all-in-scope",
+    "unknownFiles": "fail-closed"
+  },
+  "exclusions": [
+    {
+      "path": ".git",
+      "kind": "git-metadata",
+      "attestation": "Git metadata read only through explicit identity/status commands"
+    },
+    {
+      "path": "node_modules",
+      "kind": "dependency-tree",
+      "attestation": "pnpm-lock.yaml governed; dependency installation is not source"
+    },
+    {
+      "path": "tui/node_modules",
+      "kind": "dependency-tree",
+      "attestation": "tui/pnpm-lock.yaml governed; dependency installation is not source"
+    },
+    {
+      "path": "scripts/trio/node_modules",
+      "kind": "dependency-tree",
+      "attestation": "scripts/trio/package-lock.json governed and pinned"
+    },
+    {
+      "path": "coverage",
+      "kind": "cache-tree",
+      "attestation": "test coverage cache; no production entry point may load it"
+    },
+    {
+      "path": ".next",
+      "kind": "cache-tree",
+      "attestation": "framework build cache only; compiled artifacts remain governed elsewhere"
+    }
+  ],
+  "rules": [
+    {
+      "id": "root-package",
+      "selector": {
+        "paths": [
+          "package.json",
+          "tui/package.json"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": false,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "json"
+      ],
+      "validation": {
+        "kind": "package-behavior"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "package-lock-and-config",
+      "selector": {
+        "paths": [
+          "pnpm-lock.yaml",
+          "pnpm-workspace.yaml",
+          "tsconfig.json",
+          "tui/pnpm-lock.yaml",
+          "tui/pnpm-workspace.yaml",
+          "tui/tsconfig.json"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "yaml",
+        "json"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "repository-control",
+      "selector": {
+        "paths": [
+          ".gitignore"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "text"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "source-runtime",
+      "selector": {
+        "directory": "src"
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "typescript"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "tui-source-runtime",
+      "selector": {
+        "directory": "tui/src",
+        "excludedPaths": [
+          "tui/src/server.ts"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "typescript",
+        "tsx"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "server-quarantine",
+      "selector": {
+        "paths": [
+          "tui/src/server.ts"
+        ]
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "typescript"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "TRIO convergence and TRIO-000 restart"
+    },
+    {
+      "id": "compiled-behavior",
+      "selector": {
+        "directory": "dist"
+      },
+      "class": "generated-behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "javascript",
+        "typescript-declaration",
+        "source-map"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "trio-scaffolding",
+      "selector": {
+        "directory": "trio",
+        "excludedPaths": [
+          "trio/capsules/pehlichi.json",
+          "trio/capsules/loony-luna.json",
+          "trio/capsules/mad-ptah.json"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "json"
+      ],
+      "validation": {
+        "kind": "strict-json-data"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "capsule-data",
+      "selector": {
+        "paths": [
+          "trio/capsules/pehlichi.json",
+          "trio/capsules/loony-luna.json",
+          "trio/capsules/mad-ptah.json"
+        ]
+      },
+      "class": "validated-variable-data",
+      "bytesMustMatch": false,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "json"
+      ],
+      "validation": {
+        "kind": "capsule-schema",
+        "schemaRef": "trio/schemas/capsule.schema.json"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": false,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "trio-verification-code",
+      "selector": {
+        "directory": "scripts/trio"
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "javascript",
+        "shell",
+        "json"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "other-scripts",
+      "selector": {
+        "directory": "scripts",
+        "excludedDirectories": [
+          "scripts/trio"
+        ]
+      },
+      "class": "behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "javascript",
+        "shell",
+        "typescript"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "documentation-tree",
+      "selector": {
+        "directory": "docs",
+        "allowedSuffixes": [
+          ".md",
+          ".json"
+        ]
+      },
+      "class": "documentation",
+      "bytesMustMatch": false,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "markdown",
+        "json"
+      ],
+      "validation": {
+        "kind": "documentation"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": false,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "root-documentation",
+      "selector": {
+        "paths": [
+          "README.md",
+          "CLAUDE.md",
+          "HANDOFF-PEH-ON-PHONE.md",
+          "PEH-PHONE-OPERATING-NOTES.md"
+        ]
+      },
+      "class": "documentation",
+      "bytesMustMatch": false,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "markdown"
+      ],
+      "validation": {
+        "kind": "documentation"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": false,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "test-fixtures",
+      "selector": {
+        "directory": "fixtures"
+      },
+      "class": "test-behavior-identical",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "data",
+        "code"
+      ],
+      "validation": {
+        "kind": "none"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "inert-root-images",
+      "selector": {
+        "paths": [
+          "peh-hedge-knight.png",
+          "pehlichi_desktop.png",
+          "pehlichi_mobile.png"
+        ]
+      },
+      "class": "inert-variable-asset",
+      "bytesMustMatch": false,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "png"
+      ],
+      "validation": {
+        "kind": "inert-image"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": false,
+      "transitional": false,
+      "expiresBefore": null
+    },
+    {
+      "id": "ui-quarantine",
+      "selector": {
+        "directory": "ui"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "browser-code",
+        "html",
+        "css",
+        "asset"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "executable UI mechanism extraction"
+    },
+    {
+      "id": "tui-ui-quarantine",
+      "selector": {
+        "directory": "tui/ui"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "browser-code",
+        "html",
+        "css",
+        "asset"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "executable UI mechanism extraction"
+    },
+    {
+      "id": "tui-public-quarantine",
+      "selector": {
+        "directory": "tui/public"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "browser-code",
+        "html",
+        "css",
+        "asset"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "executable UI mechanism extraction"
+    },
+    {
+      "id": "tui-web-quarantine",
+      "selector": {
+        "directory": "tui/web"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "browser-code",
+        "html",
+        "css",
+        "asset",
+        "documentation"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "legacy UI adjudication"
+    },
+    {
+      "id": "skills-quarantine",
+      "selector": {
+        "directory": "skills"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "model-data",
+        "executable-code"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "skills data and handler separation"
+    },
+    {
+      "id": "deployment-and-overlay-quarantine",
+      "selector": {
+        "paths": [
+          ".env",
+          "tui/.env",
+          "tui/.env.mimo-backup",
+          "tui/skin.yaml",
+          "tui/test.sh",
+          "stress_test.py",
+          "luna_os.py",
+          "server.py",
+          "sanity-luna.ts",
+          "stress_test.log",
+          "test_identity.txt"
+        ]
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "configuration",
+        "launcher",
+        "code",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "deployment/capsule extraction"
+    },
+    {
+      "id": "personality-quarantine",
+      "selector": {
+        "directory": "personality"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "yaml"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "validated capsule data migration"
+    },
+    {
+      "id": "state-and-dev-quarantine",
+      "selector": {
+        "directory": "memories"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "standalone persistence boundary"
+    },
+    {
+      "id": "deploy-quarantine",
+      "selector": {
+        "directory": "deploy"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "deployment"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": true,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "deployment data extraction"
+    },
+    {
+      "id": "agent-dev-quarantine",
+      "selector": {
+        "directory": ".agents"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "configuration",
+        "code",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "development overlay adjudication"
+    },
+    {
+      "id": "codex-dev-quarantine",
+      "selector": {
+        "directory": ".codex"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "configuration",
+        "code",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "development overlay adjudication"
+    },
+    {
+      "id": "claude-dev-quarantine",
+      "selector": {
+        "directory": ".claude"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "configuration",
+        "code",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "development overlay adjudication"
+    },
+    {
+      "id": "demo-factory-quarantine",
+      "selector": {
+        "directory": "interview-demo-factory"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "code",
+        "asset",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "demo fixture extraction"
+    },
+    {
+      "id": "my-os-quarantine",
+      "selector": {
+        "directory": "my-os"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "code",
+        "asset",
+        "data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "overlay adjudication"
+    },
+    {
+      "id": "out-quarantine",
+      "selector": {
+        "directory": "out"
+      },
+      "class": "quarantined-blocking-divergence",
+      "bytesMustMatch": true,
+      "modeMustMatch": true,
+      "allowedTypes": [
+        "file"
+      ],
+      "permittedFormats": [
+        "generated-data"
+      ],
+      "validation": {
+        "kind": "quarantine"
+      },
+      "productionReachable": false,
+      "divergenceBlocking": true,
+      "transitional": true,
+      "expiresBefore": "generated-output adjudication"
+    }
+  ],
+  "packageBehaviorFields": [
+    "version",
+    "type",
+    "private",
+    "scripts",
+    "main",
+    "module",
+    "types",
+    "browser",
+    "exports",
+    "imports",
+    "bin",
+    "dependencies",
+    "optionalDependencies",
+    "peerDependencies",
+    "peerDependenciesMeta",
+    "devDependencies",
+    "engines",
+    "packageManager",
+    "workspaces",
+    "overrides",
+    "resolutions",
+    "files",
+    "sideEffects",
+    "pnpm",
+    "babel",
+    "browserslist",
+    "tsx",
+    "ts-node"
+  ],
+  "intentionalBlockingDivergences": [
+    {
+      "path": "tui/src/server.ts",
+      "category": "live-server-control-flow",
+      "expiresBefore": "TRIO convergence and TRIO-000 restart",
+      "reason": "Identity, deployment, Ptah-only capability activation, and output guard wiring remain behaviorally divergent."
+    },
+    {
+      "path": "src/profiles/agent.ts",
+      "category": "executable-capsule-overlay",
+      "expiresBefore": "capsule extraction",
+      "reason": "Agent identity is implemented in executable TypeScript and public/compiled exports."
+    },
+    {
+      "path": "ui",
+      "category": "executable-ui-overlay",
+      "expiresBefore": "UI mechanism extraction",
+      "reason": "Inline scripts and served browser code are mixed with branding."
+    },
+    {
+      "path": "skills",
+      "category": "executable-skill-overlay",
+      "expiresBefore": "skills extraction",
+      "reason": "Ptah contains executable TypeScript under a nominally variable skills tree."
+    },
+    {
+      "path": "dist",
+      "category": "compiled-artifact-drift",
+      "expiresBefore": "reproducible canonical build",
+      "reason": "Compiled output must compare or be rebuilt; it is never ignored as generated."
+    }
+  ]
+}

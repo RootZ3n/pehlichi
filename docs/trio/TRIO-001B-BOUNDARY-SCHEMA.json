@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pehverse.local/schemas/trio-boundary-v1.json",
+  "title": "Trio Runtime Boundary Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "status", "classifications", "blockingDivergences", "legacyComparisonPaths", "exclusions", "symlinkPolicy"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "status": {"const": "characterization"},
+    "classifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pattern", "class"],
+        "properties": {
+          "pattern": {"type": "string", "minLength": 1},
+          "class": {"enum": ["runtime-identical", "capability-pack-identical", "common-ui-mechanism-identical", "capsule-variable", "skills-variable", "branding-variable", "deployment-variable", "compatibility-adapter-variable", "generated", "fixture", "obsolete-pending-review", "unclassified"]},
+          "executableAllowed": {"type": "boolean"},
+          "note": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "blockingDivergences": {"type": "array", "items": {"type": "object", "required": ["path", "currentClass", "targetClass", "expiresBefore"], "properties": {"path":{"type":"string"},"currentClass":{"type":"string"},"targetClass":{"type":"string"},"expiresBefore":{"type":"string"},"reason":{"type":"string"}},"additionalProperties":false}},
+    "legacyComparisonPaths": {"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "exclusions": {"type":"array","items":{"type":"object","required":["pattern","reason"],"properties":{"pattern":{"type":"string"},"reason":{"type":"string"}},"additionalProperties":false}},
+    "symlinkPolicy": {"enum":["reject-all-in-scope"]}
+  },
+  "additionalProperties": false
+}

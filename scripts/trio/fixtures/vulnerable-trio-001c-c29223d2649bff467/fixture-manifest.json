@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "purpose": "Test-only evidence for the retained vulnerable TRIO-001C implementation. It does not reconstruct TRIO-001B.",
+  "productionImportAllowed": false,
+  "executionIsolation": "Only scripts/trio/vulnerable-six-reproduction.test.mjs imports the retained verifier. Root and TUI package scripts, exports, imports, workspaces, services, and production loaders do not reference scripts/trio/fixtures.",
+  "historicalLimit": "The retained verifier, parser, validator, boundary manifest, schemas, and characterization capsules are the exact pre-fix TRIO-001C inputs available at preservation time. No retained artifact supports reconstruction claims about TRIO-001B.",
+  "files": {
+    "verify-runtime-parity.mjs": "sha256:c29223d2649bff4671e213562cd40aee7a9a3a4bd261f45a6801d025b3883342",
+    "strict-json.mjs": "sha256:34aeb349400713be9bcb599d33116bbc03a01d0ae0a4d4a21fcdfd771218c029",
+    "schema-validation.mjs": "sha256:afa3fbb2cd5a695b6cc7a24901ac16392d258937917fbc4b1d7376db134a8407",
+    "boundary-manifest.json": "sha256:cc1dbab37e2c46dee4c58010cb6d0ed25942dcc22d95df7ef9137b292dc64fb5",
+    "schemas/boundary.schema.json": "sha256:ccaa303c253ce699f59946a00c8fc3e35cce66096547e92d773708bde9886c85",
+    "schemas/capability-pack.schema.json": "sha256:400a4da725294d3c51ca7e6b73f1fd93c2dc58be8855cba8c6583fad8d349261",
+    "schemas/capsule.schema.json": "sha256:e0cace59aa52decd632a925a7399d6b3a839b48ad4b007044b987b5ae5ccdd79",
+    "schemas/deployment.schema.json": "sha256:bb0a9456f425de3c4a2a6dffb0e0e912fcd9ae99b075b86367758ecfa411fec5",
+    "schemas/runtime-manifest.schema.json": "sha256:cfe21bb8eec2871172793a001ed460bc05b48a1c5f429c11cb858309f54f7d99",
+    "capsules/pehlichi.json": "sha256:858601e13c16c62476361c5490936aea1a7ce90b97bda1efacac05784ae29543",
+    "capsules/loony-luna.json": "sha256:d42075aad58539935748b3030b6061ec310e5ce4c3d40109f77b96b8aaa2377c",
+    "capsules/mad-ptah.json": "sha256:83aa48764e9faaaae9256804cabb811d17ebcc2e0601c03be4eadbfbb703ae2d"
+  },
+  "reproduces": [
+    "prototype-mutated schema input false parity",
+    "variable non-executable mode mismatch false parity",
+    "new variable Markdown active-content false parity",
+    "excluded .next generated JavaScript false parity",
+    "excluded coverage browser code false parity",
+    "PNG-signature polyglot false parity"
+  ]
+}

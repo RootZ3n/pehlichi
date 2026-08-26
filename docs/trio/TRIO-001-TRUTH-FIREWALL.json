@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-08-15T00:00:00-05:00",
+  "location": {
+    "path": "/pehverse/repos/lab-utilities/truth-firewall",
+    "standaloneGitRepository": false,
+    "gitRoot": "/pehverse",
+    "remote": null,
+    "branch": "hardening-sprint-codex",
+    "head": "3b36576c2571532cb8d5d583a5b3d4ce862313dd",
+    "scopedWorktree": ["M package.json", "?? LICENSE"],
+    "lastCommittedModification": "2026-07-03T10:47:51-05:00"
+  },
+  "statusLadder": {
+    "implementationExists": true,
+    "implementationTested": true,
+    "implementationConnected": true,
+    "implementationActive": "optional connections exist; no Truth Firewall service/process was running; trio activation depends on LAB_TRUTH/TRUTH_FIREWALL_ROOT and was not inferred from secret env contents",
+    "canInfluenceDecisions": true,
+    "canEnforce": "the standalone gate can return blocking verdicts to a cooperating caller; observed trio and IKBI integrations do not make it an unavoidable enforcement point",
+    "enforcementBypassResistant": false
+  },
+  "entrypoints": ["dist/src/cli.js verify", "dist/src/cli.js scorecard", "dist/src/cli.js replay", "dist/src/cli.js drift", "dist/src/cli.js contradictions", "library RuntimeTruthReader", "reviewLabMemoryProposals facade"],
+  "commands": {"build":"tsc","test":"node --test dist/test/*.test.js","typecheck":"tsc --noEmit","selftest":"node dist/src/cli.js selftest"},
+  "service": {"serverEntrypoint":null,"ports":[],"systemdUnit":null,"runningProcessObserved":false,"listenerObserved":false},
+  "evaluation": {"claims":true,"evidenceExistence":true,"evidenceFreshness":true,"toolResults":true,"successAssertions":true,"contradictions":true,"missingUnknownEvidence":true,"partialResults":true},
+  "outputs": {"durable":true,"attributable":"partially: command/file receipts carry context, generic/manual evidence is caller-asserted","versionBound":"partial; not every evidence type binds runtime and commit","replaySafe":"verdict replay and idempotence are tested, but nondeterministic IDs and mutable external context limit universal replay"},
+  "forgery": {"input":true,"result":true,"mode":true,"evidenceReferences":true,"reason":"receipts have no signature or trusted issuer boundary; caller can create static/manual receipts and choose claims, refs, modes, and CLI command inputs","mitigations":["explicit evidence-ID task binding", "wrong-task and wrong-repo tests", "hashes and commit context on some receipt types"]},
+  "failureMode": {"standaloneGate":"returns non-verified states for missing/invalid evidence when actually invoked","trioBridge":"fail open: dynamic import/reader errors become empty advisory context","ikbiShadow":"fail open: reader/provider failure emits no advisory event","ikbiProductionEvidence":"fail open for build decision: failure receipt is emitted and build continues without evidence"},
+  "integrations": [
+    {"project":"Pehlichi/Loony-Luna/Mad-Ptah","path":"src/core/truth-bridge.ts + tui/src/server.ts","classification":"shadow/advisory and model-context decision-influencing; not enforcing","connection":"dynamic import of Truth Firewall dist when configured; proposal review can persist asynchronously"},
+    {"project":"IKBI","path":"src/modules/runtime-truth-shadow and src/modules/runtime-truth","classification":"shadow/advisory plus production evidence injected into builder/critic context; not blocking","history":["6e34d6b90ae502c782330ee4e039f3ca549ab3a8","0383df65f3f61325fc5c16ea857b2ce14096e1d6"]},
+    {"project":"Howa","classification":"absent","connection":"no Truth Firewall call located"},
+    {"project":"Osapa","classification":"documentation/reference only in searched lab scope","connection":"no live call proven"},
+    {"project":"lab-agent-core/lab-memory/lab-store","classification":"no live import proven","connection":"Truth Firewall itself adapts lab-memory proposals and persists its own records"}
+  ],
+  "hostileValidation": [
+    {"case":"unsupported success claim","result":"covered; UNSUPPORTED/non-complete"},
+    {"case":"fabricated tool/static result","result":"not cryptographically distinguishable from caller-created evidence; binding rules help only when trusted context is supplied"},
+    {"case":"missing evidence","result":"covered; non-verified"},
+    {"case":"stale evidence","result":"covered; STALE"},
+    {"case":"contradictory evidence","result":"covered; CONTRADICTED"},
+    {"case":"partial evidence","result":"covered; PARTIAL"},
+    {"case":"null/unavailable evidence","result":"covered as missing/unverifiable; integrations fail open"},
+    {"case":"forged evidence ID","result":"unknown IDs do not bind, but caller-created stored receipts remain forgeable without issuer authentication"},
+    {"case":"evidence from another task","result":"covered; cannot bind"},
+    {"case":"evidence from another runtime/commit","result":"partial: command receipts can bind commit/tree; generic records are not universally version-bound"},
+    {"case":"advisory presented as enforcement","result":"advisoryOnly is checked in IKBI shadow and trio rendering, but downstream prose/UI can still overstate it"},
+    {"case":"firewall unavailable/timed out","result":"integration tests cover thrown/unavailable readers; production consumers continue"},
+    {"case":"caller says firewall passed without run","result":"no unforgeable run attestation; claim can be made outside the gate"}
+  ],
+  "reuseAssessment": "Useful evidence taxonomy, validators, gate states, task binding, replay tests, graph/drift/health, and proposal review can inform a future evidence engine. Reuse requires trusted/signed issuers, universal task/runtime/commit binding, immutable durable records, safe command execution with runCommands disabled by default, and an unavoidable fail-closed caller contract.",
+  "verification": {"test":"PASS: 18 test files (prebuilt dist execution)","typecheck":"PASS","buildNotRun":"source tree is user-modified and build would rewrite dist"},
+  "confidenceLimits": ["No secrets, credentials, or user-modified source were opened or changed.", "No external mutation or command-receipt execution was attempted.", "Active feature flags inside service env files were not read."]
+}

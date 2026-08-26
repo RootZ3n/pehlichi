@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pehverse.local/schemas/agent-capsule-v1.json",
+  "title": "Agent Capsule",
+  "type": "object",
+  "required": ["schemaVersion", "status", "identity", "personalityRef", "skills", "capabilityPacks", "routingPreferences", "modelDefaults", "memoryNamespace", "branding", "completion"],
+  "properties": {
+    "$schema": {"type":"string","maxLength":256},
+    "schemaVersion": {"const":"1.0.0"},
+    "status": {"const":"characterization"},
+    "identity": {"type":"object","required":["id","displayName","role"],"properties":{"id":{"type":"string","pattern":"^[a-z][a-z0-9-]*$"},"displayName":{"type":"string"},"role":{"type":"string"}},"additionalProperties":false},
+    "personalityRef": {"$ref":"#/$defs/localRef"},
+    "skills": {"type":"array","items":{"$ref":"#/$defs/localRef"},"uniqueItems":true},
+    "capabilityPacks": {"type":"object","required":["requested","inactive"],"properties":{"requested":{"type":"array","items":{"type":"string"},"uniqueItems":true,"description":"A request only; never an authority grant."},"inactive":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"additionalProperties":false},
+    "routingPreferences": {"type":"array","items":{"type":"object","required":["purpose","targetAgentId"],"properties":{"purpose":{"type":"string"},"targetAgentId":{"type":"string","pattern":"^[a-z][a-z0-9-]*$"}},"additionalProperties":false}},
+    "modelDefaults": {"type":"object","required":["providerRef","model"],"properties":{"providerRef":{"type":"string","pattern":"^[a-zA-Z0-9._-]+$"},"model":{"type":"string"},"fallbackModel":{"type":"string"}},"additionalProperties":false},
+    "memoryNamespace": {"type":"string","pattern":"^[a-z][a-z0-9._-]*$"},
+    "branding": {"type":"object","required":["themeRef","icon","welcomeRef"],"properties":{"themeRef":{"$ref":"#/$defs/localRef"},"icon":{"type":"string","maxLength":16},"welcomeRef":{"$ref":"#/$defs/localRef"}},"additionalProperties":false},
+    "completion": {"type":"object","required":["criteriaRefs","reportFormatRefs"],"properties":{"criteriaRefs":{"type":"array","items":{"$ref":"#/$defs/localRef"}},"reportFormatRefs":{"type":"array","items":{"$ref":"#/$defs/localRef"}}},"additionalProperties":false}
+  },
+  "$defs": {"localRef":{"type":"string","pattern":"^(?!/)(?!.*\\.\\.).+$"}},
+  "additionalProperties": false,
+  "description": "Data only. Executable handlers, authority grants, credentials, filesystem roots, policy bypasses, and safety-disable switches are forbidden by additionalProperties=false and the fixed vocabulary."
+}

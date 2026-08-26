@@ -1,0 +1,20 @@
+{
+  "$schema": "./schemas/runtime-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "status": "characterization",
+  "trusted": false,
+  "deployable": false,
+  "runtimeVersion": null,
+  "sourceCommit": null,
+  "sourceTreeDigest": null,
+  "dependencyLockDigest": null,
+  "compilerRuntimeVersion": null,
+  "buildConfigurationDigest": null,
+  "policyDigest": null,
+  "toolDigests": {},
+  "capabilityPackDigests": {},
+  "compiledArtifactDigest": null,
+  "supportedPlatforms": [],
+  "creationAuthority": null,
+  "verificationState": "divergent"
+}

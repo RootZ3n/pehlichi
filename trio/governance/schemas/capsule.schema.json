@@ -1,0 +1,29 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pehverse.local/schemas/agent-capsule-v1.1.json",
+  "title":"Agent Capsule Characterization",
+  "type":"object",
+  "required":["schemaVersion","status","identity","personalityRef","skills","capabilityPacks","routingPreferences","modelDefaults","memoryNamespace","branding","completion"],
+  "additionalProperties":false,
+  "properties":{
+    "$schema":{"const":"../schemas/capsule.schema.json"},
+    "schemaVersion":{"const":"1.1.0"},
+    "status":{"const":"characterization"},
+    "identity":{"type":"object","required":["id","displayName","role"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/id"},"displayName":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f]+$"},"role":{"$ref":"#/$defs/id"}}},
+    "personalityRef":{"$ref":"#/$defs/dataRef"},
+    "skills":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/dataRef"}},
+    "capabilityPacks":{"type":"object","required":["requested","inactive"],"additionalProperties":false,"properties":{"requested":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/versionedId"}},"inactive":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"$ref":"#/$defs/versionedId"}}}},
+    "routingPreferences":{"type":"array","maxItems":16,"items":{"type":"object","required":["purpose","targetAgentId"],"additionalProperties":false,"properties":{"purpose":{"enum":["coordination","repair","creative"]},"targetAgentId":{"$ref":"#/$defs/id"}}}},
+    "modelDefaults":{"type":"object","required":["providerRef","model"],"additionalProperties":false,"properties":{"providerRef":{"$ref":"#/$defs/id"},"model":{"$ref":"#/$defs/modelId"},"fallbackModel":{"$ref":"#/$defs/modelId"}}},
+    "memoryNamespace":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z][a-z0-9._-]*$"},
+    "branding":{"type":"object","required":["themeRef","icon","welcomeRef"],"additionalProperties":false,"properties":{"themeRef":{"$ref":"#/$defs/dataRef"},"icon":{"type":"string","maxLength":16,"pattern":"^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f]*$"},"welcomeRef":{"$ref":"#/$defs/dataRef"}}},
+    "completion":{"type":"object","required":["criteriaRefs","reportFormatRefs"],"additionalProperties":false,"properties":{"criteriaRefs":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/dataRef"}},"reportFormatRefs":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/dataRef"}}}}
+  },
+  "$defs":{
+    "id":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z][a-z0-9-]*$"},
+    "versionedId":{"type":"string","maxLength":96,"pattern":"^[a-z][a-z0-9-]*@[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "modelId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "dataRef":{"type":"string","maxLength":160,"pattern":"^(?:personality/[a-z0-9][a-z0-9-]*\\.yaml|skills/[a-z0-9][a-z0-9-]*/SKILL\\.md|tui/skin\\.yaml)$"}
+  },
+  "description":"Closed characterization data. Commands, URLs, arbitrary paths, imports, handlers, credentials, authority grants, and safety bypasses are not fields."
+}

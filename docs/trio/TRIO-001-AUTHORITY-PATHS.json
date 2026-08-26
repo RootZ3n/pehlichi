@@ -1,0 +1,123 @@
+{
+  "generatedAt": "2026-08-15T00:00:00-05:00",
+  "verdict": "containment is not universal; multiple production paths fail open or rely on optional/coarse checks",
+  "paths": [
+    {
+      "surface": "HTTP chat and streaming",
+      "entry": "tui/src/server.ts createAgentServer -> /converse, /chat, /api/chat, /chat/stream",
+      "inputToEffect": ["caller JSON and attachments", "optional parseWorkspaceOverride", "KernelChatSession", "model tool call", "ApprovalPolicy.authorize", "ToolRegistry handler"],
+      "enforcement": [
+        {"call": "chatAuthorized(req, chatToken)", "classification": "optional/bypassable", "reason": "returns authorized when no token is configured; Pehlichi live empty-body probes reached 400 validation instead of 401"},
+        {"call": "parseWorkspaceOverride", "classification": "unavoidable only when workspace field is supplied", "reason": "realpath containment protects traversal and symlink escapes, but configured roots authorize arbitrary descendants and can include sibling repositories"},
+        {"call": "ApprovalPolicy.authorize", "classification": "unavoidable for model tool calls", "reason": "name-only allowlist; allowWrites=true authorizes all tools"},
+        {"call": "assertUnattendedStartup", "classification": "absent", "reason": "HTTP server startup does not reject AGENT_FS_UNRESTRICTED=true"}
+      ],
+      "preHandlerRisks": ["full registry constructs cron handler with rearmOnLoad before requests", "attachment saving writes before workspace approval", "authentication is not startup-required"]
+    },
+    {
+      "surface": "Matrix",
+      "entry": "/pehverse/repos/lab-utilities/bridges/shared/matrix-bridge.ts -> trio HTTP /chat",
+      "inputToEffect": ["Matrix event", "optional sender allowlist", "optional bearer token", "HTTP chat path"],
+      "enforcement": [
+        {"call": "MATRIX_ALLOWED_USERS membership", "classification": "optional/bypassable", "reason": "empty configuration permits all senders"},
+        {"call": "destructive-intent confirmation", "classification": "advisory/bypassable", "reason": "heuristic text matching; nonmatched tasks are detached immediately"},
+        {"call": "HTTP bearer header", "classification": "optional", "reason": "only added if bridge token variable exists"}
+      ]
+    },
+    {
+      "surface": "CLI/direct library",
+      "entry": "src/cli/repl.ts and exported runAgent/KernelChatSession",
+      "inputToEffect": ["stdin/library caller", "HTTP or direct model loop", "tool registry"],
+      "enforcement": [
+        {"call": "REPL Authorization header", "classification": "absent", "reason": "REPL does not send the server bearer token"},
+        {"call": "runAgent assertUnattendedStartup", "classification": "optional", "reason": "only executes when opts.unattended === true"},
+        {"call": "direct caller approval policy", "classification": "caller-selected", "reason": "library caller can construct or omit restrictive policy"}
+      ]
+    },
+    {
+      "surface": "cron",
+      "entry": "createFullToolRegistry -> createCronToolHandlers",
+      "inputToEffect": ["cronjob tool or persisted .cron-jobs.json", "rearmOnLoad", "agentRunner", "shadow runAgent/full tools"],
+      "enforcement": [
+        {"call": "ApprovalPolicy for cronjob invocation", "classification": "present but too late for persisted jobs"},
+        {"call": "assertUnattendedStartup", "classification": "present inside unattended runner", "reason": "rejects unrestricted filesystem only on this marked path"},
+        {"call": "cron mutation disable", "classification": "absent", "reason": "no independent production-default kill switch; durable jobs rearm at handler construction"}
+      ]
+    },
+    {
+      "surface": "delegation",
+      "entry": "delegate_task -> delegate handler -> runAgent",
+      "inputToEffect": ["model task", "subagent process/model", "terminal/process plus delegated registry"],
+      "enforcement": [
+        {"call": "parent approval for delegate_task", "classification": "coarse"},
+        {"call": "allowWrites inheritance", "classification": "present but coarse"},
+        {"call": "unattended unrestricted-filesystem rejection", "classification": "not proven universal", "reason": "direct delegated runner paths are not all marked unattended"}
+      ]
+    },
+    {
+      "surface": "bridge calls",
+      "entry": "bridge.health/list/request and lab_status_digest",
+      "inputToEffect": ["model-selected service/action/body", "bridge client", "network service"],
+      "enforcement": [
+        {"call": "ApprovalPolicy", "classification": "name-only"},
+        {"call": "service-side authentication/policy", "classification": "external/unknown"}
+      ]
+    },
+    {
+      "surface": "browser/account",
+      "entry": "browser_* handlers",
+      "inputToEffect": ["model URL/selectors/text", "Playwright", "browser profile/account/network"],
+      "enforcement": [
+        {"call": "ApprovalPolicy", "classification": "coarse"},
+        {"call": "independent browser/account mutation disable", "classification": "absent"}
+      ]
+    },
+    {
+      "surface": "terminal/process/execute-code",
+      "entry": "src/core/tools.ts terminal/process; execute_code; lab_shell",
+      "inputToEffect": ["model command/code", "shell/subprocess", "filesystem/network/process"],
+      "enforcement": [
+        {"call": "ApprovalPolicy", "classification": "unavoidable in KernelChatSession but caller-controlled in direct use"},
+        {"call": "resolveInWorkspace", "classification": "bypassable", "reason": "AGENT_FS_UNRESTRICTED=true returns resolved paths without containment"},
+        {"call": "command allowlist", "classification": "absent for generic terminal/execute_code"}
+      ]
+    },
+    {
+      "surface": "filesystem mutation/workspace override",
+      "entry": "write_file/patch/git/skills plus HTTP workspace field",
+      "inputToEffect": ["caller root and model path", "parseWorkspaceOverride/resolveInWorkspace", "filesystem"],
+      "enforcement": [
+        {"call": "realpath + configured-root containment", "classification": "present but authority too broad"},
+        {"call": "AGENT_FS_UNRESTRICTED branch", "classification": "explicit bypass"},
+        {"call": "exact default/fixture registration", "classification": "absent"}
+      ],
+      "hostileResults": {"/etc":"rejected by HTTP override under normal config; accepted by resolveInWorkspace when unrestricted env true","home":"rejected by Pehlichi tests","repoParent":"rejected unless configured as an allowed root","siblingRepo":"accepted when /pehverse/repos/ecosystem is configured as root","symlinkEscape":"rejected by realpath tests"}
+    },
+    {
+      "surface": "memory/brain/skills",
+      "entry": "memory, labmem_*, brain_*, skill_manage",
+      "inputToEffect": ["model content/action", "proposal/direct mode or local files/network", "durable store"],
+      "enforcement": [
+        {"call": "proposal governance", "classification": "present on agent-facing lab-memory/global paths; trusted direct modes remain"},
+        {"call": "brain_sync receipt string", "classification": "forgeable", "reason": "nonempty string check; no receipt-store validation"},
+        {"call": "durable sync/install production kill switch", "classification": "absent"},
+        {"call": "ApprovalPolicy", "classification": "misclassified for agent_sync and skill/list variants"}
+      ]
+    },
+    {
+      "surface": "Truth Gate direct CLI command receipts",
+      "entry": "truth-firewall CLI verify -> runCommandReceipt",
+      "inputToEffect": ["caller claim bundle command", "shell:true execution", "receipt/verdict persistence"],
+      "enforcement": [
+        {"call": "allowedCommands", "classification": "optional", "reason": "when omitted, caller-provided commands can execute through a shell"},
+        {"call": "task/repo/commit binding", "classification": "partial", "reason": "stronger for command receipts than static/manual receipts"}
+      ]
+    }
+  ],
+  "safetyLibrariesTestedButNotUnavoidable": [
+    "assertUnattendedStartup rejects AGENT_FS_UNRESTRICTED only when runAgent opts.unattended is true",
+    "parseWorkspaceOverride has Pehlichi-only negative tests but authorizes arbitrary descendants of configured roots",
+    "Truth Firewall advisoryOnly checks drop malformed summaries but do not enforce task outcomes"
+  ],
+  "confidenceLimits": ["Static call-path analysis plus non-mutating negative probes; no credentialed or mutation-capable requests were sent.", "External bridge/service authorization beyond local clients was not tested."]
+}

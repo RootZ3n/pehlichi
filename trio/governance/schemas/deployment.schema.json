@@ -1,0 +1,25 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pehverse.local/schemas/trio-deployment-v1.1.json",
+  "title":"Trio Deployment Characterization",
+  "type":"object",
+  "required":["schemaVersion","listen","credentialHandles","workspaceRegistrationSources","serviceEndpoints","transports","locations","limits","compatibilityAdapters"],
+  "additionalProperties":false,
+  "properties":{
+    "$schema":{"const":"../schemas/deployment.schema.json"},
+    "schemaVersion":{"const":"1.1.0"},
+    "listen":{"type":"object","required":["address","port"],"additionalProperties":false,"properties":{"address":{"enum":["loopback-v4","loopback-v6","configured-interface"]},"port":{"type":"integer","minimum":1,"maximum":65535}}},
+    "credentialHandles":{"type":"array","maxItems":64,"items":{"type":"object","required":["id","provider"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/opaqueHandle"},"provider":{"enum":["environment-handle","systemd-credential","keyring-handle","file-descriptor"]}}}},
+    "workspaceRegistrationSources":{"type":"array","maxItems":64,"items":{"type":"object","required":["id","kind"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/opaqueHandle"},"kind":{"enum":["configured-default","signed-howa-fixture-registry"]}}}},
+    "serviceEndpoints":{"type":"array","maxItems":64,"items":{"type":"object","required":["id","endpointHandle","optional"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/opaqueHandle"},"endpointHandle":{"$ref":"#/$defs/opaqueHandle"},"optional":{"type":"boolean"}}}},
+    "transports":{"type":"array","maxItems":8,"uniqueItems":true,"items":{"enum":["http","streaming-http","matrix","cli","direct-library"]}},
+    "locations":{"type":"object","required":["checkpointHandle","receiptHandle"],"additionalProperties":false,"properties":{"checkpointHandle":{"$ref":"#/$defs/opaqueHandle"},"receiptHandle":{"$ref":"#/$defs/opaqueHandle"}}},
+    "limits":{"type":"object","required":["maxConcurrentTasks","maxIterations","taskTimeoutMs","memoryLimitMb"],"additionalProperties":false,"properties":{"maxConcurrentTasks":{"type":"integer","minimum":1,"maximum":1024},"maxIterations":{"type":"integer","minimum":1,"maximum":10000},"taskTimeoutMs":{"type":"integer","minimum":1,"maximum":86400000},"memoryLimitMb":{"type":"integer","minimum":1,"maximum":1048576}}},
+    "compatibilityAdapters":{"type":"array","maxItems":32,"items":{"type":"object","required":["id","consumerEvidenceRef","deprecatedSince","removeBefore"],"additionalProperties":false,"properties":{"id":{"$ref":"#/$defs/opaqueHandle"},"consumerEvidenceRef":{"$ref":"#/$defs/evidenceRef"},"deprecatedSince":{"type":"string","pattern":"^[0-9]+\\.[0-9]+\\.[0-9]+$"},"removeBefore":{"const":"1.0.0"}}}}
+  },
+  "$defs":{
+    "opaqueHandle":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z][a-z0-9._-]*$","not":{"pattern":"(?:secret|password|passwd|token|bearer|api[_-]?key)"}},
+    "evidenceRef":{"type":"string","minLength":1,"maxLength":96,"pattern":"^evidence:[a-z0-9][a-z0-9._-]*$"}
+  },
+  "description":"Opaque handles only. Literal credentials, URLs, filesystem roots, commands, environment names, modules, handlers, authority grants, and safety-disable switches are forbidden."
+}

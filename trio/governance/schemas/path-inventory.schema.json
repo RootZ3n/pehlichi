@@ -1,0 +1,18 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pehverse.invalid/schemas/trio-path-inventory-1.0.0.json",
+  "title":"TRIO closed directory-path inventory",
+  "type":"object",
+  "required":["schemaVersion","status","rules"],
+  "additionalProperties":false,
+  "properties":{
+    "schemaVersion":{"const":"1.0.0"},
+    "status":{"const":"characterization"},
+    "rules":{
+      "type":"object",
+      "maxProperties":128,
+      "propertyNames":{"pattern":"^[a-z][a-z0-9-]*$","maxLength":64},
+      "additionalProperties":{"type":"array","maxItems":4096,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[^\\u0000-\\u001f\\u007f\\\\]+$"}}
+    }
+  }
+}

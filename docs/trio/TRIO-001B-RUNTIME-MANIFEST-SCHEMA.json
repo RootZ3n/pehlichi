@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pehverse.local/schemas/runtime-manifest-v1.json",
+  "title": "Trio Runtime Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "status", "trusted", "deployable", "runtimeVersion", "sourceCommit", "sourceTreeDigest", "dependencyLockDigest", "compilerRuntimeVersion", "buildConfigurationDigest", "policyDigest", "toolDigests", "capabilityPackDigests", "compiledArtifactDigest", "supportedPlatforms", "creationAuthority", "verificationState"],
+  "properties": {
+    "schemaVersion":{"const":"1.0.0"},"status":{"const":"characterization"},"trusted":{"const":false},"deployable":{"const":false},
+    "runtimeVersion":{"type":["string","null"]},"sourceCommit":{"type":["string","null"]},
+    "sourceTreeDigest":{"$ref":"#/$defs/digest"},"dependencyLockDigest":{"$ref":"#/$defs/digest"},"compilerRuntimeVersion":{"type":["string","null"]},
+    "buildConfigurationDigest":{"$ref":"#/$defs/digest"},"policyDigest":{"$ref":"#/$defs/digest"},
+    "toolDigests":{"type":"object","additionalProperties":{"$ref":"#/$defs/digest"}},"capabilityPackDigests":{"type":"object","additionalProperties":{"$ref":"#/$defs/digest"}},
+    "compiledArtifactDigest":{"$ref":"#/$defs/digest"},"supportedPlatforms":{"type":"array","items":{"type":"string"}},
+    "creationAuthority":{"type":["string","null"]},"verificationState":{"enum":["unverified","characterized","divergent","verified"]}
+  },
+  "$defs":{"digest":{"type":["string","null"],"pattern":"^sha256:[0-9a-f]{64}$"}},
+  "additionalProperties":false
+}

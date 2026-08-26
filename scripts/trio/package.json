@@ -1,0 +1,11 @@
+{
+  "name": "@pehverse/trio-verification-dev",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Development-only TRIO parity and schema validation tooling.",
+  "dependencies": {},
+  "devDependencies": {
+    "ajv": "8.20.0"
+  }
+}

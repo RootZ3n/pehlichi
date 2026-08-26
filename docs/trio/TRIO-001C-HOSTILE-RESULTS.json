@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "1.0.0",
+  "date": "2026-08-15",
+  "status": "PASS_WITH_REAL_TRIO_BLOCKING_DIVERGENCE",
+  "preFixEvidence": "docs/trio/TRIO-001C-PREFLIGHT-FAILURES.json",
+  "postFix": {
+    "command": "node scripts/trio/verify-runtime-parity.test.mjs",
+    "tests": 44,
+    "passed": 44,
+    "failed": 0,
+    "skipped": 0
+  },
+  "schemaValidation": {
+    "command": "node --test scripts/trio/schema-validation.test.mjs",
+    "tests": 9,
+    "passed": 9,
+    "failed": 0,
+    "skipped": 0,
+    "validator": {"name":"ajv","version":"8.20.0","draft":"2020-12"}
+  },
+  "blockedAttackFamilies": [
+    "executable content in capsule, branding, deployment, generated, fixture, compatibility, UI, skill, and obsolete locations",
+    "package scripts, entry points, exports, imports, dependency sets, resolutions, and package-manager behavior",
+    "systemd/service units and alternate launchers",
+    "inline HTML scripts and workers",
+    "compiled dist entry points",
+    "executable profile/capsule overlays",
+    "duplicate repositories and symlink aliases",
+    "swapped repository labels and remote/package/capsule identity mismatches",
+    "duplicate, overlapping, incompatible, and repository-divergent classification rules",
+    "duplicate JSON keys and schema-invalid/unsupported instances",
+    "oversized, over-deep, oversized-collection, and oversized-string JSON",
+    "absolute, parent, dot, repeated-separator, control, trailing-space, trailing-dot, case-confusable, and Unicode-confusable paths",
+    "mode-only behavior changes",
+    "internal, external, sibling, and cyclic symlinks",
+    "generated/runtime disguises",
+    "untracked and git-ignored executables",
+    "unsafe arbitrary exclusion declarations",
+    "lockfile and workspace/package-manager changes",
+    "missing/malformed repositories and unexpected working directories"
+  ],
+  "nonBlockingInvariants": [
+    "semantically equivalent manifest rule reordering preserves classification and semantic manifest digest",
+    "schema-valid capsule data changes are reported as variable data without inventing runtime divergence",
+    "dirty worktree state remains visible independently of behavioral hashes"
+  ],
+  "originalTrio001bAttacks": {
+    "runtimeByte": "blocked",
+    "unclassifiedExecutable": "blocked",
+    "missingCommonFile": "blocked",
+    "symlink": "blocked",
+    "manifestReorder": "semantic result preserved",
+    "capsuleData": "reported without false runtime divergence",
+    "generatedDisguise": "blocked",
+    "dirtyState": "visible"
+  },
+  "realTrio": {
+    "verifierStatus": "VERIFIER_OK_DIVERGENCE",
+    "verdict": "BLOCKING_DIVERGENCE",
+    "expectedParity": false
+  }
+}

@@ -1,0 +1,4176 @@
+{
+  "generatedAt": "2026-08-15T16:17:41.062Z",
+  "sourceRuntime": "Pehlichi core (byte-identical src/core baseline; Ptah-only optional registrations noted)",
+  "count": 81,
+  "approvalModel": {
+    "writesDisabledDefault": "name allowlist; does not classify effects per operation",
+    "writesEnabled": "all tool names allowed",
+    "unattended": "separate assertUnattendedStartup is optional and not universal",
+    "criticalMisclassifications": [
+      "agent_sync is on read-only allowlist although actions can write",
+      "todo mutates session state",
+      "brain_think and web tools can make network calls",
+      "cron handler construction can rearm durable jobs before tool approval"
+    ]
+  },
+  "tools": [
+    {
+      "canonicalName": "agent_sync",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/coordination-tools.ts",
+      "schema": {
+        "description": "Share results with the other lab agents through a durable shared store. Actions: write (store a keyed value), read (fetch by key), list (all keys), broadcast (append to a shared log).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "write",
+                "read",
+                "list",
+                "broadcast"
+              ],
+              "description": "What to do."
+            },
+            "key": {
+              "type": "string",
+              "description": "Entry key (for write/read)."
+            },
+            "value": {
+              "type": "string",
+              "description": "Value to store (for write/broadcast)."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createCoordinationToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/agent-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "brain_put",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/brain-tools.ts",
+      "schema": {
+        "description": "Write or update a single page in the brain. Content is markdown with YAML frontmatter. Use to persist a durable fact/note so future brain_search/brain_think can recall it. Does NOT touch lab-memory or MEMORY.md — this writes the brain only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "slug": {
+              "type": "string",
+              "description": "Page slug (stable id, kebab-case)."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full markdown body with YAML frontmatter."
+            }
+          },
+          "required": [
+            "slug",
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrainToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/memory-governance.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "brain_search",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/brain-tools.ts",
+      "schema": {
+        "description": "Keyword/full-text search over the gbrain knowledge brain. Use for factual recall ('what do we know about X', finding a page/symbol). Returns matching pages/chunks. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query (keywords)."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max results (default brain-side, ~20)."
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrainToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "brain_sync",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/brain-tools.ts",
+      "schema": {
+        "description": "Import a memory directory into the brain and re-embed it so its pages become searchable. RECEIPT-GATED: requires a `receipt_id` from the current turn — this is a deliberate, index-rewriting operation. Defaults to the shared lab-memory tree when memory_root is omitted.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "receipt_id": {
+              "type": "string",
+              "description": "Receipt id of the current turn (required gate)."
+            },
+            "memory_root": {
+              "type": "string",
+              "description": "Directory to sync (default: the shared lab-memory tree)."
+            }
+          },
+          "required": [
+            "receipt_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrainToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "brain_think",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/brain-tools.ts",
+      "schema": {
+        "description": "Multi-hop synthesis over the brain: pulls evidence across pages, takes, and the graph and returns a CITED answer with conflict + gap analysis. Use for 'why/how/what's the relationship' questions that need reasoning, not just a lookup. Read-only, slower than brain_search.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The question to think about."
+            }
+          },
+          "required": [
+            "question"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrainToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "bridge.health",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/bridges/bridge-tools.ts",
+      "schema": {
+        "description": "Check if an ecosystem service is reachable and healthy. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "service": {
+              "type": "string",
+              "description": "Service name (pehlichi, mechanic, artist, ikbi, toba, nusika, howa, kokuli, luak, ittunaha)"
+            }
+          },
+          "required": [
+            "service"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBridgeToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "bridge.list",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/bridges/bridge-tools.ts",
+      "schema": {
+        "description": "List all available ecosystem services and their ports. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBridgeToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "bridge.request",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/bridges/bridge-tools.ts",
+      "schema": {
+        "description": "Make an HTTP request to an ecosystem service endpoint.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "service": {
+              "type": "string",
+              "description": "Service name"
+            },
+            "method": {
+              "type": "string",
+              "description": "HTTP method (GET, POST)"
+            },
+            "path": {
+              "type": "string",
+              "description": "Endpoint path (e.g. '/health', '/api/profile')"
+            },
+            "body": {
+              "type": "object",
+              "description": "Request body for POST requests"
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Per-request timeout in ms (default 120000). Real agent tasks take minutes; raise this for long-running endpoints so the call doesn't abort prematurely (B7)."
+            }
+          },
+          "required": [
+            "service",
+            "method",
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBridgeToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/velum-scan.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/tools/bridge-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_back",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Navigate back in browser history.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_click",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Click an element by ref ID (e.g. @e5) from snapshot.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "description": "Element ref (e.g. @e5)"
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "browser_console",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Get browser console output. Optionally evaluate JS expression.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "expression": {
+              "type": "string",
+              "description": "JS expression to evaluate in page context"
+            },
+            "clear": {
+              "type": "boolean",
+              "description": "Clear console buffer after reading"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_get_images",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Get all images on the current page with URLs and alt text.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_navigate",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Navigate to a URL. Initializes browser session if needed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "URL to navigate to"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_press",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "description": "Key to press"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "browser_scroll",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Scroll the page up or down.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "up",
+                "down"
+              ],
+              "description": "Direction to scroll"
+            }
+          },
+          "required": [
+            "direction"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_snapshot",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Get accessibility tree snapshot of current page.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "full": {
+              "type": "boolean",
+              "description": "If true, return full page content"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "browser_type",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Type text into an input field by ref ID.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "description": "Element ref (e.g. @e3)"
+            },
+            "text": {
+              "type": "string",
+              "description": "Text to type"
+            }
+          },
+          "required": [
+            "ref",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "browser_vision",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/browser-tools.ts",
+      "schema": {
+        "description": "Take a screenshot and analyze it visually.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "What to look for in the screenshot"
+            }
+          },
+          "required": [
+            "question"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBrowserToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "clarify",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/clarify-tools.ts",
+      "schema": {
+        "description": "Ask the user a question when you need clarification, feedback, or a decision before proceeding. Supports multiple choice or open-ended questions.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The question to present to the user"
+            },
+            "choices": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Up to 4 answer choices for multiple choice. Omit for open-ended."
+            }
+          },
+          "required": [
+            "question"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createClarifyToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "cronjob",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/cron-tools.ts",
+      "schema": {
+        "description": "Manage scheduled tasks. Actions: create (schedule a task), list (show jobs), run (trigger now), pause, resume, remove.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "list",
+                "run",
+                "pause",
+                "resume",
+                "remove"
+              ],
+              "description": "Action to perform"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Task prompt (for create)"
+            },
+            "schedule": {
+              "type": "string",
+              "description": "Schedule: \"30m\", \"every 2h\", \"0 9 * * *\" (cron), or ISO timestamp for one-shot"
+            },
+            "name": {
+              "type": "string",
+              "description": "Human-friendly job name"
+            },
+            "job_id": {
+              "type": "string",
+              "description": "Job ID (for run/pause/resume/remove)"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createCronToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/agent-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "delegate_task",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/delegate-tools.ts",
+      "schema": {
+        "description": "Spawn a sub-agent (a separate process) to handle a task. Returns the agent's final summary.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal": {
+              "type": "string",
+              "description": "What the sub-agent should accomplish"
+            },
+            "context": {
+              "type": "string",
+              "description": "Background info the sub-agent needs"
+            },
+            "toolsets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Toolsets to enable (terminal, file, web, browser)"
+            }
+          },
+          "required": [
+            "goal"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createDelegateToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/agent-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/tool-governor.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/loop.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "entrypoint; delegated runtime retains terminal/process and can receive delegate tool",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "execute_code",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/execute-code-tools.ts",
+      "schema": {
+        "description": "Run Python or Node.js code in a sandboxed subprocess. Returns stdout/stderr.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Code to execute"
+            },
+            "language": {
+              "type": "string",
+              "enum": [
+                "python",
+                "node"
+              ],
+              "description": "Language (default: python)"
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Timeout in ms (default 60000)"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createExecuteCodeToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "git_add",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Stage changes for commit. Give paths, or set all=true to stage everything.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Paths to stage."
+            },
+            "all": {
+              "type": "boolean",
+              "description": "Stage all changes (git add -A)."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "git_clone",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Clone a git repo into a workspace-relative directory. Uses the configured GitHub token for private repos.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The repo URL (https)."
+            },
+            "dir": {
+              "type": "string",
+              "description": "Workspace-relative destination directory."
+            }
+          },
+          "required": [
+            "url",
+            "dir"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "git_commit",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Create a commit with a message. Set all=true to stage tracked changes first (git commit -a).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            },
+            "message": {
+              "type": "string",
+              "description": "The commit message."
+            },
+            "all": {
+              "type": "boolean",
+              "description": "Stage tracked changes before committing (git commit -a)."
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "git_diff",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Show the diff of a repo. Set staged=true for the staged (index) diff; pass paths to limit it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            },
+            "staged": {
+              "type": "boolean",
+              "description": "true = staged/index diff, false = working-tree diff (default)."
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional paths to limit the diff to."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "git_log",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Show recent commits (one line each) for a repo.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            },
+            "limit": {
+              "type": "number",
+              "description": "How many commits (default 15, max 100)."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "git_push",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Push commits to a remote (default origin) and branch (default the current branch). Uses the configured GitHub token for auth.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            },
+            "remote": {
+              "type": "string",
+              "description": "Remote name (default 'origin')."
+            },
+            "branch": {
+              "type": "string",
+              "description": "Branch to push (default: current branch)."
+            },
+            "set_upstream": {
+              "type": "boolean",
+              "description": "Also set the upstream (-u) — use when pushing a new branch."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "git_status",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.ts",
+      "schema": {
+        "description": "Show the working-tree status of a repo (branch + staged/unstaged/untracked files).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Workspace-relative repo dir (default '.')."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createGitOpsToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/git-ops-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "ikbi_build",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.ts",
+      "schema": {
+        "description": "Submit a build task to ikbi (the governed build engine). Returns a taskId. Use ikbi_status to check results.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal": {
+              "type": "string",
+              "description": "What to build."
+            },
+            "repo": {
+              "type": "string",
+              "description": "Absolute path to the repository."
+            },
+            "builderMode": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "patch"
+              ],
+              "description": "\"agent\" or \"patch\" (default: \"agent\")."
+            }
+          },
+          "required": [
+            "goal",
+            "repo"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createIkbiToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "ikbi_fix",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.ts",
+      "schema": {
+        "description": "Submit a fix task to ikbi. ikbi will diagnose and fix failing tests/checks. Returns a taskId.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Absolute path to the repository."
+            },
+            "check": {
+              "type": "string",
+              "description": "The check command to run (default: auto-detect)."
+            },
+            "goal": {
+              "type": "string",
+              "description": "Additional context for the fix."
+            },
+            "allowTestEdits": {
+              "type": "boolean",
+              "description": "Allow editing test files (default: false)."
+            }
+          },
+          "required": [
+            "repo"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createIkbiToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "ikbi_status",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.ts",
+      "schema": {
+        "description": "Check the status of an ikbi task. Returns current status, roles completed, cost, and result. With no taskId, lists recent tasks.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": {
+              "type": "string",
+              "description": "Specific task to check. If omitted, lists all recent tasks."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createIkbiToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "lab_context_query",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-context-tools.ts",
+      "schema": {
+        "description": "Query shared lab memory with filters. Returns matching entries (frontmatter only, no body).\nUse this to find entries by project, status, or tags before reading specific ones.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "description": "Filter by project name"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "current",
+                "superseded"
+              ],
+              "description": "Filter by status"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Filter by tags (all must match)"
+            },
+            "chainHealth": {
+              "type": "string",
+              "description": "Get chain health for a project (current + stranded)"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabContextToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "lab_context_read",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-context-tools.ts",
+      "schema": {
+        "description": "Read shared lab memory. Two modes:\n- List mode: provide 'project' to get all current entries for that project (cheap frontmatter scan)\n- View mode: provide 'id' to get a specific entry's full body\n\nReturns memory entries with: id, title, description, project, status, version, tags, body.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "project": {
+              "type": "string",
+              "description": "Project name to list current entries for (e.g. \"nusika\", \"ikbi\")"
+            },
+            "id": {
+              "type": "string",
+              "description": "Specific memory entry id to view full body"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "current",
+                "superseded",
+                "all"
+              ],
+              "description": "Filter by status (default: current)"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabContextToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "lab_context_write",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-context-tools.ts",
+      "schema": {
+        "description": "Propose a change to shared lab memory. Two modes:\n- Create: provide id, title, description, project, body to propose a new entry\n- Supersede: provide oldId, newId, title, description, project, body to propose replacing an entry\n\nGOVERNED: this does NOT install durable memory. It creates a governance proposal\n(returns its target + risk) that must be verified and approved by a human through\nimprovement-governance before anything is written. Reads are direct; writes are proposals.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "supersede"
+              ],
+              "description": "Write mode"
+            },
+            "id": {
+              "type": "string",
+              "description": "New entry id (slug: lowercase, digits, hyphens)"
+            },
+            "oldId": {
+              "type": "string",
+              "description": "For supersede: the current entry being replaced"
+            },
+            "newId": {
+              "type": "string",
+              "description": "For supersede: the new entry id"
+            },
+            "title": {
+              "type": "string",
+              "description": "Short title"
+            },
+            "description": {
+              "type": "string",
+              "description": "One-line description"
+            },
+            "project": {
+              "type": "string",
+              "description": "Project name (e.g. \"nusika\", \"ikbi\")"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional tags"
+            },
+            "body": {
+              "type": "string",
+              "description": "Markdown body (what happened, what is current)"
+            }
+          },
+          "required": [
+            "action",
+            "title",
+            "description",
+            "project",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabContextToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "lab_recall_conversation",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-conversation-tools.ts",
+      "schema": {
+        "description": "Recall recent conversation from the SHARED lab log across the trio (Peh/Ptah/Luna). You and your teammates share one lab; use this to see what was recently said in the others' rooms beyond the short header you already have. Read-only.\n- No args: recent turns across all three agents.\n- 'agent' (peh|ptah|luna): limit to one teammate.\n- 'limit': max turns (default 30).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "description": "Filter to one agent: 'peh', 'ptah', or 'luna'. Omit for all."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max turns to return (default 30)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabConversationToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "lab_shell",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-shell-tools.ts",
+      "schema": {
+        "description": "Run a READ-ONLY command in the lab over SSH to scan repos for context (e.g. \"git log --oneline -20\", \"ls -la\", \"grep -rn TODO src\", \"cat README.md\", \"find . -name '*.ts'\"). Single command only — no pipes, chaining, redirection, or writes. Great for gathering context before brainstorming.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "The read-only command (allowed: ls, cat, head, tail, grep, rg, find, tree, wc, stat, file, du, and read-only git)."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute lab directory to run in (default: the lab repos root). Confined under LAB_SHELL_ROOT."
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabShellToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/lab-shell-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "lab_status_digest",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/bridges/bridge-tools.ts",
+      "schema": {
+        "description": "Proactive lab-status digest — pings every registered service and returns up/down. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createBridgeToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "labmem_recall",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.ts",
+      "schema": {
+        "description": "Recall from lab-wide memory (labmem): shared lab rules, the repo map, cross-agent facts, plus THIS agent's own private + project memory. Other agents' private memory is never returned.\n- No args: returns your full recall block.\n- Provide 'query' to search your visible memory by substring.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Optional substring to search visible lab memory"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabmemToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "labmem_remember",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.ts",
+      "schema": {
+        "description": "Record a memory in labmem. You may freely write your OWN memory (scope 'agent' or 'project' — stored under your namespace). Writes to scope 'global'/'user' (shared lab memory) are recorded as a DRY-RUN proposal only — a human applies them via the memory CLI. Existing ids are never overwritten. Every write returns a receipt with rollback.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Entry id (slug: lowercase, digits, hyphens)"
+            },
+            "title": {
+              "type": "string",
+              "description": "Short title"
+            },
+            "description": {
+              "type": "string",
+              "description": "One-line description"
+            },
+            "body": {
+              "type": "string",
+              "description": "Markdown body (the fact / decision / state)"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "project",
+                "global",
+                "user"
+              ],
+              "description": "Default 'agent' (your private memory)"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "semantic",
+                "procedural",
+                "project",
+                "shared"
+              ],
+              "description": "Memory type (default semantic; project for scope project)"
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "observed",
+                "user-stated",
+                "inferred"
+              ],
+              "description": "How you know this (default observed)"
+            },
+            "subject": {
+              "type": "string",
+              "description": "Optional stable subject key (e.g. \"repo:x:owner\") to enable conflict detection"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional tags"
+            },
+            "apply": {
+              "type": "boolean",
+              "description": "Apply the write (own memory only). Default false = dry-run preview."
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLabmemToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_add_model",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Add a model to a provider in Luak so it gets benchmarked. Needs the providerConfigId (from luak_registry) and the modelId (the provider's model name).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "providerConfigId": {
+              "type": "string",
+              "description": "The provider config id to attach the model to (see luak_registry)."
+            },
+            "modelId": {
+              "type": "string",
+              "description": "The provider's model id/name, e.g. 'deepseek-v4-flash'."
+            },
+            "displayName": {
+              "type": "string",
+              "description": "Human-friendly name (optional)."
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional tags."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Optional notes."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enabled for benchmarking (default true)."
+            }
+          },
+          "required": [
+            "providerConfigId",
+            "modelId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_add_provider",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Add a provider to Luak from a preset (see the presets in luak_registry). Optionally override label/baseUrl and supply an apiKeyEnv or apiKey.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "presetId": {
+              "type": "string",
+              "description": "A preset id from luak_registry.presets."
+            },
+            "label": {
+              "type": "string",
+              "description": "Custom label (optional)."
+            },
+            "baseUrl": {
+              "type": "string",
+              "description": "Override base URL (optional)."
+            },
+            "apiKeyEnv": {
+              "type": "string",
+              "description": "Name of an env var holding the API key (optional)."
+            },
+            "apiKey": {
+              "type": "string",
+              "description": "Literal API key (optional; prefer apiKeyEnv)."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enabled (default true)."
+            }
+          },
+          "required": [
+            "presetId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_leaderboard",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Read Luak's leaderboard — ranked model scores (composite + per-family). Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "luak_registry",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "View the Luak model/provider registry: configured providers, models, and the presets available to add new providers. Read-only. Use this first to get provider config ids + model ids.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "luak_remove_model",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Remove a model from Luak's registry. Needs the model's registry id (mdl-…).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The model's registry id (mdl-…)."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_run",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Run a benchmark trial in Luak for a given task + model. Costs a real model call. Provide the task, adapter, and model (provider optional).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "The benchmark task id/name to run."
+            },
+            "adapter": {
+              "type": "string",
+              "description": "The adapter to dispatch through (e.g. openrouter, anthropic, ollama)."
+            },
+            "model": {
+              "type": "string",
+              "description": "The model id to test."
+            },
+            "provider": {
+              "type": "string",
+              "description": "Provider hint (optional)."
+            }
+          },
+          "required": [
+            "task",
+            "adapter",
+            "model"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_test_provider",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Probe a provider's connectivity in Luak (bounded, safe). Needs the provider config id.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The provider config id."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "luak_update_model",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.ts",
+      "schema": {
+        "description": "Change an existing Luak model: enable/disable it, rename, retag, or edit notes. Needs the model's registry id (the 'id' like mdl-... from luak_registry).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The model's registry id (mdl-…) from luak_registry."
+            },
+            "displayName": {
+              "type": "string",
+              "description": "New display name."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable/disable benchmarking of this model."
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Replace tags."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Set/clear notes."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createLuakToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "memory",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/memory-tools.ts",
+      "schema": {
+        "description": "Persistent curated memory that survives across sessions and compaction.\n\nTwo stores:\n- MEMORY: agent's notes (environment facts, project conventions, tool quirks, things learned). 2200 char limit.\n- USER: what the agent knows about the user (preferences, communication style, workflow habits). 1375 char limit.\n\nActions:\n- add: Propose appending a new entry. Content should be a concise, factual statement.\n- replace: Propose replacing an entry found by short unique substring.\n- remove: Propose deleting an entry found by short unique substring.\n- read: Read all current entries (returns live state from disk).\n\nGOVERNANCE: durable add/replace/remove do NOT write memory directly. They create a\ngovernance PROPOSAL (returns a proposal id) that a human must verify and approve\nbefore it is installed. Reads are always direct.\n\nEPHEMERAL SCRATCH: pass ephemeral=true with add/read to use session-only scratch\nmemory. Scratch is NON-DURABLE — it is never installed and is gone at session end.\n\nEntries are § delimited. Be concise — each entry should be 1-3 sentences max.\nDurable memory entries are injected into the system prompt and survive compaction.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "add",
+                "replace",
+                "remove",
+                "read"
+              ],
+              "description": "Action to perform"
+            },
+            "target": {
+              "type": "string",
+              "enum": [
+                "memory",
+                "user"
+              ],
+              "description": "Which store (memory=agent notes, user=user profile)"
+            },
+            "content": {
+              "type": "string",
+              "description": "Entry content (for add/replace). Concise, factual statement."
+            },
+            "old_text": {
+              "type": "string",
+              "description": "Unique substring to find (for replace/remove)"
+            },
+            "ephemeral": {
+              "type": "boolean",
+              "description": "If true, use session-only NON-DURABLE scratch memory (no proposal, no durable write)."
+            },
+            "evidence": {
+              "type": "array",
+              "description": "OPTIONAL reference-only evidence for add/replace (advisory provenance for a later reviewer — it NEVER marks memory verified and never changes approval). Each item references an artifact; pass NO file contents. Unsupported kinds (command_receipt/tool_receipt) are dropped.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "file",
+                      "commit",
+                      "existing_memory",
+                      "user_message",
+                      "agent_report",
+                      "manual_note"
+                    ],
+                    "description": "file/commit/existing_memory are verifiable; user_message/agent_report/manual_note are provenance only."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "file: workspace-relative path"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "description": "file: optional sha256 to pin the exact bytes"
+                  },
+                  "lines": {
+                    "type": "string",
+                    "description": "file: optional line range, e.g. \"10-42\""
+                  },
+                  "commit": {
+                    "type": "string",
+                    "description": "commit: git commit sha"
+                  },
+                  "repo": {
+                    "type": "string",
+                    "description": "commit: optional repo path hint"
+                  },
+                  "ref": {
+                    "type": "string",
+                    "description": "existing_memory: id/fqid of a current memory entry"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "optional short provenance note (no blobs)"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createMemoryToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/memory-governance.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/gbrain-bridge.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/lab-transcript.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/memory-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/runtime-capabilities.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/lab-cohesion.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "music_cover",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/music-tools.ts",
+      "schema": {
+        "description": "Generate a cover of an existing audio file in a new musical style. Takes a reference audio file and re-imagines it in a different genre.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "audio_path": {
+              "type": "string",
+              "description": "Path to the reference audio file (mp3, wav, flac). 6s-6min, ≤50MB."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Target style for the cover. Example: '8-bit chiptune version' or 'orchestral arrangement'."
+            },
+            "lyrics": {
+              "type": "string",
+              "description": "Optional modified lyrics for the cover (10-1000 chars). If omitted, extracted from audio."
+            },
+            "output_path": {
+              "type": "string",
+              "description": "Output file path (default: /tmp/music-output/cover.mp3)."
+            },
+            "free_tier": {
+              "type": "boolean",
+              "description": "Use free tier model (default: true)."
+            }
+          },
+          "required": [
+            "audio_path",
+            "prompt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createMusicToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "music_generate",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/music-tools.ts",
+      "schema": {
+        "description": "Generate a song using MiniMax Music 2.6. Provide a style prompt and lyrics, or use instrumental mode for music without vocals. Returns the output file path.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Music style, mood, and scenario description. Examples: '8-bit chiptune RPG theme, NES style, adventurous' or 'Janky cartoon comedy, banjo and trombone, chaotic energy'. Max 2000 chars."
+            },
+            "lyrics": {
+              "type": "string",
+              "description": "Song lyrics with structure tags like [Verse], [Chorus], [Bridge], [Intro], [Outro]. Required unless instrumental=true or lyrics_optimizer=true. Max 3500 chars."
+            },
+            "instrumental": {
+              "type": "boolean",
+              "description": "Generate instrumental music with no vocals (default: false)."
+            },
+            "lyrics_optimizer": {
+              "type": "boolean",
+              "description": "Auto-generate lyrics from the style prompt (default: false)."
+            },
+            "output_path": {
+              "type": "string",
+              "description": "Output file path (default: /tmp/music-output/<name>.mp3)."
+            },
+            "free_tier": {
+              "type": "boolean",
+              "description": "Use free tier model music-2.6-free (lower priority, same quality). Default: true."
+            },
+            "sample_rate": {
+              "type": "number",
+              "description": "Audio sample rate in Hz (default: 44100)."
+            }
+          },
+          "required": [
+            "prompt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createMusicToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "music_lyrics",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/music-tools.ts",
+      "schema": {
+        "description": "Generate song lyrics from a theme description using MiniMax's lyrics generation API. Returns structured lyrics with [Verse], [Chorus], [Bridge] tags.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "theme": {
+              "type": "string",
+              "description": "Theme or concept for the lyrics. Examples: 'A heroic quest through digital lands' or 'Wacky worms causing chaos'."
+            }
+          },
+          "required": [
+            "theme"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createMusicToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "patch",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/enhanced-file-tools.ts",
+      "schema": {
+        "description": "Targeted find-and-replace edit in a file. Uses fuzzy matching.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path"
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Text to find"
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Replacement text"
+            }
+          },
+          "required": [
+            "path",
+            "old_string",
+            "new_string"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createEnhancedFileToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/velum-scan.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/occasio-bridge.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/write-safety.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "phone_battery",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Read the phone's battery + thermal status (percentage, charging state, temperature, health) via Termux:API. Returns JSON — useful for Peh to monitor her own device's health.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "phone_location",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Get the phone's current location (GPS/network) via Termux:API and return the JSON fix (latitude, longitude, accuracy, …).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "description": "'gps' (default), 'network', or 'passive'."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "phone_notify",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Post an Android notification on the phone (Termux:API). Use to surface something to the human holding the device.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "The notification body."
+            },
+            "title": {
+              "type": "string",
+              "description": "The notification title. Default 'Pehlichi'."
+            }
+          },
+          "required": [
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "phone_read_sensor",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Read a hardware sensor (accelerometer, gyroscope, light, proximity, magnetometer, …) via Termux:API and return its JSON values. Pass sensor='list' (or omit) to enumerate available sensors.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sensor": {
+              "type": "string",
+              "description": "Sensor name to read, or 'list' to enumerate."
+            },
+            "samples": {
+              "type": "number",
+              "description": "Readings to take before stopping (1-20, default 1)."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "phone_read_text",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Extract text from an image using FAST on-device OCR (tesseract). Best for SCREENSHOTS, documents, receipts — far faster/cheaper than vision_analyze. Give a workspace-relative image path. Returns the recognized text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative path to the image (e.g. 'phone-captures/screenshot.png')."
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "phone_record_audio",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Record audio from the phone's microphone for a fixed number of seconds (Termux:API). Time-limited; the file completes after the limit elapses. Returns the saved path.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "seconds": {
+              "type": "number",
+              "description": "Length in seconds (1-300, default 10)."
+            },
+            "save_path": {
+              "type": "string",
+              "description": "Workspace-relative path for the audio. Default 'phone-captures/audio.m4a'."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "phone_speak",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Speak text aloud through the phone's speaker (Termux:API text-to-speech). Peh's voice OUT.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The text to speak."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "phone_take_photo",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Take a photo with the phone's camera (Termux:API). Saved into the workspace; then call vision_analyze with the returned path to SEE it. Choose the lens with `lens`.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "lens": {
+              "type": "string",
+              "description": "'back' (default) or 'front'."
+            },
+            "save_path": {
+              "type": "string",
+              "description": "Workspace-relative path for the JPEG. Default 'phone-captures/photo.jpg'."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "phone_torch",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.ts",
+      "schema": {
+        "description": "Turn the phone's camera flashlight (torch) on or off via Termux:API.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "boolean",
+              "description": "true to turn the torch ON (default), false to turn it OFF."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createPhoneToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profiles/agent.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": true,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "process",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/tools.ts",
+      "schema": {
+        "description": "Manage background processes started by `terminal` (background:true). Actions: list (all sessions), poll (new output + status), wait (block until done/timeout), kill (terminate), write (send to stdin).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "poll",
+                "wait",
+                "kill",
+                "write"
+              ],
+              "description": "What to do."
+            },
+            "session_id": {
+              "type": "string",
+              "description": "Target process session id (not needed for list)."
+            },
+            "data": {
+              "type": "string",
+              "description": "For write: bytes to send to the process stdin."
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "For wait: max ms to block (default 30000)."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createToolRegistry",
+      "advertisedSurfaces": [
+        "every ToolRegistry, including direct/delegated runtimes"
+      ],
+      "executableSurfaces": [
+        "all trio runtimes"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/agent-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/ikbi-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/labmem-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/luak-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/bridges/host.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/gbrain-bridge.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/lab-transcript.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/loop.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/shadow.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/truth-bridge.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/lab-cohesion.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/workspace-override.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "read_file",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/enhanced-file-tools.ts",
+      "schema": {
+        "description": "Read a text file with line numbers and pagination.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path (absolute or relative)"
+            },
+            "offset": {
+              "type": "number",
+              "description": "Line number to start from (1-indexed, default 1)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max lines to read (default 500)"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createEnhancedFileToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/tool-governor.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/loop.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profile.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "search_files",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/enhanced-file-tools.ts",
+      "schema": {
+        "description": "Search file contents (regex) or find files by name pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regex pattern or glob"
+            },
+            "target": {
+              "type": "string",
+              "enum": [
+                "content",
+                "files"
+              ],
+              "description": "Search content or filenames"
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in (default: cwd)"
+            },
+            "file_glob": {
+              "type": "string",
+              "description": "Filter files by glob (e.g. *.py)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max results (default 50)"
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createEnhancedFileToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/tool-governor.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "skill_manage",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/skill-tools.ts",
+      "schema": {
+        "description": "Manage skills: create, edit, patch, delete, write_file, remove_file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "edit",
+                "patch",
+                "delete",
+                "write_file",
+                "remove_file"
+              ],
+              "description": "Action to perform"
+            },
+            "name": {
+              "type": "string",
+              "description": "Skill name (slug)"
+            },
+            "content": {
+              "type": "string",
+              "description": "SKILL.md content (for create/edit/patch)"
+            },
+            "category": {
+              "type": "string",
+              "description": "Category folder (for create)"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "File path within skill (for write_file/remove_file)"
+            },
+            "file_content": {
+              "type": "string",
+              "description": "File content (for write_file)"
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Text to find (for patch action)"
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Replacement text (for patch action)"
+            },
+            "absorbed_into": {
+              "type": "string",
+              "description": "Target skill name (for delete — indicates consolidation)"
+            }
+          },
+          "required": [
+            "action",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createSkillToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/drivers/mimo.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "skill_view",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/skill-tools.ts",
+      "schema": {
+        "description": "Load a skill's content. Progressive disclosure tier 2-3.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Skill name (slug)"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Optional: linked file path (e.g. references/api.md)"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createSkillToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/drivers/mimo.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "skills_list",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/skill-tools.ts",
+      "schema": {
+        "description": "List available skills with metadata. Progressive disclosure tier 1.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "description": "Filter by category (optional)"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createSkillToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "teach_challenge",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/teaching-tools.ts",
+      "schema": {
+        "description": "Give the user a hands-on mini challenge for a technology, grounded in the real pehlichi-pub codebase. Use it to turn an explanation into practice. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "technology": {
+              "type": "string",
+              "description": "Technology to generate a hands-on exercise for."
+            }
+          },
+          "required": [
+            "technology"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createTeachingToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "only when enableTeaching=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "teach_hover",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/teaching-tools.ts",
+      "schema": {
+        "description": "Explain any UI/dashboard element in one or two plain-English sentences, suitable for a tooltip (e.g. 'memory orb', 'receipts panel', 'status indicator', 'velum'). Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "description": "Name of the UI element to explain."
+            }
+          },
+          "required": [
+            "element"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createTeachingToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "only when enableTeaching=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "teach_lesson",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/teaching-tools.ts",
+      "schema": {
+        "description": "Teach a Pehverse technology as a full lesson card (what it is, why it was chosen, where it's used, the tradeoff, an interview answer, and a mini challenge). Use this whenever the user asks 'what is X?' or 'why do we use X?'. Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "technology": {
+              "type": "string",
+              "description": "Technology name. Known: TypeScript, Fastify, SQLite, Bubblewrap, React/Next.js, Ollama/local models, Electron, Godot/GDScript, Velum, MiMo."
+            }
+          },
+          "required": [
+            "technology"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createTeachingToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "only when enableTeaching=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "terminal",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/tools.ts",
+      "schema": {
+        "description": "Run a shell command, locked to cwd=workspace, with a stripped env (allowlist only), capped output, and a timeout. Captures stdout/stderr/exitCode and emits an audit receipt.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Shell command to run (cwd is the workspace)."
+            },
+            "timeoutMs": {
+              "type": "number",
+              "description": "Optional timeout in ms (default 60000)."
+            },
+            "background": {
+              "type": "boolean",
+              "description": "Run the command in the background (non-blocking). Returns a session_id; drive it with the `process` tool."
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createToolRegistry",
+      "advertisedSurfaces": [
+        "every ToolRegistry, including direct/delegated runtimes"
+      ],
+      "executableSurfaces": [
+        "all trio runtimes"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/velum-scan.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/drivers/llamacpp.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/drivers/mimo.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/drivers/ollama.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/evidence-gate.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/loop.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/shadow.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/profile.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": true,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "todo",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/todo-tools.ts",
+      "schema": {
+        "description": "Manage task list. Read current list or create/update items.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "todos": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              },
+              "description": "Task items to write. Omit to read current list."
+            },
+            "merge": {
+              "type": "boolean",
+              "description": "true: update existing, false: replace all (default false)"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createTodoToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/server.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "vision_analyze",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/vision-tools.ts",
+      "schema": {
+        "description": "Analyze an image. Accepts file path or URL.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "image_url": {
+              "type": "string",
+              "description": "Image URL or local file path"
+            },
+            "question": {
+              "type": "string",
+              "description": "Question about the image"
+            }
+          },
+          "required": [
+            "image_url",
+            "question"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createVisionToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/phone-tools.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "web_extract",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/web-tools.ts",
+      "schema": {
+        "description": "Extract content from web page URLs. Returns markdown.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "urls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "URLs to extract (max 5)"
+            }
+          },
+          "required": [
+            "urls"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createWebToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/unattended.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/velum-scan.test.ts"
+      ],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "web_search",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/web-tools.ts",
+      "schema": {
+        "description": "Search the web for live, current information. Returns titles, URLs, and descriptions. ALWAYS cite the source URL(s) you relied on in your answer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max results (default 5)"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createWebToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "read/compute",
+      "currentApprovalClassification": "coarse auto-approved when writes disabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "may consume configured service/account credentials",
+      "networkAccess": true,
+      "subprocessBehavior": false,
+      "persistence": false,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable"
+    },
+    {
+      "canonicalName": "wo_file_finding",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/occasio-bridge.ts",
+      "schema": {
+        "description": "File an occasio detection as a work order AND close the trio loop: creative/asset findings (broken-demo, missing-image) are dispatched to Luna as an asset job, and every new order is announced to Pehlichi for authoritative queue state. Bridge failures are non-fatal — the work order is always created.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string",
+              "description": "occasio category: repeated-failure | stale-open-loop | regression-watch | provider-degradation | broken-demo | missing-image | missing-asset | broken-asset"
+            },
+            "severity": {
+              "type": "string",
+              "description": "critical|high|medium|low|info (optional override)"
+            },
+            "repos": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "creative": {
+              "type": "boolean",
+              "description": "force routing to Luna as an asset job"
+            }
+          },
+          "required": [
+            "title",
+            "description",
+            "category"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createOccasioToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "Ptah; only when enableOccasio=true"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/occasio-bridge.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "wo_get",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/tools/work-order-tools.ts",
+      "schema": {
+        "description": "Read a single work order by id (e.g. 'WO-0004'). Read-only.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Work order id, e.g. WO-0004"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createWorkOrderToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "Ptah; only when enableWorkOrders=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "wo_list",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/tools/work-order-tools.ts",
+      "schema": {
+        "description": "List repair work orders from the lab queue, newest/most-severe first. Read-only. Filter by status (open, assigned, in-progress, blocked, done, wontfix) and/or severity.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "description": "Filter by status (e.g. 'open'). Omit for all."
+            },
+            "severity": {
+              "type": "string",
+              "description": "Filter by severity (critical|high|medium|low|info)."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max rows to return (default 50)."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createWorkOrderToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "Ptah; only when enableWorkOrders=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "wo_transition",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/tools/work-order-tools.ts",
+      "schema": {
+        "description": "Move a work order to a new status. The lifecycle is validated (open → assigned → in-progress → done/blocked/wontfix).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Work order id, e.g. WO-0004"
+            },
+            "status": {
+              "type": "string",
+              "description": "Target status"
+            },
+            "note": {
+              "type": "string",
+              "description": "Optional note recorded with the transition"
+            },
+            "resolution": {
+              "type": "string",
+              "description": "Optional resolution summary recorded when status=done"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Reason (recorded when status=wontfix)"
+            }
+          },
+          "required": [
+            "id",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createWorkOrderToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "Ptah; only when enableWorkOrders=true"
+      ],
+      "knownTests": [],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "not primarily workspace-scoped",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    },
+    {
+      "canonicalName": "write_file",
+      "definingFile": "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/enhanced-file-tools.ts",
+      "schema": {
+        "description": "Write content to a file (creates parent dirs, overwrites existing).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path"
+            },
+            "content": {
+              "type": "string",
+              "description": "File content"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "handler": "createEnhancedFileToolHandlers",
+      "advertisedSurfaces": [
+        "HTTP chat",
+        "HTTP streaming",
+        "Matrix through HTTP",
+        "direct KernelChatSession/full registry"
+      ],
+      "executableSurfaces": [
+        "full registry in all trio agents"
+      ],
+      "knownTests": [
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/audit-fixes.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/src/core/agent-tools/tool-arg-repair.test.ts",
+        "/pehverse/repos/ecosystem/pehlichi/tui/src/write-safety.test.ts"
+      ],
+      "declaredOrInferredEffects": "mutation or arbitrary side effect",
+      "currentApprovalClassification": "denied when writes disabled; wholesale allowed when writes enabled",
+      "workspaceBehavior": "uses tool context workspace; unrestricted-env bypass exists in core path resolution",
+      "credentialAccess": "none declared; arbitrary process tools can read inherited environment",
+      "networkAccess": false,
+      "subprocessBehavior": false,
+      "persistence": true,
+      "receipts": "tool result/event only; no cryptographic binding",
+      "delegationAvailability": "available to delegate when registered by delegated registry",
+      "unattendedAvailability": "reachable if coarse write mode or cron/delegation path enables it"
+    }
+  ],
+  "confidenceLimits": [
+    "Schemas are the exported runtime ToolSpec objects.",
+    "Effects are conservative static inference; external accounts were not invoked.",
+    "Handler identity is module-level because closures do not expose stable names."
+  ]
+}
