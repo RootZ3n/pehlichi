@@ -1,505 +1,531 @@
 {
-  "$defs": {
-    "blocker": {
-      "additionalProperties": false,
-      "properties": {
-        "category": {
-          "maxLength": 64,
-          "type": "string"
-        },
-        "expiresBefore": {
-          "maxLength": 128,
-          "type": "string"
-        },
-        "path": {
-          "$ref": "#/$defs/safePath"
-        },
-        "reason": {
-          "maxLength": 512,
-          "type": "string"
-        }
-      },
-      "required": [
-        "path",
-        "category",
-        "expiresBefore",
-        "reason"
-      ],
-      "type": "object"
+ "$defs": {
+  "blocker": {
+   "additionalProperties": false,
+   "properties": {
+    "category": {
+     "maxLength": 64,
+     "type": "string"
     },
-    "exclusion": {
-      "additionalProperties": false,
-      "properties": {
-        "allowedTypes": {
-          "items": {
-            "enum": [
-              "directory",
-              "file"
-            ]
-          },
-          "maxItems": 2,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "attestation": {
-          "maxLength": 256,
-          "minLength": 8,
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "git-metadata",
-            "dependency-tree",
-            "cache-tree"
-          ]
-        },
-        "path": {
-          "$ref": "#/$defs/safePath"
-        }
-      },
-      "required": [
-        "path",
-        "kind",
-        "attestation"
-      ],
-      "type": "object"
+    "expiresBefore": {
+     "maxLength": 128,
+     "type": "string"
     },
-    "repository": {
-      "additionalProperties": false,
-      "properties": {
-        "capsuleIdentity": {
-          "maxLength": 64,
-          "pattern": "^[a-z0-9-]+$",
-          "type": "string"
-        },
-        "capsulePath": {
-          "$ref": "#/$defs/safePath"
-        },
-        "expectedRepositoryName": {
-          "maxLength": 64,
-          "pattern": "^[a-z0-9-]+$",
-          "type": "string"
-        },
-        "packageNames": {
-          "additionalProperties": false,
-          "properties": {
-            "package.json": {
-              "maxLength": 128,
-              "type": "string"
-            },
-            "tui/package.json": {
-              "maxLength": 128,
-              "type": "string"
-            }
-          },
-          "required": [
-            "package.json",
-            "tui/package.json"
-          ],
-          "type": "object"
-        },
-        "remoteIdentity": {
-          "maxLength": 128,
-          "pattern": "^github\\.com/RootZ3n/[a-z0-9-]+$",
-          "type": "string"
-        }
-      },
-      "required": [
-        "expectedRepositoryName",
-        "remoteIdentity",
-        "capsulePath",
-        "capsuleIdentity",
-        "packageNames"
-      ],
-      "type": "object"
+    "path": {
+     "$ref": "#/$defs/safePath"
     },
-    "rule": {
-      "additionalProperties": false,
-      "properties": {
-        "allowedTypes": {
-          "items": {
-            "enum": [
-              "file"
-            ]
-          },
-          "maxItems": 2,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "attestation": {
-          "maxLength": 512,
-          "minLength": 16,
-          "type": "string"
-        },
-        "bytesMustMatch": {
-          "type": "boolean"
-        },
-        "class": {
-          "enum": [
-            "behavior-identical",
-            "documentation",
-            "generated-behavior-identical",
-            "inert-variable-asset",
-            "model-behavior-data",
-            "owner-scoped-asset",
-            "quarantined-blocking-divergence",
-            "test-behavior-identical",
-            "validated-variable-data"
-          ]
-        },
-        "divergenceBlocking": {
-          "type": "boolean"
-        },
-        "expiresBefore": {
-          "maxLength": 128,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "id": {
-          "maxLength": 64,
-          "pattern": "^[a-z][a-z0-9-]*$",
-          "type": "string"
-        },
-        "modeMustMatch": {
-          "const": true
-        },
-        "owner": {
-          "enum": [
-            "pehlichi",
-            "loony-luna",
-            "mad-ptah"
-          ]
-        },
-        "ownerTreeDigest": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "permittedFormats": {
-          "items": {
-            "maxLength": 32,
-            "type": "string"
-          },
-          "maxItems": 32,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "productionReachable": {
-          "type": "boolean"
-        },
-        "selector": {
-          "$ref": "#/$defs/selector"
-        },
-        "transitional": {
-          "type": "boolean"
-        },
-        "validation": {
-          "$ref": "#/$defs/validation"
-        }
-      },
-      "required": [
-        "id",
-        "selector",
-        "class",
-        "bytesMustMatch",
-        "modeMustMatch",
-        "allowedTypes",
-        "permittedFormats",
-        "validation",
-        "productionReachable",
-        "divergenceBlocking",
-        "transitional",
-        "expiresBefore"
-      ],
-      "type": "object"
+    "reason": {
+     "maxLength": 512,
+     "type": "string"
+    }
+   },
+   "required": [
+    "path",
+    "category",
+    "expiresBefore",
+    "reason"
+   ],
+   "type": "object"
+  },
+  "exclusion": {
+   "additionalProperties": false,
+   "properties": {
+    "allowedTypes": {
+     "items": {
+      "enum": [
+       "directory",
+       "file"
+      ]
+     },
+     "maxItems": 2,
+     "minItems": 1,
+     "type": "array",
+     "uniqueItems": true
     },
-    "safePath": {
-      "maxLength": 512,
-      "minLength": 1,
-      "pattern": "^[^\\u0000-\\u001f\\u007f\\\\]+$",
+    "attestation": {
+     "maxLength": 256,
+     "minLength": 8,
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "git-metadata",
+      "dependency-tree",
+      "cache-tree"
+     ]
+    },
+    "path": {
+     "$ref": "#/$defs/safePath"
+    }
+   },
+   "required": [
+    "path",
+    "kind",
+    "attestation"
+   ],
+   "type": "object"
+  },
+  "repository": {
+   "additionalProperties": false,
+   "properties": {
+    "capsuleIdentity": {
+     "maxLength": 64,
+     "pattern": "^[a-z0-9-]+$",
+     "type": "string"
+    },
+    "capsulePath": {
+     "$ref": "#/$defs/safePath"
+    },
+    "expectedRepositoryName": {
+     "maxLength": 64,
+     "pattern": "^[a-z0-9-]+$",
+     "type": "string"
+    },
+    "packageNames": {
+     "additionalProperties": false,
+     "properties": {
+      "package.json": {
+       "maxLength": 128,
+       "type": "string"
+      },
+      "tui/package.json": {
+       "maxLength": 128,
+       "type": "string"
+      }
+     },
+     "required": [
+      "package.json",
+      "tui/package.json"
+     ],
+     "type": "object"
+    },
+    "remoteIdentity": {
+     "maxLength": 128,
+     "pattern": "^github\\.com/RootZ3n/[a-z0-9-]+$",
+     "type": "string"
+    }
+   },
+   "required": [
+    "expectedRepositoryName",
+    "remoteIdentity",
+    "capsulePath",
+    "capsuleIdentity",
+    "packageNames"
+   ],
+   "type": "object"
+  },
+  "rule": {
+   "additionalProperties": false,
+   "properties": {
+    "allowedTypes": {
+     "items": {
+      "enum": [
+       "file"
+      ]
+     },
+     "maxItems": 2,
+     "minItems": 1,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "attestation": {
+     "maxLength": 512,
+     "minLength": 16,
+     "type": "string"
+    },
+    "bytesMustMatch": {
+     "type": "boolean"
+    },
+    "class": {
+     "enum": [
+      "agent-owned-ui",
+      "behavior-identical",
+      "documentation",
+      "generated-behavior-identical",
+      "inert-variable-asset",
+      "model-behavior-data",
+      "owner-scoped-asset",
+      "quarantined-blocking-divergence",
+      "test-behavior-identical",
+      "validated-variable-data"
+     ]
+    },
+    "divergenceBlocking": {
+     "type": "boolean"
+    },
+    "expiresBefore": {
+     "maxLength": 128,
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "id": {
+     "maxLength": 64,
+     "pattern": "^[a-z][a-z0-9-]*$",
+     "type": "string"
+    },
+    "modeMustMatch": {
+     "const": true
+    },
+    "owner": {
+     "enum": [
+      "pehlichi",
+      "loony-luna",
+      "mad-ptah"
+     ]
+    },
+    "ownerTreeDigest": {
+     "pattern": "^sha256:[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "owners": {
+     "description": "Agents that ship this agent-owned UI surface. Absence elsewhere is the declared contract.",
+     "items": {
+      "enum": [
+       "pehlichi",
+       "loony-luna",
+       "mad-ptah"
+      ]
+     },
+     "minItems": 1,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "permittedFormats": {
+     "items": {
+      "maxLength": 32,
       "type": "string"
+     },
+     "maxItems": 32,
+     "minItems": 1,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "productionReachable": {
+     "type": "boolean"
     },
     "selector": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "paths": {
-              "items": {
-                "$ref": "#/$defs/safePath"
-              },
-              "maxItems": 256,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            }
-          },
-          "required": [
-            "paths"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "allowedSuffixes": {
-              "items": {
-                "maxLength": 16,
-                "pattern": "^\\.[a-z0-9.]+$",
-                "type": "string"
-              },
-              "maxItems": 32,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "closedInventory": {
-              "const": true
-            },
-            "directory": {
-              "$ref": "#/$defs/safePath"
-            },
-            "excludedDirectories": {
-              "items": {
-                "$ref": "#/$defs/safePath"
-              },
-              "maxItems": 32,
-              "type": "array",
-              "uniqueItems": true
-            },
-            "excludedPaths": {
-              "items": {
-                "$ref": "#/$defs/safePath"
-              },
-              "maxItems": 128,
-              "type": "array",
-              "uniqueItems": true
-            }
-          },
-          "required": [
-            "directory",
-            "closedInventory"
-          ],
-          "type": "object"
-        }
-      ]
+     "$ref": "#/$defs/selector"
+    },
+    "transitional": {
+     "type": "boolean"
     },
     "validation": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "enum": [
-            "none",
-            "boundary-schema",
-            "capsule-schema",
-            "deployment-schema",
-            "capability-pack-schema",
-            "runtime-manifest-schema",
-            "package-behavior",
-            "strict-json-data",
-            "inert-image",
-            "documentation",
-            "model-data",
-            "quarantine"
-          ]
-        },
-        "schemaRef": {
-          "$ref": "#/$defs/safePath"
-        }
-      },
-      "required": [
-        "kind"
-      ],
-      "type": "object"
+     "$ref": "#/$defs/validation"
     }
+   },
+   "required": [
+    "id",
+    "selector",
+    "class",
+    "bytesMustMatch",
+    "modeMustMatch",
+    "allowedTypes",
+    "permittedFormats",
+    "validation",
+    "productionReachable",
+    "divergenceBlocking",
+    "transitional",
+    "expiresBefore"
+   ],
+   "type": "object"
   },
-  "$id": "https://pehverse.invalid/schemas/trio-boundary-2.0.0.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
-  "properties": {
-    "$schema": {
-      "const": "./schemas/boundary.schema.json"
+  "safePath": {
+   "maxLength": 512,
+   "minLength": 1,
+   "pattern": "^[^\\u0000-\\u001f\\u007f\\\\]+$",
+   "type": "string"
+  },
+  "selector": {
+   "oneOf": [
+    {
+     "additionalProperties": false,
+     "properties": {
+      "paths": {
+       "items": {
+        "$ref": "#/$defs/safePath"
+       },
+       "maxItems": 256,
+       "minItems": 1,
+       "type": "array",
+       "uniqueItems": true
+      }
+     },
+     "required": [
+      "paths"
+     ],
+     "type": "object"
     },
-    "blockingDivergences": {
-      "items": {
-        "$ref": "#/$defs/blocker"
-      },
-      "maxItems": 128,
-      "type": "array"
-    },
-    "exclusions": {
-      "items": {
-        "$ref": "#/$defs/exclusion"
-      },
-      "maxItems": 16,
-      "type": "array"
-    },
-    "packageBehaviorFields": {
-      "items": {
-        "enum": [
-          "version",
-          "type",
-          "private",
-          "scripts",
-          "main",
-          "module",
-          "types",
-          "typesVersions",
-          "browser",
-          "exports",
-          "imports",
-          "bin",
-          "man",
-          "directories",
-          "dependencies",
-          "optionalDependencies",
-          "peerDependencies",
-          "peerDependenciesMeta",
-          "devDependencies",
-          "bundleDependencies",
-          "bundledDependencies",
-          "engines",
-          "os",
-          "cpu",
-          "libc",
-          "packageManager",
-          "workspaces",
-          "overrides",
-          "resolutions",
-          "files",
-          "sideEffects",
-          "preferGlobal",
-          "publishConfig",
-          "config",
-          "gypfile",
-          "binary",
-          "pnpm",
-          "babel",
-          "browserslist",
-          "tsx",
-          "ts-node",
-          "jest",
-          "vitest",
-          "ava",
-          "mocha"
-        ],
+    {
+     "additionalProperties": false,
+     "properties": {
+      "allowedSuffixes": {
+       "items": {
+        "maxLength": 16,
+        "pattern": "^\\.[a-z0-9.]+$",
         "type": "string"
+       },
+       "maxItems": 32,
+       "type": "array",
+       "uniqueItems": true
       },
-      "maxItems": 64,
-      "minItems": 1,
-      "type": "array",
-      "uniqueItems": true
+      "closedInventory": {
+       "const": true
+      },
+      "directory": {
+       "$ref": "#/$defs/safePath"
+      },
+      "excludedDirectories": {
+       "items": {
+        "$ref": "#/$defs/safePath"
+       },
+       "maxItems": 32,
+       "type": "array",
+       "uniqueItems": true
+      },
+      "excludedPaths": {
+       "items": {
+        "$ref": "#/$defs/safePath"
+       },
+       "maxItems": 128,
+       "type": "array",
+       "uniqueItems": true
+      }
+     },
+     "required": [
+      "directory",
+      "closedInventory"
+     ],
+     "type": "object"
+    }
+   ]
+  },
+  "validation": {
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "enum": [
+      "agent-owned-ui",
+      "boundary-schema",
+      "capability-pack-schema",
+      "capsule-schema",
+      "deployment-schema",
+      "documentation",
+      "inert-image",
+      "model-data",
+      "none",
+      "package-behavior",
+      "quarantine",
+      "runtime-manifest-schema",
+      "strict-json-data"
+     ]
     },
-    "pathInventory": {
-      "additionalProperties": false,
-      "properties": {
-        "path": {
-          "const": "path-inventory.json"
-        },
-        "schemaVersion": {
-          "const": "1.0.0"
-        }
-      },
-      "required": [
-        "path",
-        "schemaVersion"
-      ],
-      "type": "object"
-    },
-    "pathPolicy": {
-      "additionalProperties": false,
-      "properties": {
-        "caseSensitivity": {
-          "const": "case-sensitive-with-casefold-collision-rejection"
-        },
-        "symlinks": {
-          "const": "reject-all-in-scope"
-        },
-        "unicodeNormalization": {
-          "const": "NFC"
-        },
-        "unknownFiles": {
-          "const": "fail-closed"
-        }
-      },
-      "required": [
-        "unicodeNormalization",
-        "caseSensitivity",
-        "symlinks",
-        "unknownFiles"
-      ],
-      "type": "object"
-    },
-    "repositories": {
-      "additionalProperties": false,
-      "properties": {
-        "loony-luna": {
-          "$ref": "#/$defs/repository"
-        },
-        "mad-ptah": {
-          "$ref": "#/$defs/repository"
-        },
-        "pehlichi": {
-          "$ref": "#/$defs/repository"
-        }
-      },
-      "required": [
-        "pehlichi",
-        "loony-luna",
-        "mad-ptah"
-      ],
-      "type": "object"
-    },
-    "rules": {
-      "items": {
-        "$ref": "#/$defs/rule"
-      },
-      "maxItems": 128,
-      "minItems": 1,
-      "type": "array"
+    "schemaRef": {
+     "$ref": "#/$defs/safePath"
+    }
+   },
+   "required": [
+    "kind"
+   ],
+   "type": "object"
+  }
+ },
+ "$id": "https://pehverse.invalid/schemas/trio-boundary-2.0.0.json",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "additionalProperties": false,
+ "properties": {
+  "$schema": {
+   "const": "./schemas/boundary.schema.json"
+  },
+  "blockingDivergences": {
+   "items": {
+    "$ref": "#/$defs/blocker"
+   },
+   "maxItems": 128,
+   "type": "array"
+  },
+  "exclusions": {
+   "items": {
+    "$ref": "#/$defs/exclusion"
+   },
+   "maxItems": 16,
+   "type": "array"
+  },
+  "packageBehaviorFields": {
+   "items": {
+    "enum": [
+     "version",
+     "type",
+     "private",
+     "scripts",
+     "main",
+     "module",
+     "types",
+     "typesVersions",
+     "browser",
+     "exports",
+     "imports",
+     "bin",
+     "man",
+     "directories",
+     "dependencies",
+     "optionalDependencies",
+     "peerDependencies",
+     "peerDependenciesMeta",
+     "devDependencies",
+     "bundleDependencies",
+     "bundledDependencies",
+     "engines",
+     "os",
+     "cpu",
+     "libc",
+     "packageManager",
+     "workspaces",
+     "overrides",
+     "resolutions",
+     "files",
+     "sideEffects",
+     "preferGlobal",
+     "publishConfig",
+     "config",
+     "gypfile",
+     "binary",
+     "pnpm",
+     "babel",
+     "browserslist",
+     "tsx",
+     "ts-node",
+     "jest",
+     "vitest",
+     "ava",
+     "mocha"
+    ],
+    "type": "string"
+   },
+   "maxItems": 64,
+   "minItems": 1,
+   "type": "array",
+   "uniqueItems": true
+  },
+  "pathInventory": {
+   "additionalProperties": false,
+   "properties": {
+    "path": {
+     "const": "path-inventory.json"
     },
     "schemaVersion": {
-      "const": "2.0.0"
-    },
-    "status": {
-      "const": "characterization"
-    },
-    "validator": {
-      "additionalProperties": false,
-      "properties": {
-        "draft": {
-          "const": "https://json-schema.org/draft/2020-12/schema"
-        },
-        "name": {
-          "const": "ajv"
-        },
-        "version": {
-          "const": "8.20.0"
-        }
-      },
-      "required": [
-        "name",
-        "version",
-        "draft"
-      ],
-      "type": "object"
+     "const": "1.0.0"
     }
+   },
+   "required": [
+    "path",
+    "schemaVersion"
+   ],
+   "type": "object"
   },
-  "required": [
-    "schemaVersion",
-    "status",
-    "validator",
-    "pathPolicy",
-    "pathInventory",
-    "repositories",
-    "exclusions",
-    "rules",
-    "packageBehaviorFields",
-    "blockingDivergences"
-  ],
-  "title": "TRIO closed behavioral inventory",
-  "type": "object"
+  "pathPolicy": {
+   "additionalProperties": false,
+   "properties": {
+    "caseSensitivity": {
+     "const": "case-sensitive-with-casefold-collision-rejection"
+    },
+    "symlinks": {
+     "const": "reject-all-in-scope"
+    },
+    "unicodeNormalization": {
+     "const": "NFC"
+    },
+    "unknownFiles": {
+     "const": "fail-closed"
+    }
+   },
+   "required": [
+    "unicodeNormalization",
+    "caseSensitivity",
+    "symlinks",
+    "unknownFiles"
+   ],
+   "type": "object"
+  },
+  "repositories": {
+   "additionalProperties": false,
+   "properties": {
+    "loony-luna": {
+     "$ref": "#/$defs/repository"
+    },
+    "mad-ptah": {
+     "$ref": "#/$defs/repository"
+    },
+    "pehlichi": {
+     "$ref": "#/$defs/repository"
+    }
+   },
+   "required": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
+   "type": "object"
+  },
+  "rules": {
+   "items": {
+    "$ref": "#/$defs/rule"
+   },
+   "maxItems": 128,
+   "minItems": 1,
+   "type": "array"
+  },
+  "schemaVersion": {
+   "const": "2.0.0"
+  },
+  "sharedContractVersions": {
+   "additionalProperties": {
+    "type": [
+     "integer",
+     "string"
+    ]
+   },
+   "description": "Contract versions the agent-owned UIs must not contradict.",
+   "minProperties": 1,
+   "type": "object"
+  },
+  "status": {
+   "const": "characterization"
+  },
+  "validator": {
+   "additionalProperties": false,
+   "properties": {
+    "draft": {
+     "const": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "name": {
+     "const": "ajv"
+    },
+    "version": {
+     "const": "8.20.0"
+    }
+   },
+   "required": [
+    "name",
+    "version",
+    "draft"
+   ],
+   "type": "object"
+  }
+ },
+ "required": [
+  "schemaVersion",
+  "status",
+  "validator",
+  "pathPolicy",
+  "pathInventory",
+  "repositories",
+  "exclusions",
+  "rules",
+  "packageBehaviorFields",
+  "blockingDivergences"
+ ],
+ "title": "TRIO closed behavioral inventory",
+ "type": "object"
 }
