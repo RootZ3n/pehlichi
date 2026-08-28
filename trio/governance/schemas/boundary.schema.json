@@ -493,7 +493,11 @@
    "type": "object"
   },
   "status": {
-   "const": "characterization"
+   "description": "characterization = measured baseline; enforced = boundary is authoritative and fails closed.",
+   "enum": [
+    "characterization",
+    "enforced"
+   ]
   },
   "validator": {
    "additionalProperties": false,
