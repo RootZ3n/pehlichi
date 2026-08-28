@@ -1284,6 +1284,54 @@
    "validation": {
     "kind": "agent-owned-content"
    }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "universal-toolkit",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "typescript",
+    "json"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "closedInventory": true,
+    "directory": "capability-packs"
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "portable-role-packs",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "json",
+    "documentation"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "closedInventory": true,
+    "directory": "role-packs"
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
+   }
   }
  ],
  "schemaVersion": "2.0.0",

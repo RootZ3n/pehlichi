@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "description": "Layer 4: agent assignment. This is the ONLY place a role is bound to a deployment. Changing an assignment here changes active role, activated skills, and matching tool permissions together; it changes no shared-runtime, toolkit, or role-pack bytes.",
+  "assignments": [
+    {
+      "role": "service-center-manager",
+      "rolePackVersion": "1.0.0",
+      "assignedAgentId": "@ptah:matrix.zentertainment.cc",
+      "assignmentReason": "initial assignment; Ptah is the intended default repair worker",
+      "qualificationState": "PENDING_COMMISSIONING",
+      "qualificationRefs": []
+    }
+  ],
+  "eligible": [
+    { "agentId": "@ptah:matrix.zentertainment.cc", "compatible": true, "qualified": false },
+    { "agentId": "@pehlichi:matrix.zentertainment.cc", "compatible": true, "qualified": false },
+    { "agentId": "@luna:matrix.zentertainment.cc", "compatible": true, "qualified": false }
+  ],
+  "invariants": [
+    "an agent that is compatible but unassigned holds no service authority",
+    "qualification binds agent identity, role-pack version, toolkit version, runtime version and deployment profile",
+    "reassignment is one transaction over role, skills, permissions and qualification state"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "capability": "ikbi",
+  "version": "1.0.0",
+  "description": "Universal Ikbi mechanic capability. Byte-identical for all three agents. Adapter only: it binds correlation and emits ledger records. Ikbi itself is external and is never modified from here.",
+  "provides": ["ikbi.recon", "ikbi.audit", "ikbi.build", "ikbi.fix", "ikbi.status", "ikbi.receipts"],
+  "mandatoryCorrelation": ["projectId", "ticketId", "workOrderId", "serviceAttemptId", "invokingAgent", "authorityRef"],
+  "emits": "MechanicRun",
+  "invariants": [
+    "no correlation means no invocation",
+    "scope is the repository and paths the work order authorized, and may only be narrowed",
+    "every run emits a MechanicRun carrying commit, tree, changed paths, tests, receipt and rollback",
+    "a failure is classified honestly and is never reported as success"
+  ]
+}

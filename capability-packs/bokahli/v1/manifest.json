@@ -1,0 +1,16 @@
+{
+  "capability": "bokahli",
+  "version": "1.0.0",
+  "description": "Universal Bokahli reasoning capability. Byte-identical for all three agents. Adapter only: Bokahli is external and is never modified from here.",
+  "provides": ["bokahli.reason"],
+  "mandatoryCorrelation": ["projectId", "workOrderId", "serviceAttemptId", "invokingAgent", "authorityRef"],
+  "emits": "MechanicRun",
+  "defaults": { "route": "local", "escalation": "requires explicit route authority on the work order" },
+  "invariants": [
+    "the requested model and the served model are recorded separately",
+    "there is no silent fallback: a different served model is reported, never hidden",
+    "an unobservable served model is UNKNOWN, never OK",
+    "unavailability is reported honestly as UNAVAILABLE",
+    "the caller may not select an unrestricted model or tool"
+  ]
+}

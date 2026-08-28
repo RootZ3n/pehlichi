@@ -1,0 +1,32 @@
+{
+  "capability": "johnny-five",
+  "version": "1.0.0",
+  "description": "Universal Johnny Five contract capability. Installed byte-identically for Pehlichi, Loony-Luna and Mad-Ptah. Contains no agent-specific assumptions: the acting identity is supplied by the caller's capsule at runtime.",
+  "contractSchemaVersion": 1,
+  "supports": [
+    "WorkRequest", "WorkOrderDispatch", "WorkOrderAcknowledgement", "ProgressUpdate",
+    "BlockerReport", "CompletionSubmission", "VerificationRequest", "VerificationVerdict"
+  ],
+  "provides": [
+    "jf.submitWorkRequest", "jf.receiveDispatch", "jf.acknowledge", "jf.reportProgress",
+    "jf.reportBlocker", "jf.submitCompletion", "jf.receiveVerdict", "jf.getBoundedContext"
+  ],
+  "requiresAuthority": {
+    "jf.submitWorkRequest": "submit_request",
+    "jf.receiveDispatch": "accept_orders",
+    "jf.acknowledge": "accept_orders",
+    "jf.reportProgress": "report_progress",
+    "jf.reportBlocker": "report_progress",
+    "jf.submitCompletion": "submit_work",
+    "jf.receiveVerdict": "accept_orders",
+    "jf.getBoundedContext": "query_projects"
+  },
+  "invariants": [
+    "SUBMITTED is a claim, never completion",
+    "a worker may never verify its own submission",
+    "authorizedBy, performedBy and verifiedBy are distinct and never conflated",
+    "replay protection is enforced by the recipient, and a duplicate returns the original result",
+    "scope may not be expanded by the worker",
+    "every mechanic run is correlated to the work order and service attempt"
+  ]
+}

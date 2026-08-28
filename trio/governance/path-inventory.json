@@ -644,6 +644,11 @@
    "personality/peh.yaml",
    "personality/ptah.yaml"
   ],
+  "portable-role-packs": [
+   "role-packs/assignments.json",
+   "role-packs/service-center-manager/v1/README.md",
+   "role-packs/service-center-manager/v1/pack.json"
+  ],
   "retained-vulnerable-fixture": [
    "scripts/trio/fixtures/vulnerable-trio-001c-c29223d2649bff467/boundary-manifest.json",
    "scripts/trio/fixtures/vulnerable-trio-001c-c29223d2649bff467/capsules/loony-luna.json",
@@ -942,6 +947,14 @@
    "ui/translation-layer.css",
    "ui/translation-layer.js",
    "ui/translations-pehlichi.js"
+  ],
+  "universal-toolkit": [
+   "capability-packs/bokahli/v1/adapter.ts",
+   "capability-packs/bokahli/v1/manifest.json",
+   "capability-packs/ikbi/v1/adapter.ts",
+   "capability-packs/ikbi/v1/manifest.json",
+   "capability-packs/johnny-five/v1/client.ts",
+   "capability-packs/johnny-five/v1/manifest.json"
   ]
  },
  "schemaVersion": "1.0.0",
