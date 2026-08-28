@@ -112,7 +112,10 @@ export function verifyAgentOwnedNotImportedByShared({ rule, paths, sharedSourceT
 export function verifyAgentOwnedHasNoPortableRoleLogic({ slot, rule, paths, read }) {
   const out = [];
   for (const rel of paths) {
-    if (!isText(rel)) continue;
+    // Markdown counts. A skill is mostly SKILL.md, and instructions that encode
+    // the work-order machine are portable role logic whether or not they sit in
+    // a .ts file. Scanning only code let exactly that through.
+    if (!isText(rel) && !/\.(md|markdown|ya?ml)$/i.test(rel)) continue;
     const text = read(rel);
     if (text === null) continue;
     for (const b of PORTABLE_ROLE_BEHAVIOUR) {
