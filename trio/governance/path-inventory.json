@@ -1,7 +1,9 @@
 {
  "rules": {
   "agent-dev-quarantine": [],
-  "claude-dev-quarantine": [],
+  "claude-dev-quarantine": [
+   ".claude/settings.local.json"
+  ],
   "codex-dev-quarantine": [],
   "compiled-behavior": [
    "dist/cli/repl.d.ts",
@@ -488,9 +490,12 @@
    "interview-demo-factory/demos/001-ikbi-osapa-proof/demo-plan.md",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/.gitignore",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/.gitkeep",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/_terminal.mp4",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/_title.mp4",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/demo-001-ikbi-osapa-proof.mp4",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/exports/demo-001-ikbi-osapa-proof.mp4.meta.txt",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/luna-assets/.gitkeep",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/luna-assets/squirrel-chef.jpg",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/luna-assets/title-card-final-auto.png",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/luna-assets/title-card-final-auto.png.meta.txt",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/luna-assets/title-card-final-mm.png",
@@ -511,6 +516,15 @@
    "interview-demo-factory/demos/001-ikbi-osapa-proof/narration-short.md",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/narration-technical.md",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/.gitkeep",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-200545-demo001-evidence.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-200545-p3-typecheck.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-200545-p4-osapa-policy.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-201348-p2-build-submit.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-202009-p2-build-submit.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-202324-p2-build-submit.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-202448-p2-build-submit.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-202759-p2-build-submit.log",
+   "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-202957-p5-no-false-green.log",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/raw/20260708-212907-001-ikbi-osapa-proof.cast",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/receipts/asset-manifest.md",
    "interview-demo-factory/demos/001-ikbi-osapa-proof/receipts/commands-run.md",
@@ -526,6 +540,8 @@
    "interview-demo-factory/demos/002-peh-orchestration/demo-plan.md",
    "interview-demo-factory/demos/002-peh-orchestration/exports/.gitignore",
    "interview-demo-factory/demos/002-peh-orchestration/exports/.gitkeep",
+   "interview-demo-factory/demos/002-peh-orchestration/exports/_terminal.mp4",
+   "interview-demo-factory/demos/002-peh-orchestration/exports/_title.mp4",
    "interview-demo-factory/demos/002-peh-orchestration/exports/demo-002-peh-orchestration.mp4",
    "interview-demo-factory/demos/002-peh-orchestration/exports/demo-002-peh-orchestration.mp4.meta.txt",
    "interview-demo-factory/demos/002-peh-orchestration/luna-assets/.gitkeep",
@@ -538,6 +554,9 @@
    "interview-demo-factory/demos/002-peh-orchestration/narration-short.md",
    "interview-demo-factory/demos/002-peh-orchestration/narration-technical.md",
    "interview-demo-factory/demos/002-peh-orchestration/raw/.gitkeep",
+   "interview-demo-factory/demos/002-peh-orchestration/raw/20260708-205318-peh-delegation.log",
+   "interview-demo-factory/demos/002-peh-orchestration/raw/20260708-205859-peh-delegation.log",
+   "interview-demo-factory/demos/002-peh-orchestration/raw/20260708-210225-peh-crosscheck.log",
    "interview-demo-factory/demos/002-peh-orchestration/raw/20260708-212907-002-peh-orchestration.cast",
    "interview-demo-factory/demos/002-peh-orchestration/raw/peh-orchestration-report.md",
    "interview-demo-factory/demos/002-peh-orchestration/receipts/asset-manifest.md",
@@ -554,6 +573,8 @@
    "interview-demo-factory/demos/003-ptah-repair/demo-plan.md",
    "interview-demo-factory/demos/003-ptah-repair/exports/.gitignore",
    "interview-demo-factory/demos/003-ptah-repair/exports/.gitkeep",
+   "interview-demo-factory/demos/003-ptah-repair/exports/_terminal.mp4",
+   "interview-demo-factory/demos/003-ptah-repair/exports/_title.mp4",
    "interview-demo-factory/demos/003-ptah-repair/exports/demo-003-ptah-repair.mp4",
    "interview-demo-factory/demos/003-ptah-repair/exports/demo-003-ptah-repair.mp4.meta.txt",
    "interview-demo-factory/demos/003-ptah-repair/luna-assets/.gitkeep",
@@ -566,6 +587,9 @@
    "interview-demo-factory/demos/003-ptah-repair/narration-short.md",
    "interview-demo-factory/demos/003-ptah-repair/narration-technical.md",
    "interview-demo-factory/demos/003-ptah-repair/raw/.gitkeep",
+   "interview-demo-factory/demos/003-ptah-repair/raw/20260708-210409-ptah-repair.log",
+   "interview-demo-factory/demos/003-ptah-repair/raw/20260708-210409-red-before.log",
+   "interview-demo-factory/demos/003-ptah-repair/raw/20260708-210559-ptah-crosscheck.log",
    "interview-demo-factory/demos/003-ptah-repair/raw/20260708-212907-003-ptah-repair.cast",
    "interview-demo-factory/demos/003-ptah-repair/raw/ptah-repair-report.md",
    "interview-demo-factory/demos/003-ptah-repair/receipts/asset-manifest.md",
@@ -638,7 +662,9 @@
   "other-scripts": [
    "scripts/model-test.sh"
   ],
-  "out-quarantine": [],
+  "out-quarantine": [
+   "out/result.txt"
+  ],
   "personality-quarantine": [
    "personality/luna.yaml",
    "personality/peh.yaml",

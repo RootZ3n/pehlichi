@@ -246,12 +246,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "development overlay adjudication",
+   "attestation": "Per-deployment developer tooling settings. Present only where a developer has configured it; never shared and never behaviour-bearing for the agent.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "claude-dev-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "configuration",
     "code",
@@ -262,9 +268,9 @@
     "closedInventory": true,
     "directory": ".claude"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -341,7 +347,7 @@
    "allowedTypes": [
     "file"
    ],
-   "attestation": "Luna-owned interview demo production: briefs, captures, media and assembly scripts. Not part of any agent distribution and unreachable from the shared runtime.",
+   "attestation": "Luna-owned interview demo production: briefs, captures, media and assembly scripts. Not part of any agent distribution and unreachable from the shared runtime. Digest re-acknowledged 2026-08-28: Luna modified four demo assets and added one, which is her own pre-existing working state and was preserved rather than reverted. The acknowledged digest records that content, it does not bless an unexplained change.",
    "bytesMustMatch": false,
    "class": "owner-scoped-asset",
    "divergenceBlocking": false,
@@ -349,7 +355,7 @@
    "id": "demo-factory-quarantine",
    "modeMustMatch": true,
    "owner": "loony-luna",
-   "ownerTreeDigest": "sha256:0a6acd5448ec4f0842adf962d634ef31d6f05dc2b419b5ac39907a970312dd6e",
+   "ownerTreeDigest": "sha256:70b4fb391c46d8a2831ca256abb6652660f5a6a6da1a3f5c862260919c31354d",
    "permittedFormats": [
     "code",
     "asset",
@@ -593,12 +599,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "generated-output adjudication",
+   "attestation": "Per-deployment scratch output directory. Present only where a run has produced it; contents are transient and owned by that deployment.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "out-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "generated-data"
    ],
@@ -607,9 +619,9 @@
     "closedInventory": true,
     "directory": "out"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
