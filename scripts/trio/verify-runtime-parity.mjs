@@ -6,7 +6,7 @@ import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSchemaValidator,SCHEMA_VALIDATOR } from './schema-validation.mjs';
 import { readStrictJson,StrictJsonError } from './strict-json.mjs';
-import { AGENT_OWNED_UI_CLASS,verifyAgentOwnedUi,verifyAgentOwnedUiRule } from './agent-owned-ui.mjs';
+import { AGENT_OWNED_UI_CLASS,AGENT_OWNED_CONTENT_CLASS,AGENT_OWNED_CLASSES,verifyAgentOwnedUi,verifyAgentOwnedUiRule } from './agent-owned-ui.mjs';
 
 export const SLOT_NAMES=Object.freeze(['pehlichi','loony-luna','mad-ptah']);
 const MATCH_CLASSES=new Set(['behavior-identical','generated-behavior-identical','model-behavior-data','test-behavior-identical','quarantined-blocking-divergence']);
@@ -87,7 +87,7 @@ function validateManifestContract(manifest){
       if(typeof rule.attestation!=='string'||rule.attestation.length<16)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content requires a written attestation',null,rule.id));
       if(typeof rule.ownerTreeDigest!=='string'||!/^sha256:[0-9a-f]{64}$/.test(rule.ownerTreeDigest))failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content requires a measured tree digest',null,rule.id));
       if(!rule.selector.directory)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped rules select a directory, so every member file is enumerated',null,rule.id));
-    }else if(rule.class===AGENT_OWNED_UI_CLASS){
+    }else if(AGENT_OWNED_CLASSES.has(rule.class)){
       // Each agent ships its own interface at the same path. Bytes are not
       // compared; ownership, root containment, and the absence of shared
       // behaviour are what is enforced instead.
@@ -224,11 +224,15 @@ function compare(repositories,manifest,inventory,manifestDigest){
   const failures=[];const maps=Object.fromEntries(repositories.map((r)=>[r.slot,new Map(r.governed.map((x)=>[x.path,x]))]));const inventoried=[...new Set(Object.values(inventory.rules).flat())];const allPaths=[...new Set([...repositories.flatMap((r)=>r.governed.map((x)=>x.path)),...inventoried])].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)));
   const identical=[],divergent=[],missing=[],variableDifferences=[],quarantined=[],ownerScoped=[],agentOwnedUi=[];
   for(const rel of allPaths){const rows=SLOT_NAMES.map((s)=>maps[s].get(rel));const classes=new Set(rows.filter(Boolean).map((x)=>x.classification));if(classes.size>1){failures.push(failure('CLASSIFICATION_MISMATCH','Corresponding path has different classifications',null,rel,{classes:[...classes].sort()}));continue;}const inventoryRule=manifest.rules.find((r)=>(inventory.rules[r.id]??[]).includes(rel));const klass=[...classes][0]??inventoryRule?.class;const present=rows.filter(Boolean);
-    if(klass===AGENT_OWNED_UI_CLASS){
+    if(AGENT_OWNED_CLASSES.has(klass)){
       // (1) excluded from byte comparison, (2) present only in declared owners,
       // (8) different features permitted.
-      const owners=inventoryRule?.owners??[];
-      const intruders=SLOT_NAMES.filter((s2,i)=>rows[i]&&!owners.includes(s2));
+      // Resolve the rule by path as well as by inventory: a rule that selects
+      // explicit paths has no inventory entry, and treating that as "no owners"
+      // made every legitimate file look like an intruder.
+      const ownRule=inventoryRule??manifest.rules.find((r)=>AGENT_OWNED_CLASSES.has(r.class)&&selectorMatches(rel,r.selector));
+      const owners=ownRule?.owners??[];
+      const intruders=owners.length?SLOT_NAMES.filter((s2,i)=>rows[i]&&!owners.includes(s2)):[];
       if(intruders.length)failures.push(failure('UI_OWNERSHIP_VIOLATION','Agent-owned UI path is present in an agent that does not declare the surface',null,rel,{owners,presentIn:intruders}));
       for(const i of SLOT_NAMES.map((s2,i2)=>i2))if(rows[i])agentOwnedUi.push({path:rel,agent:SLOT_NAMES[i],digest:rows[i].byteDigest,mode:rows[i].mode});
       continue;
@@ -258,7 +262,7 @@ function compare(repositories,manifest,inventory,manifestDigest){
   const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
   // (3)(4)(5)(6)(7) Content governance for every declared agent-owned UI tree.
   const sharedContracts=manifest.sharedContractVersions??null;
-  for(const rule of manifest.rules.filter((r)=>r.class===AGENT_OWNED_UI_CLASS)){
+  for(const rule of manifest.rules.filter((r)=>AGENT_OWNED_CLASSES.has(r.class))){
     for(const repo of repositories){
       const paths=(inventory.rules[rule.id]??[]).filter((rel)=>maps[repo.slot].has(rel));
       if(!paths.length)continue;

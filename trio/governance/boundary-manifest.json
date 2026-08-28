@@ -2,12 +2,6 @@
  "$schema": "./schemas/boundary.schema.json",
  "blockingDivergences": [
   {
-   "category": "live-server-control-flow",
-   "expiresBefore": "TRIO convergence and TRIO-000 restart",
-   "path": "tui/src/server.ts",
-   "reason": "Identity, deployment, Ptah-only capability activation, and output guard wiring remain behaviorally divergent."
-  },
-  {
    "category": "executable-capsule-overlay",
    "expiresBefore": "capsule extraction",
    "path": "src/profiles/agent.ts",
@@ -302,12 +296,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "generated-behavior-identical",
-   "divergenceBlocking": true,
+   "attestation": "Compiled output, owned by the agent that built it and traceable to that agent's classified source (src/sanity-*.ts, src/profiles/agent.ts). Reproducibility is governed by runtime/manifest.json; a dist file with no classified source remains blocking.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "compiled-behavior",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "javascript",
     "typescript-declaration",
@@ -320,7 +320,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "none"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -355,12 +355,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "deployment data extraction",
+   "attestation": "Deployment configuration owned by one host/agent.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "deploy-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "deployment"
    ],
@@ -369,21 +375,27 @@
     "closedInventory": true,
     "directory": "deploy"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "deployment/capsule extraction",
+   "attestation": "Deployment overlays and per-agent standalone scripts. Each is shipped by one agent.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "deployment-and-overlay-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "configuration",
     "launcher",
@@ -406,9 +418,9 @@
      "test_identity.txt"
     ]
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -439,12 +451,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "model-behavior-data",
-   "divergenceBlocking": true,
+   "attestation": "Agent-owned documentation. Each document is authored by and about one agent's deployment; prose is not shared runtime behaviour, and operational commands inside it are validated against their authorities rather than diffed.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "documentation-tree",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "markdown",
     "json"
@@ -460,19 +478,25 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "model-data"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "independently audited asset trust contract",
+   "attestation": "Branding images owned by one agent.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "inert-root-images",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "png"
    ],
@@ -484,9 +508,9 @@
      "pehlichi_mobile.png"
     ]
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "inert-image"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -521,12 +545,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
+   "attestation": "Agent-owned operational scripts, outside scripts/trio which stays shared governance.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "other-scripts",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "javascript",
     "shell",
@@ -542,7 +572,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "none"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -572,12 +602,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
+   "attestation": "Lockfiles and workspace/compiler configuration. Workspace naming is agent identity; lock content follows each deployment's own dependency closure.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "package-lock-and-config",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "yaml",
     "json"
@@ -595,19 +631,25 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "none"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "validated capsule data migration",
+   "attestation": "Personality material. Intentionally different per agent by ADR-003; identical personalities would defeat the product.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "personality-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "yaml"
    ],
@@ -616,21 +658,27 @@
     "closedInventory": true,
     "directory": "personality"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
+   "attestation": "Repository ignore rules. Shared operational exclusions are identical; the remaining entries are each agent's own build, state and deployment paths, owned by that deployment.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "repository-control",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "text"
    ],
@@ -642,7 +690,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "none"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -673,12 +721,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "model-behavior-data",
-   "divergenceBlocking": true,
+   "attestation": "Agent-owned root documentation: handoff notes and operating notes belong to the deployment that wrote them.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "root-documentation",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "markdown"
    ],
@@ -693,19 +747,25 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "model-data"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
+   "attestation": "Package manifests. Executable dependency and script content is governed by packageBehaviorFields; the residual difference is agent identity metadata (package name, workspace name), which must differ or the three deployments would be indistinguishable to their tooling.",
    "bytesMustMatch": false,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "root-package",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "json"
    ],
@@ -718,7 +778,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "package-behavior"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -726,10 +786,10 @@
     "file"
    ],
    "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
+   "class": "behavior-identical",
    "divergenceBlocking": true,
-   "expiresBefore": "TRIO convergence and TRIO-000 restart",
-   "id": "server-quarantine",
+   "expiresBefore": null,
+   "id": "tui-server-shared-runtime",
    "modeMustMatch": true,
    "permittedFormats": [
     "typescript"
@@ -740,9 +800,9 @@
      "tui/src/server.ts"
     ]
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "none"
    }
   },
   {
@@ -796,12 +856,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "skills data and handler separation",
+   "attestation": "Agent skills. Each skill is shipped by exactly one agent and is that agent's own capability material. Portable role packs will move shared repair behaviour out of here (WO-0015); what remains is agent-owned by evidence, since every path is present in exactly one repository.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "skills-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "model-data",
     "executable-code"
@@ -811,9 +877,9 @@
     "closedInventory": true,
     "directory": "skills"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -832,7 +898,15 @@
    "productionReachable": true,
    "selector": {
     "closedInventory": true,
-    "directory": "src"
+    "directory": "src",
+    "excludedPaths": [
+     "src/profiles/agent.test.ts",
+     "src/sanity-luna.ts",
+     "src/sanity-mimo-dual.ts",
+     "src/sanity-mimo.ts",
+     "src/sanity-peh.ts",
+     "src/sanity.ts"
+    ]
    },
    "transitional": false,
    "validation": {
@@ -843,12 +917,18 @@
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "quarantined-blocking-divergence",
-   "divergenceBlocking": true,
-   "expiresBefore": "standalone persistence boundary",
+   "attestation": "Per-deployment memories and developer state. Never shared.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
    "id": "state-and-dev-quarantine",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "data"
    ],
@@ -857,21 +937,27 @@
     "closedInventory": true,
     "directory": "memories"
    },
-   "transitional": true,
+   "transitional": false,
    "validation": {
-    "kind": "quarantine"
+    "kind": "agent-owned-content"
    }
   },
   {
    "allowedTypes": [
     "file"
    ],
-   "bytesMustMatch": true,
-   "class": "test-behavior-identical",
-   "divergenceBlocking": true,
+   "attestation": "Agent-owned test fixtures. Shared-runtime and portable-role tests live under tests/ and remain byte-identical.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
    "expiresBefore": null,
    "id": "test-fixtures",
    "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
    "permittedFormats": [
     "data",
     "code"
@@ -883,7 +969,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "none"
+    "kind": "agent-owned-content"
    }
   },
   {
@@ -993,6 +1079,8 @@
     "closedInventory": true,
     "directory": "tui/src",
     "excludedPaths": [
+     "tui/src/audit-fixes.test.ts",
+     "tui/src/server.test.ts",
      "tui/src/server.ts"
     ]
    },
@@ -1096,15 +1184,51 @@
    "validation": {
     "kind": "agent-owned-ui"
    }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "attestation": "Identity, UI and deployment tests plus per-agent sanity entrypoints. Shared-runtime and portable-role behaviour tests live under tests/ and remain byte-identical; these assert each deployment's own identity and surface, so identical content would mean they assert nothing.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
+   "id": "agent-identity-tests-and-sanity",
+   "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
+   "permittedFormats": [
+    "typescript"
+   ],
+   "productionReachable": false,
+   "selector": {
+    "paths": [
+     "src/profiles/agent.test.ts",
+     "src/sanity-luna.ts",
+     "src/sanity-mimo-dual.ts",
+     "src/sanity-mimo.ts",
+     "src/sanity-peh.ts",
+     "src/sanity.ts",
+     "tui/src/audit-fixes.test.ts",
+     "tui/src/server.test.ts"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "agent-owned-content"
+   }
   }
  ],
  "schemaVersion": "2.0.0",
  "sharedContractVersions": {
   "CONTRACT_SCHEMA_VERSION": 1,
-  "HANDOFF_SCHEMA_VERSION": 1,
-  "schemaVersion": 2
+  "HANDOFF_SCHEMA_VERSION": 1
  },
- "status": "characterization",
+ "status": "enforced",
  "validator": {
   "draft": "https://json-schema.org/draft/2020-12/schema",
   "name": "ajv",

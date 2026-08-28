@@ -138,6 +138,7 @@
     },
     "class": {
      "enum": [
+      "agent-owned-content",
       "agent-owned-ui",
       "behavior-identical",
       "documentation",
@@ -306,6 +307,7 @@
    "properties": {
     "kind": {
      "enum": [
+      "agent-owned-content",
       "agent-owned-ui",
       "boundary-schema",
       "capability-pack-schema",

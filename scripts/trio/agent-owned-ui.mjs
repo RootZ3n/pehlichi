@@ -21,6 +21,19 @@
 export const AGENT_OWNED_UI_CLASS = 'agent-owned-ui';
 
 /**
+ * The general form: content each agent owns its own copy of, or ships alone.
+ *
+ * Ownership here is a fact rather than a judgement -- a file present in exactly
+ * one repository is owned by that repository. Bytes are not compared; what is
+ * enforced is that the path stays inside its declared root, that it belongs to
+ * a declared owner, and (for behaviour-bearing content) that shared runtime
+ * logic is not hiding inside it.
+ */
+export const AGENT_OWNED_CONTENT_CLASS = 'agent-owned-content';
+
+export const AGENT_OWNED_CLASSES = new Set([AGENT_OWNED_UI_CLASS, AGENT_OWNED_CONTENT_CLASS]);
+
+/**
  * Behaviour that must never live in a UI. Each entry names what it is, so a
  * failure tells the reader which boundary was crossed rather than just
  * printing a regex.
@@ -93,9 +106,11 @@ export function verifyAgentOwnedUi({ slot, rule, paths, read, sharedContracts })
     }
   }
 
-  // (4)+(6) Content scan. This is the check that keeps "the UIs may differ"
-  // from becoming "anything may hide in the UI".
-  for (const rel of paths) {
+  // (4)+(6) Content scan, for the UI class only. The rule being enforced is
+  // "shared semantics must not live in the presentation layer". Agent-owned
+  // skills and documentation legitimately contain code, so scanning them for
+  // the same patterns produces noise, not governance.
+  for (const rel of (rule.class === AGENT_OWNED_UI_CLASS ? paths : [])) {
     if (!isText(rel)) continue;
     const text = read(rel);
     if (text === null) continue;
@@ -146,11 +161,18 @@ export function verifyAgentOwnedUiRule(rule, slotNames) {
   if (typeof rule.attestation !== 'string' || rule.attestation.length < 20) {
     fail('agent-owned UI requires an attestation explaining why it diverges');
   }
-  if (!rule.selector?.closedInventory) {
-    fail('agent-owned UI requires a closed inventory so a new unclassified file fails');
+  // An explicit path list is itself a closed inventory: it enumerates exactly
+  // what is governed, so a new file simply is not in it and fails as
+  // unclassified. A directory rule needs closedInventory to get the same
+  // property.
+  const closed = rule.selector?.closedInventory === true
+    || (Array.isArray(rule.selector?.paths) && rule.selector.paths.length > 0);
+  if (!closed) {
+    fail('this class requires a closed inventory (or an explicit path list) so a new unclassified file fails');
   }
-  if (rule.validation?.kind !== 'agent-owned-ui') {
-    fail('agent-owned UI requires validation.kind = agent-owned-ui');
+  const wantKind = rule.class === AGENT_OWNED_CONTENT_CLASS ? 'agent-owned-content' : 'agent-owned-ui';
+  if (rule.validation?.kind !== wantKind) {
+    fail(`this class requires validation.kind = ${wantKind}`);
   }
   return out;
 }

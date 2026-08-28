@@ -856,12 +856,7 @@
    "src/index.ts",
    "src/profile.test.ts",
    "src/profile.ts",
-   "src/profiles/agent.test.ts",
    "src/profiles/agent.ts",
-   "src/sanity-mimo-dual.ts",
-   "src/sanity-mimo.ts",
-   "src/sanity-peh.ts",
-   "src/sanity.ts",
    "src/tools/bridge-tools.test.ts",
    "src/tools/bridge-tools.ts",
    "src/tools/work-order-store.test.ts",
@@ -917,7 +912,6 @@
   "tui-public-quarantine": [],
   "tui-source-runtime": [
    "tui/src/app.tsx",
-   "tui/src/audit-fixes.test.ts",
    "tui/src/entry.tsx",
    "tui/src/harness.ts",
    "tui/src/lab-cohesion.test.ts",
@@ -928,7 +922,6 @@
    "tui/src/lib/personality.ts",
    "tui/src/lib/skin.ts",
    "tui/src/model-switch.test.ts",
-   "tui/src/server.test.ts",
    "tui/src/truth-conformance-harness.ts",
    "tui/src/workspace-override.test.ts",
    "tui/src/write-safety.test.ts"
