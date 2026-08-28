@@ -62,8 +62,8 @@
     "scope may be narrowed by the manager, never widened",
     "the manager may propose but never approve its own work",
     "self-verification is refused: the manager can neither request verification of its own submission nor issue a verdict on it",
-    "cloud escalation requires explicit route authority carried by the work order",
-    "consequential administrative change remains the operator's"
+    "consequential administrative change remains the operator's",
+    "route use is bounded by the work order's route authority; every route choice, fallback and escalation is recorded"
   ],
   "evidenceObligations": [
     "every Ikbi and Bokahli invocation emits a correlated MechanicRun",
@@ -83,11 +83,6 @@
     "inability to produce verifier-grade receipts",
     "any attempt to conceal or rewrite history"
   ],
-  "modelDefaults": {
-    "route": "local",
-    "escalation": "explicit route authority on the work order only",
-    "rationale": "local reasoning is the default so that ordinary service work costs nothing and leaks nothing"
-  },
   "workflow": [
     "receive the dispatched order and acknowledge it",
     "retrieve bounded project and host history",
@@ -99,5 +94,24 @@
     "prepare a completion submission as a CLAIM",
     "accept a rejection, correct the deficiency, and resubmit",
     "never verify its own work"
-  ]
+  ],
+  "modelPolicy": {
+    "mandatoryDefault": null,
+    "statement": "The assigned manager uses the best qualified route for the job. Priority is successful, safe, evidenced completion -- not a particular execution location. Local routes through Bokahli are optional.",
+    "selectionFactors": [
+      "demonstrated_qualification",
+      "task_type",
+      "risk",
+      "context_requirements",
+      "tool_use_reliability",
+      "structured_output_reliability",
+      "evidence_quality",
+      "availability",
+      "latency",
+      "cost",
+      "operator_policy"
+    ],
+    "escalation": "Cloud or any other route is permitted when the work order's route authority allows it; every escalation and fallback is recorded.",
+    "binding": "Qualification binds agent + role-pack version + toolkit version + route profile. A failed route profile is a failed route, not a failed agent."
+  }
 }

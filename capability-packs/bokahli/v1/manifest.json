@@ -2,15 +2,42 @@
   "capability": "bokahli",
   "version": "1.0.0",
   "description": "Universal Bokahli reasoning capability. Byte-identical for all three agents. Adapter only: Bokahli is external and is never modified from here.",
-  "provides": ["bokahli.reason"],
-  "mandatoryCorrelation": ["projectId", "workOrderId", "serviceAttemptId", "invokingAgent", "authorityRef"],
+  "provides": [
+    "bokahli.reason"
+  ],
+  "mandatoryCorrelation": [
+    "projectId",
+    "workOrderId",
+    "serviceAttemptId",
+    "invokingAgent",
+    "authorityRef"
+  ],
   "emits": "MechanicRun",
-  "defaults": { "route": "local", "escalation": "requires explicit route authority on the work order" },
   "invariants": [
     "the requested model and the served model are recorded separately",
-    "there is no silent fallback: a different served model is reported, never hidden",
+    "every run records why its route was chosen; a run with no reason is a default in disguise",
+    "fallback must be explicitly authorized and recorded; an unauthorized substitution is SILENT_FALLBACK and blocks completion",
     "an unobservable served model is UNKNOWN, never OK",
     "unavailability is reported honestly as UNAVAILABLE",
-    "the caller may not select an unrestricted model or tool"
-  ]
+    "the caller may not select an unrestricted model or tool",
+    "route qualification is separate from agent identity, role assignment and toolkit version"
+  ],
+  "routePolicy": {
+    "mandatoryDefault": null,
+    "statement": "There is no mandatory default route. An agent is not a model: the route is chosen per task from demonstrated qualification, task type, risk, context requirements, tool-use and structured-output reliability, evidence quality, availability, latency, cost and operator policy. Local routes are optional, not required.",
+    "selectionFactors": [
+      "demonstrated_qualification",
+      "task_type",
+      "risk",
+      "context_requirements",
+      "tool_use_reliability",
+      "structured_output_reliability",
+      "evidence_quality",
+      "availability",
+      "latency",
+      "cost",
+      "operator_policy"
+    ],
+    "authority": "The work order states required capabilities, risk, budget policy and whether local/cloud use is allowed. It does not normally name a model."
+  }
 }
