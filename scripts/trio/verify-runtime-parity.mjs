@@ -6,7 +6,7 @@ import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSchemaValidator,SCHEMA_VALIDATOR } from './schema-validation.mjs';
 import { readStrictJson,StrictJsonError } from './strict-json.mjs';
-import { AGENT_OWNED_UI_CLASS,AGENT_OWNED_CONTENT_CLASS,AGENT_OWNED_CLASSES,verifyAgentOwnedUi,verifyAgentOwnedUiRule } from './agent-owned-ui.mjs';
+import { AGENT_OWNED_UI_CLASS,AGENT_OWNED_CONTENT_CLASS,AGENT_OWNED_CLASSES,verifyAgentOwnedUi,verifyAgentOwnedUiRule,verifyAgentOwnedNotImportedByShared,verifyAgentOwnedHasNoPortableRoleLogic } from './agent-owned-ui.mjs';
 
 export const SLOT_NAMES=Object.freeze(['pehlichi','loony-luna','mad-ptah']);
 const MATCH_CLASSES=new Set(['behavior-identical','generated-behavior-identical','model-behavior-data','test-behavior-identical','quarantined-blocking-divergence']);
@@ -262,12 +262,28 @@ function compare(repositories,manifest,inventory,manifestDigest){
   const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
   // (3)(4)(5)(6)(7) Content governance for every declared agent-owned UI tree.
   const sharedContracts=manifest.sharedContractVersions??null;
+  const sharedRules=new Set(manifest.rules.filter((r)=>r.class==='behavior-identical'||r.class==='test-behavior-identical').map((r)=>r.id));
+  let sharedSourceText='';
+  for(const repo of repositories.slice(0,1)){
+    for(const rel of (repo.governed??[]).map((x)=>x.path)){
+      if(!/\.(ts|tsx|js|mjs|cjs)$/i.test(rel))continue;
+      const ir=inventory.rules;const owning=Object.keys(ir).find((k)=>(ir[k]??[]).includes(rel));
+      if(!owning||!sharedRules.has(owning))continue;
+      try{sharedSourceText+='\n'+fs.readFileSync(path.join(repo.root,...rel.split('/')),'utf8');}catch{}
+    }
+  }
   for(const rule of manifest.rules.filter((r)=>AGENT_OWNED_CLASSES.has(r.class))){
     for(const repo of repositories){
       const paths=(inventory.rules[rule.id]??[]).filter((rel)=>maps[repo.slot].has(rel));
       if(!paths.length)continue;
       const read=(rel)=>{try{return fs.readFileSync(path.join(repo.root,...rel.split('/')),'utf8');}catch{return null;}};
       for(const f of verifyAgentOwnedUi({slot:repo.slot,rule,paths,read,sharedContracts}))
+        failures.push(failure(f.failureClass,f.message,f.agent,f.affectedPath,f.details));
+      // Uniqueness is not ownership: shared code must not reach into it, and
+      // portable role behaviour must not hide inside it.
+      for(const f of verifyAgentOwnedHasNoPortableRoleLogic({slot:repo.slot,rule,paths,read}))
+        failures.push(failure(f.failureClass,f.message,f.agent,f.affectedPath,f.details));
+      if(repo===repositories[0])for(const f of verifyAgentOwnedNotImportedByShared({rule,paths,sharedSourceText}))
         failures.push(failure(f.failureClass,f.message,f.agent,f.affectedPath,f.details));
     }
   }

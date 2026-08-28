@@ -62,6 +62,71 @@ export const FORBIDDEN_UI_BEHAVIOUR = [
 const isText = (rel) => /\.(js|mjs|cjs|ts|tsx|jsx|html|htm|css|json|webmanifest|d\.ts)$/i.test(rel);
 
 /**
+ * Portable behaviour that must live in the shared role-pack catalog, never in
+ * one agent's own material. A skill that implements the dispatch protocol or
+ * the work-order machine is portable role logic wearing an agent's name.
+ */
+export const PORTABLE_ROLE_BEHAVIOUR = [
+  { id: 'work-order-machine',
+    why: 'the work-order state machine is shared runtime, not agent material',
+    re: /\b(REQUESTED|TRIAGED|DISPATCHED)\b[\s\S]{0,200}\b(SUBMITTED|VERIFYING)\b[\s\S]{0,200}\b(transition|allowedNext|stateMachine)\b/i },
+  { id: 'dispatch-protocol',
+    why: 'the dispatch contract is shared; an agent may consume it, never redefine it',
+    re: /\b(WorkOrderDispatch|CompletionSubmission|VerificationVerdict)\b[\s\S]{0,200}\b(schemaVersion|contentDigest|parse|validate)\b/i },
+  { id: 'authority-enforcement',
+    why: 'authority is enforced in shared runtime',
+    re: /\b(assertCapability|authorizeTool|requireAuthority)\s*\(/ },
+];
+
+/**
+ * (Hostile check) Uniqueness is not ownership. A file present in exactly one
+ * repository is still shared runtime if shared code imports it, so agent-owned
+ * content must be unreachable from the shared surface.
+ */
+export function verifyAgentOwnedNotImportedByShared({ rule, paths, sharedSourceText }) {
+  const out = [];
+  if (!sharedSourceText) return out;
+  for (const rel of paths) {
+    // Only CODE can be imported. A static asset that the shared server serves
+    // from WEB_ROOT (ui/index.html, a stylesheet, an image) is the intended
+    // architecture -- shared server, agent-owned interface -- not a coupling.
+    if (!/\.(ts|tsx|js|mjs|cjs|jsx)$/i.test(rel)) continue;
+    const stem = rel.split('/').pop().replace(/\.(d\.ts|ts|tsx|js|mjs|cjs|jsx)$/i, '');
+    if (stem.length < 5) continue;
+    const esc = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // A real module reference: import/export-from/require/dynamic import.
+    const referenced = new RegExp(
+      `(?:^|\\n)\\s*(?:import|export)[^;\\n]*from\\s*["'][^"']*${esc}(?:\\.[a-z]+)?["']` +
+      `|require\\(\\s*["'][^"']*${esc}(?:\\.[a-z]+)?["']` +
+      `|import\\(\\s*["'][^"']*${esc}(?:\\.[a-z]+)?["']`, 'm');
+    if (referenced.test(sharedSourceText)) {
+      out.push({ failureClass: 'AGENT_OWNED_IMPORTED_BY_SHARED',
+        message: `agent-owned path is referenced from shared runtime, so it is shared runtime regardless of being unique`,
+        agent: null, affectedPath: rel, details: { rule: rule.id } });
+    }
+  }
+  return out;
+}
+
+/** (Hostile check) Portable role behaviour hiding inside agent-owned material. */
+export function verifyAgentOwnedHasNoPortableRoleLogic({ slot, rule, paths, read }) {
+  const out = [];
+  for (const rel of paths) {
+    if (!isText(rel)) continue;
+    const text = read(rel);
+    if (text === null) continue;
+    for (const b of PORTABLE_ROLE_BEHAVIOUR) {
+      if (b.re.test(text)) {
+        out.push({ failureClass: 'AGENT_OWNED_CONTAINS_PORTABLE_BEHAVIOUR',
+          message: `agent-owned content contains ${b.id}: ${b.why}`,
+          agent: slot, affectedPath: rel, details: { rule: rule.id, behaviour: b.id } });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Validate one agent's declared UI tree.
  *
  * @param {object} args
