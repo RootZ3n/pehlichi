@@ -35,7 +35,8 @@ Mad Ptah). TRIO-001A governs which paths must match and which may differ.
   `path-inventory.json`, `runtime-closure.json`), read by
   `tests/parity/runtime-parity.test.ts`.
 * `trio/governance/` — System B: classification rules, schemas, capsules and
-  capability-pack declarations, read by `scripts/trio/verify-runtime-parity.mjs`.
+  capability-pack declarations, read by the external verifier in
+  `lab-utilities/trio-verifier`.
   Two verifiers, two manifests, deliberately not merged.
 
 Identity does **not** live in runtime code. It lives in `capsule/agent.json`,
@@ -57,7 +58,9 @@ Package manager is **pnpm**; this is also a pnpm workspace.
 - `pnpm run test:parity` — cross-repository runtime parity (System A). It reads all three
   distributions; override the roots with `TRIO_REPOSITORIES`.
 - Governance parity (System B):
-  `node scripts/trio/verify-runtime-parity.mjs --pehlichi <path> --loony-luna <path> --mad-ptah <path>`
+  `node /pehverse/repos/lab-utilities/trio-verify-launcher/launch.mjs`
+  This agent does not verify itself. The launcher pins an exact external verifier commit,
+  runs it against clean committed trees, and is invoked from outside this repository.
   Every slot is required.
 
 Run one file directly: `node --import tsx --test src/core/loop.test.ts`.

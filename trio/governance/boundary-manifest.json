@@ -39,11 +39,6 @@
    "attestation": "tui/pnpm-lock.yaml governed; dependency installation is not source",
    "kind": "dependency-tree",
    "path": "tui/node_modules"
-  },
-  {
-   "attestation": "scripts/trio/package-lock.json governed and pinned",
-   "kind": "dependency-tree",
-   "path": "scripts/trio/node_modules"
   }
  ],
  "operationalStatus": {
@@ -514,7 +509,7 @@
    "allowedTypes": [
     "file"
    ],
-   "attestation": "Agent-owned operational scripts, outside scripts/trio which stays shared governance.",
+   "attestation": "Agent-owned operational scripts. scripts/trio stays excluded deliberately: the verifier now lives outside this repository, so a directory reappearing at that path is not agent content and must surface as unclassified rather than be quietly adopted here.",
    "bytesMustMatch": false,
    "class": "agent-owned-content",
    "divergenceBlocking": false,
@@ -660,30 +655,6 @@
    "transitional": false,
    "validation": {
     "kind": "agent-owned-content"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "bytesMustMatch": true,
-   "class": "test-behavior-identical",
-   "divergenceBlocking": true,
-   "expiresBefore": null,
-   "id": "retained-vulnerable-fixture",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "javascript",
-    "json"
-   ],
-   "productionReachable": false,
-   "selector": {
-    "closedInventory": true,
-    "directory": "scripts/trio/fixtures"
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "none"
    }
   },
   {
@@ -956,34 +927,6 @@
    "transitional": false,
    "validation": {
     "kind": "strict-json-data"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
-   "expiresBefore": null,
-   "id": "trio-verification-code",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "javascript",
-    "shell",
-    "json"
-   ],
-   "productionReachable": false,
-   "selector": {
-    "closedInventory": true,
-    "directory": "scripts/trio",
-    "excludedDirectories": [
-     "scripts/trio/fixtures"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "none"
    }
   },
   {
