@@ -9,11 +9,99 @@ import { afterEach, test } from 'node:test';
 import ts from 'typescript';
 
 const currentRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const roots = (process.env.TRIO_REPOSITORIES ?? [
-  '/pehverse/repos/ecosystem/pehlichi-trio-hermes-runtime',
-  '/pehverse/repos/ecosystem/loony-luna-trio-hermes-runtime',
-  '/pehverse/repos/ecosystem/mad-ptah-trio-hermes-runtime',
-].join(',')).split(',').map((item) => item.trim()).filter(Boolean);
+
+/**
+ * Repository discovery contract.
+ *
+ * The previous default was three hardcoded `*-trio-hermes-runtime` convergence worktrees.
+ * Those are obsolete and are not being recreated to satisfy a test, so discovery is now
+ * explicit and portable, and it never guesses:
+ *
+ *   1. `TRIO_REPOSITORIES` -- an operator override: exactly three comma-separated paths, in
+ *      slot order. Use this to point the suite at isolated fixtures.
+ *   2. Otherwise, the governed repository *names* come from
+ *      `trio/governance/boundary-manifest.json`, resolved beside the repository this test
+ *      file physically lives in. The names are declared in governance rather than inferred,
+ *      and the container is where this file is, not a directory that was searched for.
+ *
+ * Every resolved root must exist, be a directory, and carry the committed package identity
+ * governance declares for its slot -- which is what makes a fixture copy acceptable while a
+ * wrong or absent checkout is not. Anything else fails closed with a precise error naming
+ * the slot, the path, and how that path was configured. Nothing is skipped.
+ */
+const TRIO_SLOTS = ['pehlichi', 'loony-luna', 'mad-ptah'] as const;
+
+interface GovernedRepository { expectedRepositoryName?: string; packageNames?: Record<string, string> }
+
+function readGovernedRepositories(): Record<string, GovernedRepository> {
+  const governedPath = join(currentRoot, 'trio/governance/boundary-manifest.json');
+  let parsed: { repositories?: Record<string, GovernedRepository> };
+  try {
+    parsed = JSON.parse(readFileSync(governedPath, 'utf8')) as { repositories?: Record<string, GovernedRepository> };
+  } catch (error) {
+    throw new Error(`TRIO repository discovery: governed manifest ${governedPath} is unreadable (${(error as Error).message})`);
+  }
+  const repositories = parsed.repositories;
+  if (!repositories || typeof repositories !== 'object') {
+    throw new Error(`TRIO repository discovery: governed manifest ${governedPath} declares no repositories block`);
+  }
+  return repositories;
+}
+
+function discoverRepositories(): { source: string; roots: string[] } {
+  const configured = process.env.TRIO_REPOSITORIES;
+  if (configured !== undefined && configured.trim() !== '') {
+    const items = configured.split(',').map((item) => item.trim()).filter(Boolean);
+    if (items.length !== TRIO_SLOTS.length) {
+      throw new Error(`TRIO repository discovery: TRIO_REPOSITORIES must name exactly ${TRIO_SLOTS.length} repositories in slot order (${TRIO_SLOTS.join(', ')}); received ${items.length}`);
+    }
+    for (const item of items) {
+      if (!isAbsolute(item)) throw new Error(`TRIO repository discovery: TRIO_REPOSITORIES entry ${JSON.stringify(item)} is not an absolute path`);
+    }
+    return { source: 'TRIO_REPOSITORIES', roots: items };
+  }
+  const repositories = readGovernedRepositories();
+  const container = dirname(realpathSync(currentRoot));
+  const roots = TRIO_SLOTS.map((slot) => {
+    const name = repositories[slot]?.expectedRepositoryName;
+    if (typeof name !== 'string' || name === '' || name.includes('/') || name.includes('\\')) {
+      throw new Error(`TRIO repository discovery: governed manifest declares no usable expectedRepositoryName for slot ${slot}`);
+    }
+    return join(container, name);
+  });
+  return { source: `governed repository names resolved beside ${container}`, roots };
+}
+
+const discovery = discoverRepositories();
+
+/** Resolve one slot, or fail closed saying exactly which slot, path and source disagreed. */
+function requireRepository(slot: string, configuredPath: string, source: string): string {
+  let resolved: string;
+  try {
+    const stat = lstatSync(configuredPath);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('not a directory');
+    resolved = realpathSync(configuredPath);
+  } catch (error) {
+    throw new Error(`TRIO repository discovery: slot ${slot} resolves to ${configuredPath} (${source}), which is missing or is not a directory (${(error as Error).message})`);
+  }
+  const expectedName = readGovernedRepositories()[slot]?.packageNames?.['package.json'];
+  if (typeof expectedName !== 'string') {
+    throw new Error(`TRIO repository discovery: governed manifest declares no package identity for slot ${slot}`);
+  }
+  const packagePath = join(resolved, 'package.json');
+  let actualName: unknown;
+  try {
+    actualName = (JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: unknown }).name;
+  } catch (error) {
+    throw new Error(`TRIO repository discovery: slot ${slot} at ${resolved} (${source}) has no readable package.json (${(error as Error).message})`);
+  }
+  if (actualName !== expectedName) {
+    throw new Error(`TRIO repository discovery: slot ${slot} at ${resolved} (${source}) carries package identity ${JSON.stringify(actualName)}, but governance declares ${JSON.stringify(expectedName)}`);
+  }
+  return resolved;
+}
+
+const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.roots[index]!, discovery.source));
 
 // Independent code-level trust anchor for the architecture-controlled shape.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;

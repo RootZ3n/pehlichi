@@ -503,8 +503,30 @@ test('legacy AgentChatSession contract delegates to the governed kernel without 
   // quarantines model output, it does not discard it -- but only inside the inert narrative,
   // never at column 0 where a reader would take it for a verified statement.
   assert.notEqual(delivered, 'compatibility response\nnone\ndeterministic');
-  assert.match(delivered, /^Outcome: /);
+  // Presentation contract (truth-firewall/protocol/presentation). A DO_NOT_TRUST outcome
+  // delivers the withheld notice as the body, collapses the whole structural report into
+  // "Truth details", and puts the status line LAST -- deliberately, so a reader who skims to
+  // the bottom of a long answer lands on the verdict rather than on a closing tag.
+  //
+  // This assertion used to be `/^Outcome: /`, which is the shape of the adapter's *local*
+  // refusal -- what it emits when the verifier cannot be reached at all. Once the Truth
+  // release was correctly pinned and became reachable, the real verifier answered and the
+  // expectation was simply testing the fallback. `Outcome:` is still asserted below, in the
+  // place the contract actually puts it: inside the collapsed report, not at column 0 where
+  // a reader would take it for the deliverable's own headline.
+  const deliveredLines = delivered.split('\n');
+  const firstLine = deliveredLines.find((line) => line.trim() !== '') ?? '';
+  assert.match(firstLine, /^The model's answer was not authorized, so it is not shown here as ordinary text\. Reason: .+\. The exact unverified text and the full diagnostics are in "Truth details" below\.$/);
+  const lastLine = [...deliveredLines].reverse().find((line) => line.trim() !== '') ?? '';
+  assert.match(lastLine, /^\u{1F534} DO NOT TRUST/u, 'the verifier status line must be the last thing a reader sees');
+  const detailsIndex = delivered.indexOf('<details><summary>Truth details</summary>');
+  assert.notEqual(detailsIndex, -1, 'the structural report must be collapsed under "Truth details"');
+  const bodyBeforeDetails = delivered.slice(0, detailsIndex);
+  assert.equal(bodyBeforeDetails.split('\n').some((line) => line.startsWith('Outcome: ')), false, 'a verifier verdict token must not headline the body; the contract collapses it into the report');
+  assert.match(delivered, /^Outcome: BLOCKED$/m);
+  assert.match(delivered, /^Authoritative: no$/m);
   assert.match(delivered, /BEGIN INERT MODEL NARRATIVE/);
+  assert.match(delivered, /END INERT MODEL NARRATIVE/);
   const columnZero = delivered.split('\n').filter((line) => line.length > 0 && !line.startsWith('\u2502'));
   for (const text of ['compatibility response', 'none', 'deterministic']) {
     assert.ok(delivered.includes(text), `kernel text must survive containment: ${text}`);
