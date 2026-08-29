@@ -3,14 +3,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {readStrictJson} from './strict-json.mjs';
+import {parseStrictJsonText} from './strict-json.mjs';
+import {createReadAuthority,scanSecretObjects} from './governed-reader.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const ownRoot=path.resolve(here,'../..');
 const roots=process.argv.slice(2);
 if(roots.length!==3)throw new Error('usage: build-closed-inventory.mjs <pehlichi> <loony-luna> <mad-ptah>');
 const manifestPath=path.join(ownRoot,'trio/governance/boundary-manifest.json');
-const manifest=structuredClone(readStrictJson(manifestPath));
+const governanceRoot=path.dirname(manifestPath);
+const authority=createReadAuthority({root:governanceRoot,secretObjects:scanSecretObjects(governanceRoot)});
+const manifest=structuredClone(parseStrictJsonText(authority.readText(manifestPath)));
 manifest.pathInventory={path:'path-inventory.json',schemaVersion:'1.0.0'};
 manifest.exclusions=manifest.exclusions.filter((x)=>x.path!=='.next'&&x.path!=='coverage');
 for(const rule of manifest.rules){

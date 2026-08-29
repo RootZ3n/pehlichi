@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assessPublication,PUBLICATION_CONTRACT } from './verdict-consistency.mjs';
+import { assessPublication,PUBLICATION_CONTRACT,securityEvidenceRefusal } from './verdict-consistency.mjs';
 import { validateCertification,CERTIFICATION_CONTRACT } from './release-certification.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -119,6 +119,21 @@ test('an unrecognised status is not publishable',()=>{
     const a=ok(r);
     assert.equal(a.ok,false,`status ${String(status)} must not publish`);
   }
+});
+test('a security-blocked verifier result cannot be published',()=>{
+  const r={
+    status:'VERIFIER_SECURITY_BLOCKED',
+    failures:[{failureClass:'SECRET_READ_REFUSED',affectedPath:'trio/runtime-closure.json',details:{category:'credential-object-alias',contentsRead:false}}],
+    summary:{verdict:'VERIFIER_SECURITY_BLOCKED',blockingCount:1,blockingByClass:{SECRET_READ_REFUSED:1},unclassifiedFiles:0,quarantined:0,missingBehaviorFiles:0,contentValidationFailures:0},
+    verifierCertification:{certificationDigest:digest()}
+  };
+  const a=ok(r);
+  assert.equal(a.ok,false);
+  assert.ok(a.problems.some((p)=>p.message==='verifier status is not a publishable outcome'));
+  const refusal=securityEvidenceRefusal(r);
+  assert.deepEqual(Object.keys(refusal).sort(),['category','contentsRead','errorCode','relativePath','status','verifierStatus']);
+  assert.equal(refusal.status,'EVIDENCE_REFUSED');
+  assert.equal(refusal.contentsRead,false);
 });
 test('a result that is not an object fails closed',()=>{
   for(const value of [null,undefined,'PARITY',[],42])assert.equal(assessPublication(value,certification).ok,false);

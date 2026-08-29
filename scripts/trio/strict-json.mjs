@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { UnauthorizedParserAccess } from './governed-reader.mjs';
 
 export const JSON_LIMITS=Object.freeze({maxBytes:1_048_576,maxDepth:32,maxCollectionItems:4096,maxStringLength:65_536});
 export const STRICT_JSON_CONTRACT=Object.freeze({version:'3.0.0',objectPrototype:'null',propertySemantics:'own-data-properties-only',numbers:'RFC-8259 syntax; finite IEEE-754 values including negative zero and finite underflow',unicode:'decoded UTF-16 strings; unpaired surrogate escapes are accepted and preserved',forbiddenKeys:['__proto__','constructor','prototype']});
@@ -31,6 +31,6 @@ export function parseStrictJsonText(text,limits=JSON_LIMITS){
 }
 
 export function readStrictJson(file,limits=JSON_LIMITS){
-  const stat=fs.statSync(file);if(stat.size>limits.maxBytes)throw new StrictJsonError('JSON_SIZE_LIMIT','JSON input exceeds the byte limit',0);
-  return parseStrictJsonText(fs.readFileSync(file,'utf8'),limits);
+  void limits;
+  throw new UnauthorizedParserAccess(String(file));
 }

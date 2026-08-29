@@ -8,7 +8,8 @@ import cp from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {verify,publishedResult,SLOT_NAMES} from './verify-runtime-parity.mjs';
 import {validateCertification} from './release-certification.mjs';
-import {assessPublication,PUBLICATION_CONTRACT} from './verdict-consistency.mjs';
+import {assessPublication,PUBLICATION_CONTRACT,securityEvidenceRefusal} from './verdict-consistency.mjs';
+import {createReadAuthority,scanSecretObjects,SymlinkContainmentRefused} from './governed-reader.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url)),ownRoot=path.resolve(here,'../..');
 const sha256=(data)=>crypto.createHash('sha256').update(data).digest('hex');
@@ -21,7 +22,12 @@ const preflight=run('vulnerable-six-reproduction.test.mjs');const hostile=run('v
 const scaffolding=run('scaffolding.test.mjs');const mutation=run('mutation.test.mjs');const credential=run('credential-nonread.test.mjs');const truthIdentity=run('truth-identity.test.mjs');const certificationSuite=run('certification.test.mjs');
 const certification=validateCertification();
 const parity=publishedResult(verify({slots:args.slots,manifestPath:path.join(ownRoot,'trio/governance/boundary-manifest.json')}));
-const verificationSummary=args.verificationSummaryPath?JSON.parse(fs.readFileSync(path.resolve(args.verificationSummaryPath),'utf8')):null;
+const securityRefusal=securityEvidenceRefusal(parity);
+if(securityRefusal){
+  process.stdout.write(JSON.stringify(securityRefusal,null,2)+'\n');
+  process.exit(1);
+}
+let verificationSummary=null;if(args.verificationSummaryPath){const summaryPath=path.resolve(args.verificationSummaryPath);for(const root of Object.values(args.slots)){const real=fs.realpathSync(root);if(summaryPath===real||summaryPath.startsWith(real+path.sep))throw new SymlinkContainmentRefused(path.relative(real,summaryPath).split(path.sep).join('/'),'external-evidence-required');}const summaryRoot=path.dirname(summaryPath);const summaryAuthority=createReadAuthority({root:summaryRoot,secretObjects:scanSecretObjects(summaryRoot)});verificationSummary=JSON.parse(summaryAuthority.readText(summaryPath));}
 const supportingSuites=[preflight,hostile,strict,schemas,scaffolding,mutation,credential,truthIdentity,certificationSuite];
 const publicationAssessment=assessPublication(parity,certification,supportingSuites);
 const artifactData={
@@ -74,9 +80,10 @@ const report=[
   ''
 ].join('\n');artifactData['TRIO-001D-IMPLEMENTATION-REPORT.md']=report;
 for(const [name,data] of Object.entries(artifactData))fs.writeFileSync(path.join(outputDir,name),data,{flag:'wx',mode:0o600});
-const artifacts=Object.keys(artifactData).sort().map((name)=>{const file=path.join(outputDir,name),data=fs.readFileSync(file);return {path:file,length:data.length,sha256:sha256(data)};});
+const outputAuthority=createReadAuthority({root:outputDir,secretObjects:scanSecretObjects(outputDir)});
+const artifacts=Object.keys(artifactData).sort().map((name)=>{const file=path.join(outputDir,name),data=outputAuthority.read(file);return {path:file,length:data.length,sha256:sha256(data)};});
 const snapshots=(parity.repositoryIdentities??[]).map((x)=>({agent:x.agent,canonicalRealpath:x.canonicalRealpath,head:x.head,branch:x.branch,dirty:x.dirty,behavioralEnvelopeDigest:x.behavioralEnvelopeDigest}));
-const evidenceManifest={schemaVersion:'1.0.0',outputDirectory:outputDir,observedRepositorySnapshots:snapshots,artifacts,selfHashPolicy:'The manifest cannot recursively contain its own final digest. Its path and byte identity are reported by the command output and must be hashed externally after generation.'};const manifestPath=path.join(outputDir,'TRIO-001D-EVIDENCE-MANIFEST.json');fs.writeFileSync(manifestPath,JSON.stringify(evidenceManifest,null,2)+'\n',{flag:'wx',mode:0o600});const manifestData=fs.readFileSync(manifestPath);
+const evidenceManifest={schemaVersion:'1.0.0',outputDirectory:outputDir,observedRepositorySnapshots:snapshots,artifacts,selfHashPolicy:'The manifest cannot recursively contain its own final digest. Its path and byte identity are reported by the command output and must be hashed externally after generation.'};const manifestPath=path.join(outputDir,'TRIO-001D-EVIDENCE-MANIFEST.json');fs.writeFileSync(manifestPath,JSON.stringify(evidenceManifest,null,2)+'\n',{flag:'wx',mode:0o600});const manifestData=outputAuthority.read(manifestPath);
 process.stdout.write(JSON.stringify({status:'EVIDENCE_WRITTEN',outputDirectory:outputDir,artifacts:[...artifacts,{path:manifestPath,length:manifestData.length,sha256:sha256(manifestData)}],observedRepositorySnapshots:snapshots},null,2)+'\n');
 // Success is internal consistency, not a hardcoded expected verdict. The previous form of
 // this line asserted VERIFIER_OK_DIVERGENCE, so it reported failure the moment the trio

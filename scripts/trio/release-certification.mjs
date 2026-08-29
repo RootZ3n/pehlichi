@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createReadAuthority,isSecurityBoundaryError,scanSecretObjects } from './governed-reader.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,26 +86,27 @@ function framedTree(entries){
   return `sha256:${hash.digest('hex')}`;
 }
 
-function collect(root,relatives,trees=[]){
+const authorityFor=(root)=>createReadAuthority({root,secretObjects:scanSecretObjects(root)});
+function collect(root,relatives,trees=[],authority=authorityFor(root)){
   const entries=[];
-  for(const rel of relatives)entries.push({key:rel,bytes:fs.readFileSync(path.join(root,rel))});
+  for(const rel of relatives)entries.push({key:rel,bytes:authority.read(path.join(root,rel))});
   const visit=(dir,base)=>{
     for(const name of fs.readdirSync(dir).sort()){
       const full=path.join(dir,name);const rel=`${base}/${name}`;
       const stat=fs.lstatSync(full);
       if(stat.isDirectory())visit(full,rel);
-      else if(stat.isFile())entries.push({key:rel,bytes:fs.readFileSync(full)});
+      else if(stat.isFile())entries.push({key:rel,bytes:authority.read(full)});
     }
   };
   for(const tree of trees){const full=path.join(root,tree);if(fs.existsSync(full))visit(full,tree);}
   return entries;
 }
 
-export function computeImplementationDigest(root=here){
-  return framedTree(collect(root,CERTIFICATION_CONTRACT.implementationFiles));
+export function computeImplementationDigest(root=here,authority=authorityFor(root)){
+  return framedTree(collect(root,CERTIFICATION_CONTRACT.implementationFiles,[],authority));
 }
-export function computeFixtureDigest(root=here){
-  return framedTree(collect(root,CERTIFICATION_CONTRACT.fixtureFiles,CERTIFICATION_CONTRACT.fixtureTrees));
+export function computeFixtureDigest(root=here,authority=authorityFor(root)){
+  return framedTree(collect(root,CERTIFICATION_CONTRACT.fixtureFiles,CERTIFICATION_CONTRACT.fixtureTrees,authority));
 }
 
 /**
@@ -113,13 +115,14 @@ export function computeFixtureDigest(root=here){
  * Pure and cheap: two digests and a shape check. No test process is started.
  */
 export function validateCertification(root=here){
+  const authority=authorityFor(root);
   const artifactPath=path.join(root,CERTIFICATION_CONTRACT.artifact);
   let artifact;
-  try{artifact=JSON.parse(fs.readFileSync(artifactPath,'utf8'));}
-  catch(error){return {ok:false,problems:[{message:`verifier certification artifact is missing or unreadable: ${error.message}`}]};}
+  try{artifact=JSON.parse(authority.readText(artifactPath));}
+  catch(error){if(isSecurityBoundaryError(error))throw error;return {ok:false,problems:[{message:`verifier certification artifact is missing or unreadable: ${error.message}`}]};}
   const problems=[];
-  const implementationDigest=computeImplementationDigest(root);
-  const fixtureDigest=computeFixtureDigest(root);
+  const implementationDigest=computeImplementationDigest(root,authority);
+  const fixtureDigest=computeFixtureDigest(root,authority);
   if(artifact.contractVersion!==CERTIFICATION_CONTRACT.version)problems.push({message:'certification artifact uses a different certification contract',expected:CERTIFICATION_CONTRACT.version,actual:artifact.contractVersion??null});
   if(artifact.implementationDigest!==implementationDigest)problems.push({message:'the running verifier implementation is not the certified one',certified:artifact.implementationDigest??null,running:implementationDigest});
   if(artifact.fixtureDigest!==fixtureDigest)problems.push({message:'the fixture set is not the certified one',certified:artifact.fixtureDigest??null,running:fixtureDigest});

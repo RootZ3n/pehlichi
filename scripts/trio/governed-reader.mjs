@@ -16,9 +16,10 @@
  *
  * Two rules make this a boundary rather than a suggestion:
  *
- *   1. Nothing reads except through `read`/`readText`, which authorize first. A refusal is
- *      raised before any descriptor exists, so a refused object is never opened at all.
- *   2. `SecretReadRefused` must reach the caller. It is deliberately not an ordinary I/O
+ *   1. Nothing reads except through `read`/`readText`. Path and known-object refusals happen
+ *      before open; race checks open one no-follow descriptor, verify it, and read zero bytes
+ *      on refusal. Authorization and content therefore always concern the same object.
+ *   2. The security-error family must reach the caller. It is deliberately not ordinary I/O,
  *      error, because the bug being fixed was an ordinary I/O error being caught and turned
  *      into `null`. Callers that tolerate missing files must re-throw this one.
  *
@@ -31,24 +32,30 @@ import path from 'node:path';
 import { classifySecretPath } from './secret-path-policy.mjs';
 
 export const READ_AUTHORITY_CONTRACT=Object.freeze({
-  version:'1.0.0',
-  decision:'explicit-allow-before-open',
+  version:'2.0.0',
+  decision:'path-policy-then-single-descriptor',
   identity:'device-and-inode',
   aliasesCovered:Object.freeze(['hard-link','symlink','path-traversal-spelling','overlapping-inventory-entry','agent-owned-introduction']),
   orderIndependent:true
 });
 
-/** A refused read. Not an I/O error: it must not be mistaken for an absent optional file. */
-export class SecretReadRefused extends Error{
-  constructor(relativePath,reason){
-    super(`credential-bearing object refused before open: ${relativePath} (${reason})`);
-    this.name='SecretReadRefused';
-    this.code='SECRET_READ_REFUSED';
+export class VerifierSecurityError extends Error{
+  constructor(code,relativePath,category){
+    super(`verifier security boundary refused ${relativePath}: ${category}`);
+    this.name='VerifierSecurityError';
+    this.code=code;
     this.relativePath=relativePath;
-    this.reason=reason;
+    this.category=category;
+    this.contentsRead=false;
   }
 }
-export const isSecretReadRefused=(error)=>error instanceof SecretReadRefused||error?.code==='SECRET_READ_REFUSED';
+export class SecretReadRefused extends VerifierSecurityError{constructor(p,c='secret-object'){super('SECRET_READ_REFUSED',p,c);this.name='SecretReadRefused';}}
+export class FilesystemIdentityChanged extends VerifierSecurityError{constructor(p){super('FILESYSTEM_IDENTITY_CHANGED',p,'filesystem-identity-changed');this.name='FilesystemIdentityChanged';}}
+export class SymlinkContainmentRefused extends VerifierSecurityError{constructor(p,c='symlink-or-containment-refused'){super('SYMLINK_CONTAINMENT_REFUSED',p,c);this.name='SymlinkContainmentRefused';}}
+export class UnauthorizedParserAccess extends VerifierSecurityError{constructor(p){super('UNAUTHORIZED_PARSER_ACCESS',p,'parser-path-open-refused');this.name='UnauthorizedParserAccess';}}
+export class TrappedForbiddenRead extends VerifierSecurityError{constructor(p){super('TRAPPED_FORBIDDEN_READ',p,'trapped-forbidden-read');this.name='TrappedForbiddenRead';}}
+export const isSecurityBoundaryError=(error)=>error instanceof VerifierSecurityError||['SECRET_READ_REFUSED','FILESYSTEM_IDENTITY_CHANGED','SYMLINK_CONTAINMENT_REFUSED','UNAUTHORIZED_PARSER_ACCESS','TRAPPED_FORBIDDEN_READ','FORBIDDEN_CREDENTIAL_READ'].includes(error?.code);
+export const isSecretReadRefused=isSecurityBoundaryError;
 
 const identityOf=(stat)=>`${stat.dev}:${stat.ino}`;
 
@@ -100,36 +107,54 @@ export function scanSecretObjects(root,{exclusions=[],declaredPaths=[]}={}){
  * decision covers both. Every refusal is recorded so a caller can report that the boundary
  * engaged without having to reconstruct it.
  */
-export function createReadAuthority({root,secretObjects}){
+export function createReadAuthority({root,secretObjects,hooks={}}){
+  const rootReal=fs.realpathSync(root);
   const refusals=[];
   const relativeOf=(file)=>{
-    const rel=path.relative(root,file);
+    const rel=path.relative(rootReal,path.resolve(file));
     return rel===''||rel.startsWith('..')||path.isAbsolute(rel)?file:rel.split(path.sep).join('/');
   };
+  function refuse(ErrorType,rel,category){const error=new ErrorType(rel,category);refusals.push({path:rel,category:error.category,contentsRead:false});throw error;}
   function authorize(file){
     const rel=relativeOf(file);
+    if(path.isAbsolute(rel)||rel===''||rel.startsWith('../'))refuse(SymlinkContainmentRefused,rel,'repository-containment-refused');
     // Path policy first: it needs no filesystem call and catches a declared secret even if
     // the object vanished between the scan and now.
     const byPath=classifySecretPath(rel);
     if(byPath.secret){
-      const refusal={path:rel,reason:byPath.reason};refusals.push(refusal);
-      throw new SecretReadRefused(rel,byPath.reason);
+      refuse(SecretReadRefused,rel,'secret-path');
     }
     let stat;
     try{stat=fs.lstatSync(file);}catch{return {allow:true,path:rel};}
     if(secretObjects.identities.has(identityOf(stat))){
-      const refusal={path:rel,reason:'alias of a credential-bearing object'};refusals.push(refusal);
-      throw new SecretReadRefused(rel,refusal.reason);
+      refuse(SecretReadRefused,rel,'secret-object-alias');
     }
     if(stat.isSymbolicLink()){
       let target;
       try{target=fs.statSync(file);}catch{return {allow:true,path:rel};}
       if(secretObjects.identities.has(identityOf(target))){
-        const refusal={path:rel,reason:'symlink to a credential-bearing object'};refusals.push(refusal);
-        throw new SecretReadRefused(rel,refusal.reason);
+        refuse(SecretReadRefused,rel,'secret-object-symlink');
       }
+      refuse(SymlinkContainmentRefused,rel,'symlink-refused');
     }
-    return {allow:true,path:rel};
+    if(!stat.isFile())refuse(SymlinkContainmentRefused,rel,'regular-file-required');
+    return {allow:true,path:rel,stat};
+  }
+  function read(file,encoding){
+    const decision=authorize(file);hooks.afterMetadata?.(file,decision);
+    let fd;
+    try{
+      try{fd=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));}
+      catch(error){if(error?.code==='ELOOP')refuse(SymlinkContainmentRefused,decision.path,'symlink-substitution');throw error;}
+      hooks.afterOpen?.(file,fd,decision);
+      const opened=fs.fstatSync(fd);
+      if(!opened.isFile())refuse(SymlinkContainmentRefused,decision.path,'regular-file-required');
+      if(!decision.stat||opened.dev!==decision.stat.dev||opened.ino!==decision.stat.ino)refuse(FilesystemIdentityChanged,decision.path);
+      if(secretObjects.identities.has(identityOf(opened)))refuse(SecretReadRefused,decision.path,'secret-object-alias');
+      hooks.beforeRead?.(file,fd,decision);
+      return fs.readFileSync(fd,encoding);
+    }catch(error){if(error?.code==='FORBIDDEN_CREDENTIAL_READ')throw new TrappedForbiddenRead(decision.path);throw error;}
+    finally{if(fd!==undefined)try{fs.closeSync(fd);}catch{}}
   }
   return {
     contract:READ_AUTHORITY_CONTRACT,
@@ -137,9 +162,9 @@ export function createReadAuthority({root,secretObjects}){
     refusals,
     authorize,
     /** The only sanctioned way for verifier code to obtain file bytes. */
-    read(file){authorize(file);return fs.readFileSync(file);},
-    readText(file){authorize(file);return fs.readFileSync(file,'utf8');},
+    read(file){return read(file,undefined);},
+    readText(file){return read(file,'utf8');},
     /** True when the object may be read; never swallows a refusal into a silent false. */
-    permits(file){try{authorize(file);return true;}catch(error){if(isSecretReadRefused(error))return false;throw error;}}
+    permits(file){try{authorize(file);return true;}catch(error){if(isSecurityBoundaryError(error))return false;throw error;}}
   };
 }

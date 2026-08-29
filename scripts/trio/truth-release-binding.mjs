@@ -22,6 +22,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createReadAuthority,isSecurityBoundaryError,scanSecretObjects } from './governed-reader.mjs';
 
 export const TRUTH_BINDING_CONTRACT=Object.freeze({
   version:'1.0.0',
@@ -35,17 +36,16 @@ export const TRUTH_BINDING_CONTRACT=Object.freeze({
 
 const MEASURED=/\.(?:js|cjs|mjs|json|node)$/;
 
-function hashFile(file){
+function hashFile(file,authority){
   const hash=crypto.createHash('sha256');
-  const fd=fs.openSync(file,'r');
-  const buf=Buffer.allocUnsafe(1024*1024);
-  try{for(;;){const n=fs.readSync(fd,buf,0,buf.length,null);if(n===0)break;hash.update(buf.subarray(0,n));}}finally{fs.closeSync(fd);}
+  hash.update(authority.read(file));
   return hash.digest('hex');
 }
 
 /** Recompute a staged release's package closure. Mirrors the release protocol exactly. */
 export function measurePackageClosure(packageRoot){
   const root=fs.realpathSync(packageRoot);
+  const authority=createReadAuthority({root,secretObjects:scanSecretObjects(root)});
   const selected=[path.join(root,'package.json')];
   const collect=(dir)=>{
     let names;
@@ -71,7 +71,7 @@ export function measurePackageClosure(packageRoot){
     .map((p)=>({path:p,key:path.relative(root,p).split(path.sep).join('/')}))
     .sort((a,b)=>(a.key<b.key?-1:a.key>b.key?1:0));
   const digest=crypto.createHash('sha256');
-  for(const {path:file,key} of unique){digest.update(key);digest.update('\0');digest.update(hashFile(file));digest.update('\n');}
+  for(const {path:file,key} of unique){digest.update(key);digest.update('\0');digest.update(hashFile(file,authority));digest.update('\n');}
   return {sha256:digest.digest('hex'),fileCount:unique.length};
 }
 
@@ -84,7 +84,9 @@ export function measurePackageClosure(packageRoot){
  */
 export function resolveActivatedRelease(wrapperPath){
   const real=fs.realpathSync(wrapperPath);
-  const text=fs.readFileSync(real,'utf8');
+  const wrapperRoot=path.dirname(real);
+  const authority=createReadAuthority({root:wrapperRoot,secretObjects:scanSecretObjects(wrapperRoot)});
+  const text=authority.readText(real);
   const match=text.match(/exec\s+node\s+'([^']+)'|exec\s+node\s+"([^"]+)"|exec\s+node\s+(\S+)/);
   if(!match)return {ok:false,reason:'activation wrapper does not name a Node entrypoint'};
   const entry=match[1]??match[2]??match[3];
@@ -116,13 +118,13 @@ export function verifyTruthRelease(declaration){
 
   let resolved;
   try{resolved=resolveActivatedRelease(declaration.activationWrapper);}
-  catch(error){return {ok:false,problems:[{message:`activation wrapper is unreadable: ${error.message}`,wrapper:declaration.activationWrapper}]};}
+  catch(error){if(isSecurityBoundaryError(error))throw error;return {ok:false,problems:[{message:`activation wrapper is unreadable: ${error.message}`,wrapper:declaration.activationWrapper}]};}
   if(!resolved.ok)return {ok:false,problems:[{message:resolved.reason,wrapper:declaration.activationWrapper}]};
 
   let manifest;
   const manifestPath=path.join(resolved.releaseRoot,'release-manifest.json');
-  try{manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));}
-  catch(error){return {ok:false,problems:[{message:`activated release manifest is unreadable: ${error.message}`,releaseRoot:resolved.releaseRoot}]};}
+  try{const authority=createReadAuthority({root:resolved.releaseRoot,secretObjects:scanSecretObjects(resolved.releaseRoot)});manifest=JSON.parse(authority.readText(manifestPath));}
+  catch(error){if(isSecurityBoundaryError(error))throw error;return {ok:false,problems:[{message:`activated release manifest is unreadable: ${error.message}`,releaseRoot:resolved.releaseRoot}]};}
 
   need(manifest.protocol===TRUTH_BINDING_CONTRACT.closureProtocol,'activated release uses an unexpected manifest protocol',{expected:TRUTH_BINDING_CONTRACT.closureProtocol,actual:manifest.protocol});
   need(manifest.releaseId===declaration.releaseId,'the activated release is not the pinned release',{pinned:declaration.releaseId,activated:manifest.releaseId});
@@ -134,7 +136,7 @@ export function verifyTruthRelease(declaration){
   // The manifest's own numbers are a claim by the thing being checked. Recompute them.
   let measured;
   try{measured=measurePackageClosure(resolved.releaseRoot);}
-  catch(error){return {ok:false,problems:[{message:`activated release closure could not be measured: ${error.message}`,releaseRoot:resolved.releaseRoot}]};}
+  catch(error){if(isSecurityBoundaryError(error))throw error;return {ok:false,problems:[{message:`activated release closure could not be measured: ${error.message}`,releaseRoot:resolved.releaseRoot}]};}
   need(measured.sha256===declaration.packageClosureSha256,'the measured closure of the activated release does not match the pinned digest',{pinned:declaration.packageClosureSha256,measured:measured.sha256});
   need(measured.fileCount===declaration.packageClosureFileCount,'the measured closure of the activated release does not have the pinned file count',{pinned:declaration.packageClosureFileCount,measured:measured.fileCount});
 

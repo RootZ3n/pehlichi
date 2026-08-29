@@ -18,10 +18,11 @@ import path from 'node:path';
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { verify,SLOT_NAMES } from './verify-runtime-parity.mjs';
-import { readStrictJson } from './strict-json.mjs';
+import { parseStrictJsonText } from './strict-json.mjs';
 import { classifySecretPath } from './secret-path-policy.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));const projectRoot=path.resolve(here,'../..');
+const readStrictJson=(file)=>parseStrictJsonText(fs.readFileSync(file,'utf8'));
 const write=(p,s,mode)=>{fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,s);if(mode!==undefined)fs.chmodSync(p,mode);};
 const git=(root,args)=>cp.execFileSync('git',args,{cwd:root,stdio:'ignore'});
 const capsule=(id)=>({$schema:'../schemas/capsule.schema.json',schemaVersion:'1.1.0',status:'characterization',identity:{id,displayName:id,role:'fixture'},personalityRef:`personality/${id}.yaml`,skills:[],capabilityPacks:{requested:[],inactive:[]},routingPreferences:[],modelDefaults:{providerRef:'fixture',model:'fixture'},memoryNamespace:id,branding:{themeRef:'tui/skin.yaml',icon:'x',welcomeRef:`personality/${id}.yaml`},completion:{criteriaRefs:[],reportFormatRefs:[]}});

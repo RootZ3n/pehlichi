@@ -5,10 +5,10 @@ import crypto from 'node:crypto';
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSchemaValidator,SCHEMA_VALIDATOR } from './schema-validation.mjs';
-import { readStrictJson,parseStrictJsonText,StrictJsonError } from './strict-json.mjs';
+import { parseStrictJsonText,StrictJsonError } from './strict-json.mjs';
 import { AGENT_OWNED_UI_CLASS,AGENT_OWNED_CONTENT_CLASS,AGENT_OWNED_CLASSES,verifyAgentOwnedUi,verifyAgentOwnedUiRule,verifyAgentOwnedNotImportedByShared,verifyAgentOwnedHasNoPortableRoleLogic } from './agent-owned-ui.mjs';
 import { classifySecretPath,secretModeProblems,SECRET_PATH_POLICY_VERSION } from './secret-path-policy.mjs';
-import { scanSecretObjects,createReadAuthority,isSecretReadRefused,READ_AUTHORITY_CONTRACT } from './governed-reader.mjs';
+import { scanSecretObjects,createReadAuthority,isSecurityBoundaryError,READ_AUTHORITY_CONTRACT } from './governed-reader.mjs';
 import { verifyTruthRelease,TRUTH_BINDING_CONTRACT } from './truth-release-binding.mjs';
 import { validateCertification,CERTIFICATION_CONTRACT } from './release-certification.mjs';
 
@@ -34,7 +34,7 @@ const safeText=(value)=>String(value).replace(/[\p{Cc}\p{Cf}\p{Cs}|=]/gu,(c)=>`\
 const safeValue=(value)=>Array.isArray(value)?value.map(safeValue):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).map((key)=>[safeText(key),safeValue(value[key])])):typeof value==='string'?safeText(value):value;
 
 function failure(failureClass,message,agent=null,affectedPath=null,details={}){return {failureClass,message:safeText(message),agent,affectedPath:affectedPath===null?null:safeText(affectedPath),details:safeValue(details)};}
-function invalidResult(status,failures,metadata={}){return {schemaVersion:'3.0.0',status,generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,summary:{verdict:'VERIFIER_ERROR',blockingCount:failures.length},failures,...safeValue(metadata)};}
+function invalidResult(status,failures,metadata={}){return {schemaVersion:'3.0.0',status,generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,summary:{verdict:status==='VERIFIER_SECURITY_BLOCKED'?'VERIFIER_SECURITY_BLOCKED':'VERIFIER_ERROR',blockingCount:failures.length},failures,...safeValue(metadata)};}
 
 export function validateRelativePath(value,{allowDirectory=true}={}){
   const errors=[];if(typeof value!=='string'||value.length===0)return ['path must be a nonempty string'];
@@ -195,21 +195,8 @@ function classifyRepository(slot,root,manifest,inventory,schemaValidator,authori
     if(file.kind==='invalid-path'){rejected.push({path:safeText(file.path),classification:'rejected-invalid-path',fileType:'unknown',mode:null,byteLength:null,byteDigest:null,reason:file.pathErrors.map(safeText)});for(const e of file.pathErrors)failures.push(failure('PATH_AMBIGUITY',e,slot,file.path));continue;}
     if(file.kind==='case-collision'){rejected.push({path:safeText(file.path),classification:'rejected-case-collision',fileType:'unknown',mode:null,byteLength:null,byteDigest:null,other:safeText(file.other)});failures.push(failure('CASE_CONFUSABLE_PATH','Repository contains case-fold-confusable paths',slot,file.path,{other:safeText(file.other)}));continue;}
     if(file.kind==='symlink'){
-      const symlinkFull=path.join(rootReal,...file.path.split('/'));
-      if(!authority.permits(symlinkFull)){rejected.push({path:safeText(file.path),classification:'rejected-credential-alias',fileType:'symlink',mode:null,byteLength:null,byteDigest:null,secretPathExcluded:true});failures.push(failure('SECRET_ALIAS_REJECTED','Governed path is a symlink to a credential-bearing object',slot,file.path));failures.push(failure('SYMLINK_REJECTED','In-scope or exclusion-boundary symlink rejected',slot,file.path));continue;}
       const item={agent:slot,path:safeText(file.path),target:safeText(file.target),excluded:file.excluded};symlinks.push(item);rejected.push({path:item.path,classification:'rejected-symlink',fileType:'symlink',mode:file.mode,byteLength:Buffer.byteLength(file.target),byteDigest:`sha256:${sha256(file.target)}`,target:item.target});failures.push(failure('SYMLINK_REJECTED','In-scope or exclusion-boundary symlink rejected',slot,file.path));continue;}
     if(file.kind==='hardlink'){
-      // Authorize before opening. Multiple links are already a rejection, so when one of them
-      // aliases a credential the digest is simply not taken -- refusing to learn it is the
-      // whole point, and the rejection stands on the link count alone.
-      let aliasOfSecret=false;
-      try{authority.authorize(file.full);}catch(error){if(!isSecretReadRefused(error))throw error;aliasOfSecret=true;}
-      if(aliasOfSecret){
-        rejected.push({path:file.path,classification:'rejected-credential-alias',fileType:'hardlink',mode:null,byteLength:null,byteDigest:null,secretPathExcluded:true});
-        failures.push(failure('SECRET_ALIAS_REJECTED','Governed path is a hard-linked alias of a credential-bearing object',slot,file.path));
-        failures.push(failure('HARDLINK_REJECTED','Governed regular file has multiple hard links',slot,file.path));
-        continue;
-      }
       const buffer=authority.read(file.full);rejected.push({path:file.path,classification:'rejected-hardlink',fileType:'hardlink',mode:file.mode,byteLength:buffer.length,byteDigest:`sha256:${sha256(buffer)}`});failures.push(failure('HARDLINK_REJECTED','Governed regular file has multiple hard links',slot,file.path));continue;}
     if(file.kind!=='file'){rejected.push({path:file.path,classification:'rejected-special',fileType:file.kind,mode:file.mode,byteLength:null,byteDigest:null});failures.push(failure('FILE_TYPE','Non-regular governed filesystem entry',slot,file.path));continue;}
     // Decide secrecy from the path before a descriptor exists. Everything below this line
@@ -246,7 +233,7 @@ function classifyRepository(slot,root,manifest,inventory,schemaValidator,authori
     }catch(error){
       // A refusal is a security decision, not a validation hiccup: it must not be folded into
       // this record and it must not be re-read "just to get a digest".
-      if(isSecretReadRefused(error))throw error;
+      if(isSecurityBoundaryError(error))throw error;
       const buffer=authority.read(file.full);
       content={errors:[error.message],buffer,exec:executableContent(file.path,buffer,file.stat.mode)};
     }
@@ -278,9 +265,9 @@ function identityPreflight(slots,manifest,schemaValidator,makeAuthority){
       if(realpaths.has(real))failures.push(failure('DUPLICATE_REPOSITORY','Two labeled slots resolve to the same canonical repository',slot,null,{otherAgent:realpaths.get(real)}));else realpaths.set(real,slot);
       const spec=manifest.repositories[slot];if(path.basename(real)!==spec.expectedRepositoryName)failures.push(failure('REPOSITORY_NAME_MISMATCH','Canonical repository directory name does not match the labeled slot',slot));
       let remote;try{remote=normalizeRemote(git(real,['remote','get-url','origin']));}catch{throw new Error('Git origin remote is missing or unreadable');}if(remote!==spec.remoteIdentity)failures.push(failure('REMOTE_IDENTITY_MISMATCH','Git origin does not match the expected stable identity',slot,null,{expected:spec.remoteIdentity,actual:safeText(remote)}));
-      for(const [packagePath,expected] of Object.entries(spec.packageNames)){try{const p=parseStrictJsonText(authority.readText(path.join(real,packagePath)));if(p.name!==expected)failures.push(failure('PACKAGE_IDENTITY_MISMATCH','Package identity does not match the labeled slot',slot,packagePath,{expected,actual:safeText(p.name)}));}catch(error){failures.push(failure('PACKAGE_IDENTITY_MISMATCH',error.message,slot,packagePath));}}
+      for(const [packagePath,expected] of Object.entries(spec.packageNames)){try{const p=parseStrictJsonText(authority.readText(path.join(real,packagePath)));if(p.name!==expected)failures.push(failure('PACKAGE_IDENTITY_MISMATCH','Package identity does not match the labeled slot',slot,packagePath,{expected,actual:safeText(p.name)}));}catch(error){if(isSecurityBoundaryError(error))throw error;failures.push(failure('PACKAGE_IDENTITY_MISMATCH',error.message,slot,packagePath));}}
       const capsule=schemaValidator.parseText('capsule',authority.readText(path.join(real,spec.capsulePath)));if(!capsule.ok)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Expected capsule is missing or schema-invalid',slot,spec.capsulePath,{errors:capsule.errors}));else if(capsule.value.identity.id!==spec.capsuleIdentity)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Capsule identity does not match the labeled slot',slot,spec.capsulePath,{expected:spec.capsuleIdentity,actual:safeText(capsule.value.identity.id)}));
-    }catch(error){failures.push(failure('MALFORMED_REPOSITORY',error.message,slot));}
+    }catch(error){if(isSecurityBoundaryError(error))throw error;failures.push(failure('MALFORMED_REPOSITORY',error.message,slot));}
   }
   return {resolved,failures};
 }
@@ -369,7 +356,7 @@ function compare(repositories,manifest,inventory,manifestDigest){
       // Was `catch{}`: a refusal here would have vanished entirely. Only genuine absence is
       // tolerated; a credential refusal propagates.
       try{sharedSourceText+='\n'+repo.authority.readText(path.join(repo.root,...rel.split('/')));}
-      catch(error){if(isSecretReadRefused(error))throw error;}
+      catch(error){if(isSecurityBoundaryError(error))throw error;}
     }
   }
   for(const rule of manifest.rules.filter((r)=>AGENT_OWNED_CLASSES.has(r.class))){
@@ -384,7 +371,7 @@ function compare(repositories,manifest,inventory,manifestDigest){
       // verification carried on to publish PARITY.
       const read=(rel)=>{
         try{return repo.authority.readText(path.join(repo.root,...rel.split('/')));}
-        catch(error){if(isSecretReadRefused(error))throw error;return null;}
+        catch(error){if(isSecurityBoundaryError(error))throw error;return null;}
       };
       for(const f of verifyAgentOwnedUi({slot:repo.slot,rule,paths,read,sharedContracts}))
         failures.push(failure(f.failureClass,f.message,f.agent,f.affectedPath,f.details));
@@ -423,8 +410,8 @@ function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
     for(const slot of SLOT_NAMES){
       const root=resolved[slot];if(!root)continue;
       let closure,systemA;
-      try{closure=readStrictJson(path.join(root,'trio/runtime-closure.json'));}catch{closure=null;}
-      try{systemA=readStrictJson(path.join(root,'trio/path-inventory.json'));}catch{systemA=null;}
+      try{closure=parseStrictJsonText(authorityFor(slot).readText(path.join(root,'trio/runtime-closure.json')));}catch(error){if(isSecurityBoundaryError(error))throw error;closure=null;}
+      try{systemA=parseStrictJsonText(authorityFor(slot).readText(path.join(root,'trio/path-inventory.json')));}catch(error){if(isSecurityBoundaryError(error))throw error;systemA=null;}
       const governedSets=[];
       if(closure)governedSets.push(closure.entryPoints??[],closure.governedCommon??[],closure.configurationData??[],closure.spawnedRuntimeFiles??[],closure.generatedRuntime?.governedCommon??[]);
       if(systemA)governedSets.push(systemA.sharedFiles??[],systemA.configurationData??[]);
@@ -452,7 +439,7 @@ function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
         // reachability question does not need its bytes: a credential cannot legitimately be
         // the thing that reaches an owner-scoped tree.
         if(record.secretPathExcluded===true||classifySecretPath(record.path).secret)continue;
-        let text;try{text=authorityFor(owner).readText(path.join(ownerRoot,...record.path.split('/')));}catch(error){if(isSecretReadRefused(error))throw error;continue;}
+        let text;try{text=authorityFor(owner).readText(path.join(ownerRoot,...record.path.split('/')));}catch(error){if(isSecurityBoundaryError(error))throw error;continue;}
         // Path-shaped references only. Prose that happens to contain the directory's name is
         // not reachability, but a quoted segment or a path prefix is how the tree would
         // actually be reached -- `join(root, 'memories')` must fire, "fond memories" must not.
@@ -470,22 +457,22 @@ function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
 
     // (d) no package hook may name it
     try{
-      const pkg=readStrictJson(path.join(ownerRoot,'package.json'));
+      const pkg=parseStrictJsonText(authorityFor(owner).readText(path.join(ownerRoot,'package.json')));
       for(const [name,body] of Object.entries(pkg.scripts??{}))if(typeof body==='string'&&body.includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PACKAGE_HOOK','A package script invokes an owner-scoped tree',owner,`scripts.${safeText(name)}`,{rule:rule.id}));
       for(const field of ['main','module','types','browser','bin','exports'])if(JSON.stringify(pkg[field]??null).includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PACKAGE_HOOK','A package entrypoint field names an owner-scoped tree',owner,field,{rule:rule.id}));
-    }catch{/* package identity is already validated in the identity preflight */}
+    }catch(error){if(isSecurityBoundaryError(error))throw error;/* package identity is already validated in the identity preflight */}
 
     // (e) the capsule may not load it as model-facing data
     try{
       const capsuleText=authorityFor(owner).readText(path.join(ownerRoot,manifest.repositories[owner].capsulePath));
       if(capsuleText.includes(rule.selector.directory))failures.push(failure('OWNER_SCOPE_PROMPT_LOAD','A capsule loads an owner-scoped tree as model-facing data',owner,manifest.repositories[owner].capsulePath,{rule:rule.id}));
-    }catch{/* capsule validity is asserted in the identity preflight */}
+    }catch(error){if(isSecurityBoundaryError(error))throw error;/* capsule validity is asserted in the identity preflight */}
 
     // (f) the declared tree digest must equal what is on disk
     const hash=crypto.createHash('sha256');
     for(const rel of [...members].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)))){
       if(classifySecretPath(rel).secret)continue;
-      let bytes;try{bytes=authorityFor(owner).read(path.join(ownerRoot,rel));}catch(error){if(isSecretReadRefused(error))throw error;continue;}
+      let bytes;try{bytes=authorityFor(owner).read(path.join(ownerRoot,rel));}catch(error){if(isSecurityBoundaryError(error))throw error;continue;}
       hash.update(`file:${Buffer.byteLength(rel)}:`).update(rel).update(`:${bytes.length}:`).update(bytes);
     }
     const measured=`sha256:${hash.digest('hex')}`;
@@ -497,10 +484,10 @@ function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
 export function verify({slots,manifestPath}){
   try{
     if(!manifestPath)return invalidResult('INVALID_INPUT',[failure('MISSING_MANIFEST','A boundary manifest path is required')]);
-    const manifestReal=fs.realpathSync(manifestPath);const schemaDir=path.join(path.dirname(manifestReal),'schemas');const schemaValidator=createSchemaValidator(schemaDir);const manifestValidation=schemaValidator.validateFile('boundary',manifestReal);
+    const manifestReal=path.resolve(manifestPath);const governanceRoot=path.dirname(manifestReal);const governanceAuthority=createReadAuthority({root:governanceRoot,secretObjects:scanSecretObjects(governanceRoot)});const manifestBytes=governanceAuthority.read(manifestReal);const schemaDir=path.join(governanceRoot,'schemas');const schemaValidator=createSchemaValidator(schemaDir,{readText:(file)=>governanceAuthority.readText(file)});const manifestValidation=schemaValidator.parseText('boundary',manifestBytes.toString('utf8'));
     if(!manifestValidation.ok)return invalidResult('SCHEMA_INVALID',manifestValidation.errors.map((e)=>failure('SCHEMA_VALIDATION',`${e.keyword}: ${e.message}`,null,manifestReal,e.params)));
-    const manifest=manifestValidation.value;const contractFailures=validateManifestContract(manifest);if(manifest.pathInventory.path!=='path-inventory.json')contractFailures.push(failure('INVENTORY_PATH_INVALID','The closed inventory must use the exact governed path path-inventory.json',null,manifest.pathInventory.path));if(contractFailures.length)return invalidResult('MANIFEST_INVALID',contractFailures,{boundaryManifestDigest:`sha256:${sha256(fs.readFileSync(manifestReal))}`});
-    const inventoryReal=path.join(path.dirname(manifestReal),manifest.pathInventory.path);const inventoryValidation=schemaValidator.validateFile('pathInventory',inventoryReal);
+    const manifest=manifestValidation.value;const contractFailures=validateManifestContract(manifest);if(manifest.pathInventory.path!=='path-inventory.json')contractFailures.push(failure('INVENTORY_PATH_INVALID','The closed inventory must use the exact governed path path-inventory.json',null,manifest.pathInventory.path));if(contractFailures.length)return invalidResult('MANIFEST_INVALID',contractFailures,{boundaryManifestDigest:`sha256:${sha256(manifestBytes)}`});
+    const inventoryReal=path.join(governanceRoot,manifest.pathInventory.path);const inventoryBytes=governanceAuthority.read(inventoryReal);const inventoryValidation=schemaValidator.parseText('pathInventory',inventoryBytes.toString('utf8'));
     if(!inventoryValidation.ok)return invalidResult('SCHEMA_INVALID',inventoryValidation.errors.map((e)=>failure('SCHEMA_VALIDATION',`${e.keyword}: ${e.message}`,null,inventoryReal,e.params)));
     const inventory=inventoryValidation.value;const inventoryFailures=validateInventoryContract(inventory,manifest);if(inventoryFailures.length)return invalidResult('MANIFEST_INVALID',inventoryFailures);
     // One authorization boundary per repository, built from a metadata-only sweep so an alias
@@ -518,17 +505,17 @@ export function verify({slots,manifestPath}){
     // authority is not the pinned one.
     const truth=verifyTruthRelease(manifest.truthRelease);
     if(!truth.ok)return invalidResult('TRUTH_IDENTITY_MISMATCH',truth.problems.map((x)=>failure('TRUTH_IDENTITY_MISMATCH',x.message,null,manifest.truthRelease?.activationWrapper??null,Object.fromEntries(Object.entries(x).filter(([k])=>k!=='message')))),{truthRelease:{pinned:manifest.truthRelease??null,validationMethod:TRUTH_BINDING_CONTRACT.validationMethod}});
-    const manifestDigest=`sha256:${sha256(stableJson(canonicalManifest(manifest)))}`;const manifestByteDigest=`sha256:${sha256(fs.readFileSync(manifestReal))}`;const inventoryDigest=`sha256:${sha256(stableJson(canonicalInventory(inventory)))}`;const inventoryByteDigest=`sha256:${sha256(fs.readFileSync(inventoryReal))}`;const manifestFailures=[];
+    const manifestDigest=`sha256:${sha256(stableJson(canonicalManifest(manifest)))}`;const manifestByteDigest=`sha256:${sha256(manifestBytes)}`;const inventoryDigest=`sha256:${sha256(stableJson(canonicalInventory(inventory)))}`;const inventoryByteDigest=`sha256:${sha256(inventoryBytes)}`;const manifestFailures=[];
     for(const slot of SLOT_NAMES){
       const local=path.join(identities.resolved[slot],'trio/governance/boundary-manifest.json'),localInventory=path.join(identities.resolved[slot],'trio/governance/path-inventory.json');
       try{
-        const localValidation=schemaValidator.validateFile('boundary',local);if(!localValidation.ok){manifestFailures.push(failure('MANIFEST_DIVERGENCE','Repository-local boundary manifest is invalid',slot,'trio/governance/boundary-manifest.json',{errors:localValidation.errors}));continue;}
+        const authority=makeAuthority(identities.resolved[slot]);const localValidation=schemaValidator.parseText('boundary',authority.readText(local));if(!localValidation.ok){manifestFailures.push(failure('MANIFEST_DIVERGENCE','Repository-local boundary manifest is invalid',slot,'trio/governance/boundary-manifest.json',{errors:localValidation.errors}));continue;}
         const localContract=validateManifestContract(localValidation.value);if(localContract.length){manifestFailures.push(failure('MANIFEST_DIVERGENCE','Repository-local boundary manifest violates the classification contract',slot,'trio/governance/boundary-manifest.json',{errors:localContract}));continue;}
         const digest=`sha256:${sha256(stableJson(canonicalManifest(localValidation.value)))}`;if(digest!==manifestDigest)manifestFailures.push(failure('MANIFEST_DIVERGENCE','Repository-local boundary manifest differs semantically from the governing manifest',slot,'trio/governance/boundary-manifest.json',{expected:manifestDigest,actual:digest}));
-        const localInvValidation=schemaValidator.validateFile('pathInventory',localInventory);if(!localInvValidation.ok){manifestFailures.push(failure('INVENTORY_DIVERGENCE','Repository-local path inventory is invalid',slot,'trio/governance/path-inventory.json',{errors:localInvValidation.errors}));continue;}
+        const localInvValidation=schemaValidator.parseText('pathInventory',authority.readText(localInventory));if(!localInvValidation.ok){manifestFailures.push(failure('INVENTORY_DIVERGENCE','Repository-local path inventory is invalid',slot,'trio/governance/path-inventory.json',{errors:localInvValidation.errors}));continue;}
         const localInvContract=validateInventoryContract(localInvValidation.value,manifest);if(localInvContract.length){manifestFailures.push(failure('INVENTORY_DIVERGENCE','Repository-local path inventory violates the closed inventory contract',slot,'trio/governance/path-inventory.json',{errors:localInvContract}));continue;}
         const localInvDigest=`sha256:${sha256(stableJson(canonicalInventory(localInvValidation.value)))}`;if(localInvDigest!==inventoryDigest)manifestFailures.push(failure('INVENTORY_DIVERGENCE','Repository-local path inventory differs semantically from the governing inventory',slot,'trio/governance/path-inventory.json',{expected:inventoryDigest,actual:localInvDigest}));
-      }catch(error){manifestFailures.push(failure('MANIFEST_DIVERGENCE',error.message,slot,'trio/governance/boundary-manifest.json'));}
+      }catch(error){if(isSecurityBoundaryError(error))throw error;manifestFailures.push(failure('MANIFEST_DIVERGENCE',error.message,slot,'trio/governance/boundary-manifest.json'));}
     }
     // Each repository also pins Truth in its runtime closure. A second pin that disagrees
     // with the executable authority is exactly the kind of stale claim this verifier exists
@@ -537,12 +524,12 @@ export function verify({slots,manifestPath}){
     for(const slot of SLOT_NAMES){
       const rel=manifest.truthRelease.runtimeClosureDeclarationPath;
       try{
-        const closure=readStrictJson(path.join(identities.resolved[slot],...rel.split('/')));
+        const closure=parseStrictJsonText(makeAuthority(identities.resolved[slot]).readText(path.join(identities.resolved[slot],...rel.split('/'))));
         const declared=(closure.legitimateExternalDependencies??[]).find((d)=>d.specifier===manifest.truthRelease.specifier);
         if(!declared)truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH','Repository runtime closure declares no Truth release',slot,rel));
         else for(const [field,actual] of [['releaseId',declared.releaseId],['packageClosureSha256',declared.packageClosureSha256],['packageClosureFileCount',declared.packageClosureFileCount]])
           if(actual!==truth.identity[field])truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH',`Repository runtime closure pins a ${field} that is not the activated Truth authority`,slot,rel,{field,pinned:actual===undefined?null:actual,activated:truth.identity[field]}));
-      }catch(error){truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH',`Repository runtime closure is unreadable: ${error.message}`,slot,rel));}
+      }catch(error){if(isSecurityBoundaryError(error))throw error;truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH',`Repository runtime closure is unreadable: ${error.message}`,slot,rel));}
     }
     // A stale pin is a blocking finding, not a reason to stop looking. Failing to resolve the
     // authority at all is different -- that is handled above, because a verifier that does
@@ -557,8 +544,9 @@ export function verify({slots,manifestPath}){
     const failures=[...repoFailures,...compared.failures,...ownerScopeFailures,...truthClosureFailures];const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
     const packageBehaviorProjection=Object.fromEntries(repositories.map((r)=>[r.slot,{projection:r.packageProjections,digest:`sha256:${sha256(stableJson(r.packageProjections))}`} ]));
     const implementationPaths={verifier:fileURLToPath(import.meta.url),strictParser:path.join(path.dirname(fileURLToPath(import.meta.url)),'strict-json.mjs'),validator:path.join(path.dirname(fileURLToPath(import.meta.url)),'schema-validation.mjs')};
-    const implementation=Object.fromEntries(Object.entries(implementationPaths).map(([key,file])=>[key,{version:key==='verifier'?VERIFIER_CONTRACT.version:key==='strictParser'?'3.0.0':SCHEMA_VALIDATOR.version,digest:`sha256:${sha256(fs.readFileSync(file))}`} ]));
-    const schemaFiles=['boundary.schema.json','path-inventory.schema.json','capsule.schema.json','deployment.schema.json','capability-pack.schema.json','runtime-manifest.schema.json'];const schemas=Object.fromEntries(schemaFiles.map((name)=>[name,{digest:`sha256:${sha256(fs.readFileSync(path.join(schemaDir,name)))}`,id:readStrictJson(path.join(schemaDir,name)).$id}]));
+    const implementationRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');const implementationAuthority=makeAuthority(implementationRoot);
+    const implementation=Object.fromEntries(Object.entries(implementationPaths).map(([key,file])=>[key,{version:key==='verifier'?VERIFIER_CONTRACT.version:key==='strictParser'?'3.0.0':SCHEMA_VALIDATOR.version,digest:`sha256:${sha256(implementationAuthority.read(file))}`} ]));
+    const schemaFiles=['boundary.schema.json','path-inventory.schema.json','capsule.schema.json','deployment.schema.json','capability-pack.schema.json','runtime-manifest.schema.json'];const schemas=Object.fromEntries(schemaFiles.map((name)=>{const bytes=governanceAuthority.read(path.join(schemaDir,name));return [name,{digest:`sha256:${sha256(bytes)}`,id:parseStrictJsonText(bytes.toString('utf8')).$id}];}));
     const completeRuleDigest=framedEnvelope({rules:canonicalManifest(manifest).rules,pathInventory:canonicalInventory(inventory)}),completeExclusionDigest=framedEnvelope({exclusions:canonicalManifest(manifest).exclusions});
     const identityContract=Object.fromEntries(SLOT_NAMES.map((slot)=>[slot,manifest.repositories[slot]]));
     const contractFields={verifier:VERIFIER_CONTRACT,implementation,validator:SCHEMA_VALIDATOR,schemas,boundaryManifestDigest:manifestDigest,boundaryManifestByteDigest:manifestByteDigest,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,completeRuleDigest,completeExclusionDigest,expectedRepositoryIdentity:identityContract,packageBehaviorFields:manifest.packageBehaviorFields,symlinkPolicy:VERIFIER_CONTRACT.symlinkPolicy,hardLinkPolicy:VERIFIER_CONTRACT.hardLinkPolicy,unicodeCasePathPolicy:{normalization:'NFC',allowedPathCharacters:'ASCII printable except ambiguous segment forms',case:VERIFIER_CONTRACT.casePolicy},generatedOutputPolicy:'compared when inventoried; not reproducibly rebuilt',dependencyPolicy:'excluded installed dependencies represented by governed lock and package-manager configuration, not installed bytes',quarantinePolicy:'all listed quarantine remains blocking',credentialPathPolicy:{version:SECRET_PATH_POLICY_VERSION,rule:'credential-bearing paths are classified by path and never opened'},truthRelease:truth.identity,verifierCertification:certification.ok?certification.certification.certificationDigest:null};
@@ -569,7 +557,7 @@ export function verify({slots,manifestPath}){
   }catch(error){
     // Checked before the generic classes below so a refusal can never be reported as a
     // missing input or a parse problem, which is how it would get shrugged off.
-    if(isSecretReadRefused(error))return invalidResult('VERIFIER_SECURITY_BLOCKED',[failure('SECRET_READ_REFUSED','A content read of a credential-bearing object was refused by the read authority',null,error.relativePath,{reason:error.reason,contract:READ_AUTHORITY_CONTRACT.version})]);
+    if(isSecurityBoundaryError(error))return invalidResult('VERIFIER_SECURITY_BLOCKED',[failure(error.code,'A repository-content read was refused by the verifier security boundary',null,error.relativePath,{category:error.category??'trapped-forbidden-read',contentsRead:false})]);
     const kind=error instanceof StrictJsonError?'JSON_INVALID':error?.code==='ENOENT'?'MISSING_INPUT':'VERIFIER_EXCEPTION';return invalidResult(kind,[failure(kind,error.message,null,manifestPath??null)]);}
 }
 

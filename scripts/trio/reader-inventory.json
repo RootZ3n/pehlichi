@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "scope": ["verify-runtime-parity.mjs", "governed-reader.mjs", "strict-json.mjs", "schema-validation.mjs", "write-evidence-bundle.mjs", "build-closed-inventory.mjs", "release-certification.mjs", "truth-release-binding.mjs", "agent-owned-ui.mjs", "secret-path-policy.mjs", "verdict-consistency.mjs"],
+  "readers": [
+    {"file":"governed-reader.mjs","contains":"fs.openSync(file","class":"governed-descriptor-open"},
+    {"file":"governed-reader.mjs","contains":"fs.readFileSync(fd","class":"governed-descriptor-read"}
+  ],
+  "subprocesses": [
+    {"file":"verify-runtime-parity.mjs","contains":"cp.execFileSync('git'","class":"git-metadata-only"},
+    {"file":"write-evidence-bundle.mjs","contains":"cp.spawnSync(process.execPath","class":"bundled-test-suite"}
+    ,{"file":"release-certification.mjs","contains":"cp.spawnSync(process.execPath","class":"bundled-certification-test-suite"}
+  ]
+}

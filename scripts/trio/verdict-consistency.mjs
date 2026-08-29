@@ -30,6 +30,13 @@ export const PUBLICATION_CONTRACT=Object.freeze({
 
 const isCount=(value)=>Number.isInteger(value)&&value>=0;
 
+/** A security-blocked run may emit this refusal record, but never an evidence bundle. */
+export function securityEvidenceRefusal(result){
+  if(result?.status!=='VERIFIER_SECURITY_BLOCKED')return null;
+  const first=result.failures?.[0];
+  return {status:'EVIDENCE_REFUSED',verifierStatus:result.status,errorCode:first?.failureClass??'VERIFIER_SECURITY_BLOCKED',relativePath:first?.affectedPath??null,category:first?.details?.category??'security-boundary',contentsRead:false};
+}
+
 /**
  * Assess whether a verifier result may be published.
  *

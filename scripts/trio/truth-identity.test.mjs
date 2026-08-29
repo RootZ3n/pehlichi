@@ -14,9 +14,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyTruthRelease,resolveActivatedRelease,measurePackageClosure,TRUTH_BINDING_CONTRACT } from './truth-release-binding.mjs';
-import { readStrictJson } from './strict-json.mjs';
+import { parseStrictJsonText } from './strict-json.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));const projectRoot=path.resolve(here,'../..');
+const readStrictJson=(file)=>parseStrictJsonText(fs.readFileSync(file,'utf8'));
 const manifest=readStrictJson(path.join(projectRoot,'trio/governance/boundary-manifest.json'));
 const pin=manifest.truthRelease;
 

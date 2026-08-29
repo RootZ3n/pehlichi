@@ -23,9 +23,10 @@ import path from 'node:path';
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { verify,publishedResult,SLOT_NAMES } from './verify-runtime-parity.mjs';
-import { readStrictJson } from './strict-json.mjs';
+import { readStrictJson as refusedPathParser,parseStrictJsonText } from './strict-json.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));const projectRoot=path.resolve(here,'../..');
+const readStrictJson=(file)=>parseStrictJsonText(fs.readFileSync(file,'utf8'));
 const write=(p,s,mode)=>{fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,s);if(mode!==undefined)fs.chmodSync(p,mode);};
 const git=(root,args)=>cp.execFileSync('git',args,{cwd:root,stdio:'ignore'});
 const capsule=(id)=>({$schema:'../schemas/capsule.schema.json',schemaVersion:'1.1.0',status:'characterization',identity:{id,displayName:id,role:'fixture'},personalityRef:`personality/${id}.yaml`,skills:[],capabilityPacks:{requested:[],inactive:[]},routingPreferences:[],modelDefaults:{providerRef:'fixture',model:'fixture'},memoryNamespace:id,branding:{themeRef:'tui/skin.yaml',icon:'x',welcomeRef:`personality/${id}.yaml`},completion:{criteriaRefs:[],reportFormatRefs:[]}});
@@ -130,6 +131,19 @@ function assertNoAttempts(f,{result,attempts},{expectParity=true}={}){
   assert.equal(evidence.includes('API_TOKEN'),false,'a credential key name reached the evidence');
   if(expectParity)assert.equal(result.summary.verdict,'PARITY',JSON.stringify(result.failures?.slice(0,4)));
 }
+function assertSecurityBlocked(f,run){assert.deepEqual(run.attempts,[]);assert.equal(run.result.status,'VERIFIER_SECURITY_BLOCKED');assert.equal(run.result.summary.verdict,'VERIFIER_SECURITY_BLOCKED');assert.equal(JSON.stringify(run.result).includes(SENTINEL),false);for(const finding of run.result.failures)assert.deepEqual(Object.keys(finding.details??{}).sort(),['category','contentsRead']);}
+
+for(const rel of ['trio/runtime-closure.json','package.json','trio/governance/capsules/pehlichi.json'])test(`${rel} hard-linked to a credential is security blocked before content`,()=>{
+  const f=fixture();try{const target=path.join(f.slots.pehlichi,rel);fs.unlinkSync(target);fs.linkSync(path.join(f.slots.pehlichi,'.env'),target);f.guarded.push(target);assertSecurityBlocked(f,runTrapped(f));}finally{clean(f);}
+});
+
+for(const rel of ['trio/governance/path-inventory.json','trio/governance/boundary-manifest.json'])test(`${rel} hard-linked to a credential is security blocked before parser access`,()=>{
+  const f=fixture();try{const target=path.join(f.slots['loony-luna'],rel);fs.unlinkSync(target);fs.linkSync(path.join(f.slots['loony-luna'],'.env'),target);f.guarded.push(target);assertSecurityBlocked(f,runTrapped(f));}finally{clean(f);}
+});
+
+test('the governing boundary manifest hard-linked to a dummy credential is security blocked',()=>{
+  const f=fixture();try{const secret=path.join(path.dirname(f.manifestPath),'.env');write(secret,`API_TOKEN=${SENTINEL}\n`);fs.unlinkSync(f.manifestPath);fs.linkSync(secret,f.manifestPath);f.guarded.push(secret,f.manifestPath);assertSecurityBlocked(f,runTrapped(f,[secret,f.manifestPath]));}finally{clean(f);}
+});
 
 // (1)(2) The declared paths themselves, nested and top level.
 test('declared .env and nested tui/.env are never opened',()=>{
