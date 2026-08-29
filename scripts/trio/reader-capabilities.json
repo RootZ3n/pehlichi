@@ -91,7 +91,7 @@
       "allowedOperation": "descriptor-content-access",
       "constraints": {
         "expression": "fs.openSync(target,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|(fs.constants.O_NOFOLLOW??0),mode)",
-        "line": 238,
+        "line": 258,
         "column": 10
       },
       "justification": "Create each snapshot file exclusively with O_EXCL|O_NOFOLLOW. This is the governed materializer: one of exactly two modules permitted raw content access.",
