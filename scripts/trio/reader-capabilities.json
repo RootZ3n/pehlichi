@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "parser": "typescript.createSourceFile",
+  "aggregateGate": {
+    "wrapper": "scripts/trio/verify-local.sh",
+    "requiredInvocations": [
+      "run_check semantic-reader-closure node \"$script_dir/semantic-reader-closure.mjs\"",
+      "run_check semantic-reader-mutations node \"$script_dir/semantic-reader-closure.test.mjs\""
+    ]
+  },
+  "entryPoints": [
+    "scripts/trio/verify-runtime-parity.mjs",
+    "scripts/trio/write-evidence-bundle.mjs",
+    "scripts/trio/build-closed-inventory.mjs",
+    "scripts/trio/release-certification.mjs",
+    "scripts/trio/truth-release-binding.mjs",
+    "scripts/trio/agent-owned-ui.mjs",
+    "scripts/trio/secret-path-policy.mjs",
+    "scripts/trio/verdict-consistency.mjs",
+    "scripts/trio/semantic-reader-closure.mjs"
+  ],
+  "externalModules": ["ajv/dist/2020.js", "typescript", "node:crypto", "node:os", "node:path", "node:url", "node:util"],
+  "bundledTestSuites": {
+    "evidenceWriter": [
+      "vulnerable-six-reproduction.test.mjs",
+      "verify-runtime-parity.test.mjs",
+      "strict-json-differential.test.mjs",
+      "schema-validation.test.mjs",
+      "scaffolding.test.mjs",
+      "mutation.test.mjs",
+      "credential-nonread.test.mjs",
+      "truth-identity.test.mjs",
+      "certification.test.mjs"
+    ],
+    "certification": [
+      "verify-runtime-parity.test.mjs",
+      "scaffolding.test.mjs",
+      "schema-validation.test.mjs",
+      "strict-json-differential.test.mjs",
+      "mutation.test.mjs",
+      "credential-nonread.test.mjs",
+      "truth-identity.test.mjs",
+      "certification.test.mjs",
+      "publication-consistency.test.mjs"
+    ]
+  },
+  "modules": [
+    "scripts/trio/agent-owned-ui.mjs",
+    "scripts/trio/build-closed-inventory.mjs",
+    "scripts/trio/governed-reader.mjs",
+    "scripts/trio/release-certification.mjs",
+    "scripts/trio/schema-validation.mjs",
+    "scripts/trio/secret-path-policy.mjs",
+    "scripts/trio/semantic-reader-closure.mjs",
+    "scripts/trio/strict-json.mjs",
+    "scripts/trio/truth-release-binding.mjs",
+    "scripts/trio/verdict-consistency.mjs",
+    "scripts/trio/verify-runtime-parity.mjs",
+    "scripts/trio/write-evidence-bundle.mjs"
+  ],
+  "capabilities": [
+    {
+      "module": "scripts/trio/governed-reader.mjs",
+      "resolvedCapability": "filesystem.openSync",
+      "importedOriginalBinding": "filesystem.openSync",
+      "allowedOperation": "descriptor-content-access",
+      "justification": "Acquire the one no-follow descriptor whose identity is authorized before content access.",
+      "constraints": {"expression":"fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0))","line":147,"column":14},
+      "expectedCallSites": 1
+    },
+    {
+      "module": "scripts/trio/governed-reader.mjs",
+      "resolvedCapability": "filesystem.readFileSync",
+      "importedOriginalBinding": "filesystem.readFileSync",
+      "allowedOperation": "descriptor-content-access",
+      "justification": "Read only the already fstat-authorized descriptor.",
+      "constraints": {"expression":"fs.readFileSync(fd,encoding)","line":155,"column":14},
+      "expectedCallSites": 1
+    },
+    {
+      "module": "scripts/trio/release-certification.mjs",
+      "resolvedCapability": "process.spawnSync",
+      "importedOriginalBinding": "process.spawnSync",
+      "allowedOperation": "classified-process",
+      "justification": "Run a certification contract suite with the current Node executable.",
+      "constraints": {"expression":"cp.spawnSync(process.execPath,['--test',path.join(here,file)],{encoding:'utf8',maxBuffer:64*1024*1024,cwd:here})","line":148,"column":16},
+      "expectedCallSites": 1
+    },
+    {
+      "module": "scripts/trio/verify-runtime-parity.mjs",
+      "resolvedCapability": "process.execFileSync",
+      "importedOriginalBinding": "process.execFileSync",
+      "allowedOperation": "classified-process",
+      "justification": "Run only enumerated Git metadata commands; content-extracting Git commands are rejected at wrapper call sites.",
+      "constraints": {"expression":"cp.execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']})","line":128,"column":32},
+      "expectedCallSites": 1
+    },
+    {
+      "module": "scripts/trio/write-evidence-bundle.mjs",
+      "resolvedCapability": "process.spawnSync",
+      "importedOriginalBinding": "process.spawnSync",
+      "allowedOperation": "classified-process",
+      "justification": "Run explicitly bundled verifier suites with the current Node executable.",
+      "constraints": {"expression":"cp.spawnSync(process.execPath,[path.join(here,file)],{cwd:ownRoot,encoding:'utf8',env:{...process.env,TMPDIR:process.env.TMPDIR??os.tmpdir()},maxBuffer:32*1024*1024})","line":20,"column":28},
+      "expectedCallSites": 1
+    }
+  ]
+}

@@ -40,6 +40,8 @@ if [ ! -d "$script_dir/node_modules/ajv" ]; then echo 'TRIO_DEPENDENCY_ERROR cla
 
 run_check strict-json node "$script_dir/strict-json-differential.test.mjs"
 run_check schema node "$script_dir/schema-validation.test.mjs"
+run_check semantic-reader-closure node "$script_dir/semantic-reader-closure.mjs"
+run_check semantic-reader-mutations node "$script_dir/semantic-reader-closure.test.mjs"
 run_check hostile node "$script_dir/verify-runtime-parity.test.mjs"
 run_check vulnerable-fixture node "$script_dir/vulnerable-six-reproduction.test.mjs"
 run_check historical-limit node "$script_dir/preflight-hostile-audit.test.mjs"
