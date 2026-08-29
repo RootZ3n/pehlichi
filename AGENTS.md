@@ -18,7 +18,7 @@ governed separately and must stay byte-identical.
 * Routing preferences:
   * repair → `ptah`
   * creative → `luna`
-* Sanity check: `pnpm sanity:peh-coordinate`
+* Sanity check: `pnpm test` (governed; identical across the Trio)
 
 ## Shared runtime — do not diverge
 

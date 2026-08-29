@@ -33,7 +33,7 @@ run_check() {
 }
 
 if ! command -v node >/dev/null 2>&1; then
-  for label in strict-json schema hostile vulnerable-fixture historical-limit scaffolding mutation credential-non-read truth-identity certification characterization parity; do echo "TRIO_CHECK_END $label status=127 class=DEPENDENCY_MISSING dependency=node"; done
+  for label in strict-json schema hostile vulnerable-fixture historical-limit scaffolding mutation credential-non-read truth-identity certification publication-consistency characterization parity; do echo "TRIO_CHECK_END $label status=127 class=DEPENDENCY_MISSING dependency=node"; done
   exit 2
 fi
 if [ ! -d "$script_dir/node_modules/ajv" ]; then echo 'TRIO_DEPENDENCY_ERROR class=DEPENDENCY_MISSING dependency=ajv'; overall=1; fi
@@ -48,6 +48,7 @@ run_check mutation node "$script_dir/mutation.test.mjs"
 run_check credential-non-read node "$script_dir/credential-nonread.test.mjs"
 run_check truth-identity node "$script_dir/truth-identity.test.mjs"
 run_check certification node "$script_dir/certification.test.mjs"
+run_check publication-consistency node "$script_dir/publication-consistency.test.mjs"
 if node --import tsx -e '' >/dev/null 2>&1; then
   run_check characterization node --import tsx "$script_dir/current-behavior.characterization.test.mjs"
 else

@@ -33,6 +33,7 @@ export const CERTIFICATION_CONTRACT=Object.freeze({
     'agent-owned-ui.mjs',
     'secret-path-policy.mjs',
     'truth-release-binding.mjs',
+    'verdict-consistency.mjs',
     'release-certification.mjs'
   ]),
   fixtureFiles:Object.freeze([
@@ -45,7 +46,8 @@ export const CERTIFICATION_CONTRACT=Object.freeze({
     'truth-identity.test.mjs',
     'vulnerable-six-reproduction.test.mjs',
     'preflight-hostile-audit.test.mjs',
-    'certification.test.mjs'
+    'certification.test.mjs',
+    'publication-consistency.test.mjs'
   ]),
   fixtureTrees:Object.freeze(['fixtures']),
   /** Suites that must pass, and the exact counts the audit fixed as the bar. */
@@ -66,7 +68,8 @@ export const CERTIFICATION_CONTRACT=Object.freeze({
    * produced. It runs in a second phase against the finished artifact instead.
    */
   auditSuites:Object.freeze([
-    {id:'certification',file:'certification.test.mjs',minimumTests:1}
+    {id:'certification',file:'certification.test.mjs',minimumTests:1},
+    {id:'publication-consistency',file:'publication-consistency.test.mjs',minimumTests:10}
   ])
 });
 
@@ -163,6 +166,9 @@ export function certify(){
   write(suites);
   // Phase 2: audit the finished artifact. It now describes the running bytes, so the
   // certification suite has something real to check.
+  // Audit suites check the artifact that phase 1 wrote, so they cannot also be a
+  // precondition of writing it. They are still run and recorded, and the release step exits
+  // non-zero if any of them fail.
   const audited=[...suites,...CERTIFICATION_CONTRACT.auditSuites.map((extra)=>({id:extra.id,file:extra.file,required:false,...runSuite(extra.file)}))];
   return write(audited);
 }

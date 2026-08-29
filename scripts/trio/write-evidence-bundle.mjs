@@ -8,6 +8,7 @@ import cp from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {verify,publishedResult,SLOT_NAMES} from './verify-runtime-parity.mjs';
 import {validateCertification} from './release-certification.mjs';
+import {assessPublication,PUBLICATION_CONTRACT} from './verdict-consistency.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url)),ownRoot=path.resolve(here,'../..');
 const sha256=(data)=>crypto.createHash('sha256').update(data).digest('hex');
@@ -21,11 +22,14 @@ const scaffolding=run('scaffolding.test.mjs');const mutation=run('mutation.test.
 const certification=validateCertification();
 const parity=publishedResult(verify({slots:args.slots,manifestPath:path.join(ownRoot,'trio/governance/boundary-manifest.json')}));
 const verificationSummary=args.verificationSummaryPath?JSON.parse(fs.readFileSync(path.resolve(args.verificationSummaryPath),'utf8')):null;
+const supportingSuites=[preflight,hostile,strict,schemas,scaffolding,mutation,credential,truthIdentity,certificationSuite];
+const publicationAssessment=assessPublication(parity,certification,supportingSuites);
 const artifactData={
   'TRIO-001D-PREFLIGHT-EVIDENCE.json':JSON.stringify({schemaVersion:'1.0.0',meaning:'Passing tests reproduce exact false-green PARITY behavior in the retained vulnerable TRIO-001C fixture; this is not a TRIO-001B reconstruction.',retainedVerifierDigest:'sha256:c29223d2649bff4671e213562cd40aee7a9a3a4bd261f45a6801d025b3883342',result:preflight},null,2)+'\n',
   'TRIO-001D-HOSTILE-RESULTS.json':JSON.stringify({schemaVersion:'1.0.0',expectedRealVerdict:'BLOCKING_DIVERGENCE',primary:hostile,noVacuousVerifierErrorAcceptance:true,verificationSummary},null,2)+'\n',
   'TRIO-001D-PARITY-RESULT.json':JSON.stringify(parity,null,2)+'\n',
   'TRIO-001D-SCHEMA-RESULTS.json':JSON.stringify({schemaVersion:'1.0.0',strictJsonDifferential:strict,schemaValidation:schemas,validator:parity.validator},null,2)+'\n',
+  'TRIO-001F-PUBLICATION-ASSESSMENT.json':JSON.stringify({schemaVersion:'1.0.0',contract:PUBLICATION_CONTRACT,meaning:'Whether the verifier outcome in this bundle is internally consistent and was produced by a certified verifier. This does not assert which verdict is correct.',assessment:publicationAssessment,observed:{status:parity.status,verdict:parity.summary?.verdict??null,blockingCount:parity.summary?.blockingCount??null,unclassifiedFiles:parity.summary?.unclassifiedFiles??null,failures:Array.isArray(parity.failures)?parity.failures.length:null}},null,2)+'\n',
   'TRIO-001E-REMEDIATION-RESULTS.json':JSON.stringify({schemaVersion:'1.0.0',meaning:'Post-remediation suites for the repaired parity verifier. Independent re-audit is pending; this bundle is self-reported.',label:'PARITY_VERIFIER_REMEDIATED / INDEPENDENT_REAUDIT_PENDING',suites:{scaffolding,mutation,credentialNonRead:credential,truthIdentity,certification:certificationSuite},verifierCertification:certification.ok?certification.certification:{certified:false,problems:certification.problems},truthRelease:parity.truthRelease??null,credentialPathPolicy:parity.secretPathPolicy??null,secretPathsExcluded:parity.secretPathsExcluded??[]},null,2)+'\n'
 };
 const report=[
@@ -74,4 +78,9 @@ const artifacts=Object.keys(artifactData).sort().map((name)=>{const file=path.jo
 const snapshots=(parity.repositoryIdentities??[]).map((x)=>({agent:x.agent,canonicalRealpath:x.canonicalRealpath,head:x.head,branch:x.branch,dirty:x.dirty,behavioralEnvelopeDigest:x.behavioralEnvelopeDigest}));
 const evidenceManifest={schemaVersion:'1.0.0',outputDirectory:outputDir,observedRepositorySnapshots:snapshots,artifacts,selfHashPolicy:'The manifest cannot recursively contain its own final digest. Its path and byte identity are reported by the command output and must be hashed externally after generation.'};const manifestPath=path.join(outputDir,'TRIO-001D-EVIDENCE-MANIFEST.json');fs.writeFileSync(manifestPath,JSON.stringify(evidenceManifest,null,2)+'\n',{flag:'wx',mode:0o600});const manifestData=fs.readFileSync(manifestPath);
 process.stdout.write(JSON.stringify({status:'EVIDENCE_WRITTEN',outputDirectory:outputDir,artifacts:[...artifacts,{path:manifestPath,length:manifestData.length,sha256:sha256(manifestData)}],observedRepositorySnapshots:snapshots},null,2)+'\n');
-process.exitCode=[preflight,hostile,strict,schemas].every((x)=>x.exitCode===0)&&parity.status==='VERIFIER_OK_DIVERGENCE'&&parity.summary.verdict==='BLOCKING_DIVERGENCE'?0:1;
+// Success is internal consistency, not a hardcoded expected verdict. The previous form of
+// this line asserted VERIFIER_OK_DIVERGENCE, so it reported failure the moment the trio
+// actually converged -- and would have blessed a divergence bundle whose counts contradicted
+// its own verdict. assessPublication checks that status, verdict, counters, failure list and
+// certification all describe the same run, whichever way that run came out.
+process.exitCode=publicationAssessment.ok?0:1;

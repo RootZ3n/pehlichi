@@ -52,6 +52,13 @@
    "path": "scripts/trio/node_modules"
   }
  ],
+ "operationalStatus": {
+  "authorization": "NOT_AUTHORIZED_FOR_OPERATIONAL_WORK",
+  "clearedBy": "independent Hermes-equivalence audit",
+  "productionAgent": "hermes",
+  "reason": "Pehlichi, Loony-Luna and Mad-Ptah have never been used operationally. Hermes is the lab's only production agent. The Trio stays unavailable for real work until it is independently proven equivalent to Hermes.",
+  "state": "PRE_PRODUCTION"
+ },
  "packageBehaviorFields": [
   "version",
   "type",
@@ -319,23 +326,7 @@
     "directory": "dist",
     "excludedPaths": [
      "dist/profiles/agent.test.js",
-     "dist/profiles/agent.test.js.map",
-     "dist/sanity-mimo-dual.d.ts",
-     "dist/sanity-mimo-dual.d.ts.map",
-     "dist/sanity-mimo-dual.js",
-     "dist/sanity-mimo-dual.js.map",
-     "dist/sanity-mimo.d.ts",
-     "dist/sanity-mimo.d.ts.map",
-     "dist/sanity-mimo.js",
-     "dist/sanity-mimo.js.map",
-     "dist/sanity-peh.d.ts",
-     "dist/sanity-peh.d.ts.map",
-     "dist/sanity-peh.js",
-     "dist/sanity-peh.js.map",
-     "dist/sanity.d.ts",
-     "dist/sanity.d.ts.map",
-     "dist/sanity.js",
-     "dist/sanity.js.map"
+     "dist/profiles/agent.test.js.map"
     ]
    },
    "transitional": false,
@@ -428,11 +419,7 @@
      "tui/skin.yaml",
      "tui/test.sh",
      "stress_test.py",
-     "luna_os.py",
-     "server.py",
-     "sanity-luna.ts",
-     "stress_test.log",
-     "test_identity.txt"
+     "server.py"
     ]
    },
    "transitional": false,
@@ -911,12 +898,7 @@
     "closedInventory": true,
     "directory": "src",
     "excludedPaths": [
-     "src/profiles/agent.test.ts",
-     "src/sanity-luna.ts",
-     "src/sanity-mimo-dual.ts",
-     "src/sanity-mimo.ts",
-     "src/sanity-peh.ts",
-     "src/sanity.ts"
+     "src/profiles/agent.test.ts"
     ]
    },
    "transitional": false,
@@ -1220,11 +1202,6 @@
    "selector": {
     "paths": [
      "src/profiles/agent.test.ts",
-     "src/sanity-luna.ts",
-     "src/sanity-mimo-dual.ts",
-     "src/sanity-mimo.ts",
-     "src/sanity-peh.ts",
-     "src/sanity.ts",
      "tui/src/audit-fixes.test.ts",
      "tui/src/server.test.ts"
     ]
@@ -1260,23 +1237,7 @@
    "selector": {
     "paths": [
      "dist/profiles/agent.test.js",
-     "dist/profiles/agent.test.js.map",
-     "dist/sanity-mimo-dual.d.ts",
-     "dist/sanity-mimo-dual.d.ts.map",
-     "dist/sanity-mimo-dual.js",
-     "dist/sanity-mimo-dual.js.map",
-     "dist/sanity-mimo.d.ts",
-     "dist/sanity-mimo.d.ts.map",
-     "dist/sanity-mimo.js",
-     "dist/sanity-mimo.js.map",
-     "dist/sanity-peh.d.ts",
-     "dist/sanity-peh.d.ts.map",
-     "dist/sanity-peh.js",
-     "dist/sanity-peh.js.map",
-     "dist/sanity.d.ts",
-     "dist/sanity.d.ts.map",
-     "dist/sanity.js",
-     "dist/sanity.js.map"
+     "dist/profiles/agent.test.js.map"
     ]
    },
    "transitional": false,

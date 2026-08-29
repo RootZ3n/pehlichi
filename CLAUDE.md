@@ -18,8 +18,16 @@ Package manager is **pnpm** (this is also a pnpm workspace; see `pnpm-workspace.
 - `pnpm test` — runs the Node built-in test runner under tsx against an explicit list of
   `*.test.ts` files: `node --import tsx --test <files>`. Tests are **not** vitest/jest —
   they use `node:test` (`test(...)`) with `node:assert/strict`.
-- `pnpm sanity:peh-coordinate` — `node --import tsx src/sanity-peh.ts` (end-to-end sanity
-  check of the coordinator).
+- `pnpm test:runtime` / `pnpm test:parity` — governed cross-agent suites, identical in all
+  three repositories. `test:parity` additionally requires the `*-trio-hermes-runtime` peer
+  checkouts used by the pending Hermes-equivalence audit; without them it cannot pass, so it
+  is not a local smoke test.
+
+`pnpm test` is the governed end-to-end check: byte-identical across the Trio and passing on
+all three today. There is no per-agent sanity script. The `sanity:*` package scripts and their sources were
+removed when package behaviour was converged across the Trio: an entry point that exists in
+only one agent cannot be part of a shared contract, and agent-specific capability belongs in
+a portable role/capability pack rather than a unique package script.
 
 To run a single test file directly: `node --import tsx --test src/core/loop.test.ts`.
 

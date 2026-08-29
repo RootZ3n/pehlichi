@@ -363,6 +363,47 @@
    "maxItems": 16,
    "type": "array"
   },
+  "operationalStatus": {
+   "additionalProperties": false,
+   "description": "Whether the Trio is cleared for operational work. Pre-production until an independent Hermes-equivalence audit clears it.",
+   "properties": {
+    "authorization": {
+     "enum": [
+      "NOT_AUTHORIZED_FOR_OPERATIONAL_WORK",
+      "AUTHORIZED_FOR_OPERATIONAL_WORK"
+     ]
+    },
+    "clearedBy": {
+     "maxLength": 256,
+     "minLength": 4,
+     "type": "string"
+    },
+    "productionAgent": {
+     "maxLength": 64,
+     "minLength": 1,
+     "type": "string"
+    },
+    "reason": {
+     "maxLength": 512,
+     "minLength": 16,
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "PRE_PRODUCTION",
+      "PRODUCTION"
+     ]
+    }
+   },
+   "required": [
+    "state",
+    "authorization",
+    "productionAgent",
+    "reason",
+    "clearedBy"
+   ],
+   "type": "object"
+  },
   "packageBehaviorFields": {
    "items": {
     "enum": [
@@ -593,6 +634,7 @@
  "required": [
   "blockingDivergences",
   "exclusions",
+  "operationalStatus",
   "packageBehaviorFields",
   "pathInventory",
   "pathPolicy",

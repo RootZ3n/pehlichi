@@ -1,7 +1,7 @@
 {
  "contractVersion": "1.0.0",
- "implementationDigest": "sha256:e30893aaa12500d1f4637ee76929867a6ac1ca2c227dcab3798f5b6dc0738afd",
- "fixtureDigest": "sha256:9bfa01d9073eaf23ebf08e2c216486b75f0c9277a3ed2cbb6f11ee1baf1c7a90",
+ "implementationDigest": "sha256:f3d85fc65a96e1df2b7eeb0fbc77464d91851018854638806cb56e907f704e1c",
+ "fixtureDigest": "sha256:ffec76412cecbac75b2bbbbf58de72117b7876af63fc1cdf4547970aa5be553a",
  "suites": [
   {
    "id": "hostile",
@@ -67,8 +67,17 @@
    "passed": 8,
    "failures": 0,
    "pass": true
+  },
+  {
+   "id": "publication-consistency",
+   "file": "publication-consistency.test.mjs",
+   "required": false,
+   "tests": 25,
+   "passed": 25,
+   "failures": 0,
+   "pass": true
   }
  ],
- "certifiedAt": "2026-08-29T12:34:30.832Z",
- "certificationDigest": "sha256:7c3bc7e37a895d958f81a830f9f997141ec669b674baa720c8cccb52524b557d"
+ "certifiedAt": "2026-08-29T13:10:20.841Z",
+ "certificationDigest": "sha256:56a23675a87dda3b2d74ab21d2dfe5a87905b8fb2f2305393278fd5db64c6ebf"
 }

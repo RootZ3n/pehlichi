@@ -662,9 +662,7 @@
   "other-scripts": [
    "scripts/model-test.sh"
   ],
-  "out-quarantine": [
-   "out/result.txt"
-  ],
+  "out-quarantine": [],
   "personality-quarantine": [
    "personality/luna.yaml",
    "personality/peh.yaml",
@@ -880,11 +878,7 @@
    "memories/MEMORY.md",
    "memories/USER.md"
   ],
-  "test-fixtures": [
-   "fixtures/dual-site/app.sh",
-   "fixtures/dual-site/config.sh",
-   "fixtures/peh-coordinate/status-note.md"
-  ],
+  "test-fixtures": [],
   "trio-scaffolding": [
    "trio/boundary-manifest.json",
    "trio/governance/boundary-manifest.json",
@@ -915,6 +909,7 @@
    "scripts/trio/package-lock.json",
    "scripts/trio/package.json",
    "scripts/trio/preflight-hostile-audit.test.mjs",
+   "scripts/trio/publication-consistency.test.mjs",
    "scripts/trio/release-certification.mjs",
    "scripts/trio/scaffolding.test.mjs",
    "scripts/trio/schema-validation.mjs",
@@ -924,6 +919,7 @@
    "scripts/trio/strict-json.mjs",
    "scripts/trio/truth-identity.test.mjs",
    "scripts/trio/truth-release-binding.mjs",
+   "scripts/trio/verdict-consistency.mjs",
    "scripts/trio/verify-local.sh",
    "scripts/trio/verify-runtime-parity.mjs",
    "scripts/trio/verify-runtime-parity.test.mjs",
