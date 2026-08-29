@@ -429,10 +429,14 @@
     {
       "kind": "activated-truth-release",
       "specifier": "truth-firewall",
-      "releaseId": "b7447cd76297d78cb7b78c0ed8cbe0df",
-      "packageClosureSha256": "3a162bb755cda0e47c946eb2534303fd05a11bd932e72e72e1f93823be6d427b",
-      "packageClosureFileCount": 230,
-      "attestation": "Verified through the installed verifier's own runtime identity and release manifest; a gitignored development dist/ is not a pin target"
+      "releaseId": "dabe8cc0ea47030a185898ab99df7957",
+      "packageClosureSha256": "60b02e92915dd60011ae4b4cb64f3d399fd1b5dca793cebc26bb57cac89df933",
+      "packageClosureFileCount": 231,
+      "attestation": "The release the activation wrapper executes. Identity is proven by resolving the wrapper and recomputing the release package closure with the release protocol algorithm; the previous pin named release b7447cd7 (230 files), which had not been the activated authority since it was superseded.",
+      "sourceCommit": "29e1f9b3d109a2c66928d4acf56f408fcee9bd31",
+      "version": "0.1.0",
+      "activationWrapper": "/home/zen/.local/bin/truth",
+      "validationMethod": "recomputed-package-closure"
     },
     {
       "specifier": "node:*",

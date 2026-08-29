@@ -147,12 +147,20 @@
       "model-behavior-data",
       "owner-scoped-asset",
       "quarantined-blocking-divergence",
+      "secret-path-excluded",
       "test-behavior-identical",
       "validated-variable-data"
      ]
     },
     "divergenceBlocking": {
      "type": "boolean"
+    },
+    "executablePolicy": {
+     "description": "How executable content under an agent-owned rule is compared. Default (absent) is the strict reading: divergence blocks. \"agent-identity\" declares the divergence to be identity rather than shared behaviour.",
+     "enum": [
+      "strict",
+      "agent-identity"
+     ]
     },
     "expiresBefore": {
      "maxLength": 128,
@@ -320,6 +328,7 @@
       "package-behavior",
       "quarantine",
       "runtime-manifest-schema",
+      "secret-path-excluded",
       "strict-json-data"
      ]
     },
@@ -499,6 +508,67 @@
     "enforced"
    ]
   },
+  "truthRelease": {
+   "additionalProperties": false,
+   "description": "The Truth Firewall release this verifier is bound to. Validated by resolving the activation wrapper and recomputing the release package closure; documentation is not accepted as runtime proof.",
+   "properties": {
+    "activationWrapper": {
+     "maxLength": 1024,
+     "minLength": 1,
+     "type": "string"
+    },
+    "attestation": {
+     "maxLength": 512,
+     "minLength": 16,
+     "type": "string"
+    },
+    "packageClosureFileCount": {
+     "minimum": 1,
+     "type": "integer"
+    },
+    "packageClosureSha256": {
+     "pattern": "^[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "releaseId": {
+     "pattern": "^[0-9a-f]{32}$",
+     "type": "string"
+    },
+    "runtimeClosureDeclarationPath": {
+     "$ref": "#/$defs/safePath"
+    },
+    "sourceCommit": {
+     "pattern": "^[0-9a-f]{40}$",
+     "type": "string"
+    },
+    "specifier": {
+     "maxLength": 128,
+     "minLength": 1,
+     "type": "string"
+    },
+    "validationMethod": {
+     "const": "recomputed-package-closure"
+    },
+    "version": {
+     "maxLength": 64,
+     "minLength": 1,
+     "type": "string"
+    }
+   },
+   "required": [
+    "specifier",
+    "activationWrapper",
+    "releaseId",
+    "version",
+    "sourceCommit",
+    "packageClosureSha256",
+    "packageClosureFileCount",
+    "validationMethod",
+    "runtimeClosureDeclarationPath",
+    "attestation"
+   ],
+   "type": "object"
+  },
   "validator": {
    "additionalProperties": false,
    "properties": {
@@ -521,16 +591,17 @@
   }
  },
  "required": [
+  "blockingDivergences",
+  "exclusions",
+  "packageBehaviorFields",
+  "pathInventory",
+  "pathPolicy",
+  "repositories",
+  "rules",
   "schemaVersion",
   "status",
-  "validator",
-  "pathPolicy",
-  "pathInventory",
-  "repositories",
-  "exclusions",
-  "rules",
-  "packageBehaviorFields",
-  "blockingDivergences"
+  "truthRelease",
+  "validator"
  ],
  "title": "TRIO closed behavioral inventory",
  "type": "object"

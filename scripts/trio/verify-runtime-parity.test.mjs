@@ -7,7 +7,7 @@ import cp from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { verify,human,SLOT_NAMES } from './verify-runtime-parity.mjs';
-import { readStrictJson } from './strict-json.mjs';
+import { readStrictJson,parseStrictJsonText } from './strict-json.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));const projectRoot=path.resolve(here,'../..');
 const write=(p,s,mode)=>{fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,s);if(mode!==undefined)fs.chmodSync(p,mode);};
@@ -26,6 +26,9 @@ function fixture(){
     write(path.join(root,'tui/package.json'),JSON.stringify({name:spec.packageNames['tui/package.json'],version:'0.0.0',type:'module',private:true,scripts:{start:'node src/server.ts'}}));
     write(path.join(root,'src/main.ts'),'export const value=1;\n');
     for(const [agent,id] of [['pehlichi','pehlichi'],['loony-luna','luna'],['mad-ptah','ptah']])write(path.join(root,`trio/governance/capsules/${agent}.json`),JSON.stringify(capsule(id)));
+    // The verifier binds to the Truth release the activation wrapper executes and checks
+    // each repository's own pin against it, so a fixture world needs that pin to exist.
+    fs.cpSync(path.join(projectRoot,'trio/runtime-closure.json'),path.join(root,'trio/runtime-closure.json'));
     git(root,['init','-q']);git(root,['config','user.email','fixture@example.invalid']);git(root,['config','user.name','fixture']);git(root,['remote','add','origin',`https://github.com/RootZ3n/${slot}.git`]);
   }
   function setManifest(value,text=null){const data=text??JSON.stringify(value);write(manifestPath,data);for(const root of Object.values(slots))write(path.join(root,'trio/governance/boundary-manifest.json'),data);}
@@ -78,7 +81,10 @@ test('identity: swapped labels, remote mismatches, and package mismatches reject
 test('identity: missing repository produces structured failure',()=>{const f=fixture();try{f.slots['mad-ptah']=path.join(f.top,'missing');expectBlocked(run(f),'MALFORMED_REPOSITORY','IDENTITY_INVALID');}finally{clean(f);}});
 test('rules: duplicate and overlapping domains reject before scanning',()=>{const f=fixture();try{f.manifest.rules.push({...f.manifest.rules.find((x)=>x.id==='source-runtime')});f.setManifest(f.manifest);const r=run(f);expectBlocked(r,'DUPLICATE_RULE','MANIFEST_INVALID');expectBlocked(r,'AMBIGUOUS_RULES','MANIFEST_INVALID');}finally{clean(f);}});
 test('rules: different repository-local classifications are rejected',()=>{const f=fixture();try{const local=structuredClone(readStrictJson(path.join(f.slots['loony-luna'],'trio/governance/boundary-manifest.json')));local.rules.find((x)=>x.id==='source-runtime').class='quarantined-blocking-divergence';write(path.join(f.slots['loony-luna'],'trio/governance/boundary-manifest.json'),JSON.stringify(local));expectBlocked(run(f),'MANIFEST_DIVERGENCE','MANIFEST_DIVERGENCE');}finally{clean(f);}});
-test('strict JSON: duplicate keys reject before JSON parsing can discard evidence',()=>{const f=fixture();try{const text=JSON.stringify(f.manifest).replace('"status":"characterization"','"status":"bad","status":"characterization"');f.setManifest(f.manifest,text);expectBlocked(run(f),'SCHEMA_VALIDATION','SCHEMA_INVALID');}finally{clean(f);}});
+// The injection is asserted, not assumed. The previous form of this test rewrote a literal
+// that the manifest no longer contained, so it silently shipped a *valid* document and then
+// congratulated the verifier for accepting it. A fixture that can no-op proves nothing.
+test('strict JSON: duplicate keys reject before JSON parsing can discard evidence',()=>{const f=fixture();try{const body=JSON.stringify(f.manifest);const text=`{"schemaVersion":"9.9.9",${body.slice(1)}`;assert.throws(()=>parseStrictJsonText(text),(e)=>e.code==='JSON_DUPLICATE_KEY','fixture failed to inject a detectable duplicate key');assert.equal(JSON.parse(text).schemaVersion,f.manifest.schemaVersion,'a permissive parser must silently discard the decoy, or this test proves nothing');f.setManifest(f.manifest,text);expectBlocked(run(f),'SCHEMA_VALIDATION','SCHEMA_INVALID');}finally{clean(f);}});
 test('schemas: invalid boundary and unsupported versions reject',()=>{const f=fixture();try{f.manifest.schemaVersion='999.0.0';f.manifest.unknown=true;f.setManifest(f.manifest);expectBlocked(run(f),'SCHEMA_VALIDATION','SCHEMA_INVALID');}finally{clean(f);}});
 test('schemas: invalid capsule, capability-pack, deployment, and runtime instances block',()=>{const f=fixture();try{const badCapsule={...capsule('luna'),authorityGrant:'root'};write(path.join(f.slots['loony-luna'],'trio/governance/capsules/loony-luna.json'),JSON.stringify(badCapsule));for(const root of Object.values(f.slots)){write(path.join(root,'trio/governance/capability-packs/bad.json'),'{"schemaVersion":"999"}');write(path.join(root,'trio/deployment/bad.json'),'{"schemaVersion":"1.0.0","plaintextCredential":"secret"}');write(path.join(root,'trio/governance/runtime-manifest.characterization.json'),'{"schemaVersion":"1.0.0","trusted":true}');}expectBlocked(run(f),'CAPSULE_IDENTITY_MISMATCH','IDENTITY_INVALID');}finally{clean(f);}});
 test('strict JSON: oversized, deeply nested, long-string, and oversized-collection inputs reject',()=>{const f=fixture();try{write(f.manifestPath,' '.repeat(1_048_577));expectBlocked(run(f),'SCHEMA_VALIDATION','SCHEMA_INVALID');f.setManifest(f.manifest);const p=path.join(f.slots.pehlichi,'trio/governance/capsules/pehlichi.json');write(p,'['.repeat(40)+'0'+']'.repeat(40));expectBlocked(run(f),'CAPSULE_IDENTITY_MISMATCH','IDENTITY_INVALID');}finally{clean(f);}});

@@ -425,9 +425,6 @@
    "productionReachable": true,
    "selector": {
     "paths": [
-     ".env",
-     "tui/.env",
-     "tui/.env.mimo-backup",
      "tui/skin.yaml",
      "tui/test.sh",
      "stress_test.py",
@@ -530,7 +527,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "agent-owned-content"
+    "kind": "inert-image"
    }
   },
   {
@@ -628,18 +625,12 @@
    "allowedTypes": [
     "file"
    ],
-   "attestation": "Lockfiles and workspace/compiler configuration. Workspace naming is agent identity; lock content follows each deployment's own dependency closure.",
-   "bytesMustMatch": false,
-   "class": "agent-owned-content",
-   "divergenceBlocking": false,
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
    "expiresBefore": null,
    "id": "package-lock-and-config",
    "modeMustMatch": true,
-   "owners": [
-    "pehlichi",
-    "loony-luna",
-    "mad-ptah"
-   ],
    "permittedFormats": [
     "yaml",
     "json"
@@ -657,7 +648,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "agent-owned-content"
+    "kind": "none"
    }
   },
   {
@@ -780,18 +771,12 @@
    "allowedTypes": [
     "file"
    ],
-   "attestation": "Package manifests. Executable dependency and script content is governed by packageBehaviorFields; the residual difference is agent identity metadata (package name, workspace name), which must differ or the three deployments would be indistinguishable to their tooling.",
    "bytesMustMatch": false,
-   "class": "agent-owned-content",
-   "divergenceBlocking": false,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
    "expiresBefore": null,
    "id": "root-package",
    "modeMustMatch": true,
-   "owners": [
-    "pehlichi",
-    "loony-luna",
-    "mad-ptah"
-   ],
    "permittedFormats": [
     "json"
    ],
@@ -804,7 +789,7 @@
    },
    "transitional": false,
    "validation": {
-    "kind": "agent-owned-content"
+    "kind": "package-behavior"
    }
   },
   {
@@ -1219,6 +1204,7 @@
    "bytesMustMatch": false,
    "class": "agent-owned-content",
    "divergenceBlocking": false,
+   "executablePolicy": "agent-identity",
    "expiresBefore": null,
    "id": "agent-identity-tests-and-sanity",
    "modeMustMatch": true,
@@ -1256,6 +1242,7 @@
    "bytesMustMatch": false,
    "class": "agent-owned-content",
    "divergenceBlocking": false,
+   "executablePolicy": "agent-identity",
    "expiresBefore": null,
    "id": "compiled-agent-owned",
    "modeMustMatch": true,
@@ -1344,6 +1331,33 @@
    "validation": {
     "kind": "none"
    }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "attestation": "Deployment credentials. Each agent authenticates as itself, so these values are required to differ; the verifier classifies them by path and never opens them.",
+   "bytesMustMatch": false,
+   "class": "secret-path-excluded",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
+   "id": "credential-path-exclusions",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "opaque"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "paths": [
+     ".env",
+     "tui/.env",
+     "tui/.env.mimo-backup"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "secret-path-excluded"
+   }
   }
  ],
  "schemaVersion": "2.0.0",
@@ -1352,6 +1366,18 @@
   "HANDOFF_SCHEMA_VERSION": 1
  },
  "status": "enforced",
+ "truthRelease": {
+  "activationWrapper": "/home/zen/.local/bin/truth",
+  "attestation": "The release the activation wrapper actually executes. Its closure is recomputed here with the release protocol algorithm rather than read from the manifest that release writes about itself.",
+  "packageClosureFileCount": 231,
+  "packageClosureSha256": "60b02e92915dd60011ae4b4cb64f3d399fd1b5dca793cebc26bb57cac89df933",
+  "releaseId": "dabe8cc0ea47030a185898ab99df7957",
+  "runtimeClosureDeclarationPath": "trio/runtime-closure.json",
+  "sourceCommit": "29e1f9b3d109a2c66928d4acf56f408fcee9bd31",
+  "specifier": "truth-firewall",
+  "validationMethod": "recomputed-package-closure",
+  "version": "0.1.0"
+ },
  "validator": {
   "draft": "https://json-schema.org/draft/2020-12/schema",
   "name": "ajv",

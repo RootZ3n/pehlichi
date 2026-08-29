@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { createSchemaValidator,SCHEMA_VALIDATOR } from './schema-validation.mjs';
 import { readStrictJson,StrictJsonError } from './strict-json.mjs';
 import { AGENT_OWNED_UI_CLASS,AGENT_OWNED_CONTENT_CLASS,AGENT_OWNED_CLASSES,verifyAgentOwnedUi,verifyAgentOwnedUiRule,verifyAgentOwnedNotImportedByShared,verifyAgentOwnedHasNoPortableRoleLogic } from './agent-owned-ui.mjs';
+import { classifySecretPath,secretModeProblems,SECRET_PATH_POLICY_VERSION } from './secret-path-policy.mjs';
+import { verifyTruthRelease,TRUTH_BINDING_CONTRACT } from './truth-release-binding.mjs';
+import { validateCertification,CERTIFICATION_CONTRACT } from './release-certification.mjs';
 
 export const SLOT_NAMES=Object.freeze(['pehlichi','loony-luna','mad-ptah']);
 const MATCH_CLASSES=new Set(['behavior-identical','generated-behavior-identical','model-behavior-data','test-behavior-identical','quarantined-blocking-divergence']);
@@ -15,6 +18,10 @@ const VARIABLE_CLASSES=new Set(['validated-variable-data','inert-variable-asset'
 // distribution. It is neither compared across repositories nor permitted to be reachable
 // from anything that is: the exemption buys absence, never silence about behaviour.
 const OWNER_SCOPED_CLASS='owner-scoped-asset';
+// A credential-bearing path is governed by its path and its metadata, never by its bytes.
+// The verifier refuses to open it: two deployments are supposed to hold different secrets,
+// so the content could not be compared even if reading it were acceptable.
+const SECRET_EXCLUDED_CLASS='secret-path-excluded';
 const EXECUTABLE_SUFFIXES=new Set(['.ts','.tsx','.js','.jsx','.mjs','.cjs','.py','.sh','.bash','.zsh','.fish','.rb','.pl','.php','.go','.rs','.java','.kt','.swift','.wasm','.node','.exe','.dll','.so','.dylib','.html','.htm','.service']);
 const SAFE_EXCLUSIONS=new Set(['.git','node_modules','tui/node_modules','scripts/trio/node_modules']);
 const VERIFIER_CONTRACT=Object.freeze({name:'trio-read-only-parity-verifier',version:'3.0.0',pathPolicyVersion:'3.0.0',symlinkPolicy:'reject-all-governed-and-exclusion-boundary-symlinks',hardLinkPolicy:'reject-multiple-links',casePolicy:'ASCII repository-relative paths with case-fold collision rejection'});
@@ -79,7 +86,16 @@ function validateManifestContract(manifest){
     if(MATCH_CLASSES.has(rule.class)&&!rule.bytesMustMatch&&rule.validation.kind!=='package-behavior')failures.push(failure('RULE_CONTRACT','Behavioral class must require byte identity unless governed by a semantic package projection',null,rule.id));
     if(rule.class==='quarantined-blocking-divergence'&&(!rule.divergenceBlocking||!rule.transitional||!rule.expiresBefore))failures.push(failure('RULE_CONTRACT','Quarantine must be blocking, transitional, and expiring',null,rule.id));
     if(variable&&rule.productionReachable)failures.push(failure('VARIABLE_BEHAVIOR','Variable content cannot be production-reachable',null,rule.id));
-    if(rule.class===OWNER_SCOPED_CLASS){
+    if(rule.class===SECRET_EXCLUDED_CLASS){
+      // The exemption buys silence about content, so it has to be paid for in precision:
+      // exact paths only, no byte claim, no divergence claim, and a written reason.
+      if(!rule.selector.paths)failures.push(failure('SECRET_PATH_CONTRACT','A secret-path rule names exact paths; a directory rule would exempt files it never reviewed',null,rule.id));
+      if(rule.validation.kind!=='secret-path-excluded')failures.push(failure('SECRET_PATH_CONTRACT','A secret-path rule must declare the secret-path-excluded validation kind',null,rule.id));
+      if(rule.bytesMustMatch!==false)failures.push(failure('SECRET_PATH_CONTRACT','Credential content is never read, so it cannot be claimed to match',null,rule.id));
+      if(rule.divergenceBlocking!==false)failures.push(failure('SECRET_PATH_CONTRACT','Credential divergence is the declared outcome, not a blocker',null,rule.id));
+      if(typeof rule.attestation!=='string'||rule.attestation.length<16)failures.push(failure('SECRET_PATH_CONTRACT','A secret-path rule requires a written attestation',null,rule.id));
+      for(const rel of rule.selector.paths??[])if(!classifySecretPath(rel).secret)failures.push(failure('SECRET_PATH_CONTRACT','A secret-path rule may only name paths the credential policy recognises',null,rel,{rule:rule.id}));
+    }else if(rule.class===OWNER_SCOPED_CLASS){
       if(!SLOT_NAMES.includes(rule.owner))failures.push(failure('OWNER_SCOPE_CONTRACT','An owner-scoped rule names exactly one of the three agents as owner',null,rule.id,{owner:safeText(String(rule.owner))}));
       if(rule.productionReachable!==false)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content cannot be production-reachable',null,rule.id));
       if(rule.bytesMustMatch!==false)failures.push(failure('OWNER_SCOPE_CONTRACT','Owner-scoped content is not compared across repositories',null,rule.id));
@@ -171,7 +187,7 @@ function canonicalInventory(value){const out=structuredClone(value);for(const ke
 function publicRecord(record,rule,manifestVersion,content,packageInfo){return {path:record.path,classification:rule.class,fileType:record.kind,mode:record.mode,executable:Boolean(content?.exec),byteLength:content?.buffer?.length??null,byteDigest:content?.buffer?`sha256:${sha256(content.buffer)}`:null,behaviorDigest:packageInfo?`sha256:${packageInfo.projectionDigest}`:content?.buffer?`sha256:${sha256(content.buffer)}`:null,symlinkDisposition:record.kind==='symlink'?'rejected':'not-symlink',hardLinkDisposition:record.kind==='hardlink'?'rejected-multiple-links':'single-link',manifestVersion};}
 
 function classifyRepository(slot,root,manifest,inventory,schemaValidator){
-  const spec=manifest.repositories[slot];const failures=[];const rootReal=fs.realpathSync(root);const files=walk(rootReal,manifest.exclusions);const governed=[];const unknown=[];const rejected=[];const symlinks=[];const contentInvalid=[];const packageProjections={};
+  const spec=manifest.repositories[slot];const failures=[];const rootReal=fs.realpathSync(root);const files=walk(rootReal,manifest.exclusions);const governed=[];const unknown=[];const rejected=[];const symlinks=[];const contentInvalid=[];const packageProjections={};const secretPaths=[];
   for(const exclusion of manifest.exclusions.filter((x)=>x.kind==='dependency-tree')){const tracked=git(rootReal,['ls-files','--',exclusion.path]).split('\n').filter(Boolean);for(const rel of tracked)failures.push(failure('REPOSITORY_OWNED_EXCLUDED_FILE','A Git-tracked repository file is hidden inside an installed-dependency exclusion',slot,rel,{exclusion:exclusion.path}));}
   for(const rule of manifest.rules.filter((r)=>VARIABLE_CLASSES.has(r.class)&&r.selector.paths))for(const rel of rule.selector.paths){const full=path.join(rootReal,...rel.split('/'));if(fs.existsSync(full)){const stat=fs.lstatSync(full);if(!stat.isFile()&&!stat.isSymbolicLink())failures.push(failure('VARIABLE_FILE_TYPE','Variable path must be a regular file',slot,rel,{actual:stat.isDirectory()?'directory':'special'}));}}
   for(const file of files){
@@ -180,9 +196,34 @@ function classifyRepository(slot,root,manifest,inventory,schemaValidator){
     if(file.kind==='symlink'){const item={agent:slot,path:safeText(file.path),target:safeText(file.target),excluded:file.excluded};symlinks.push(item);rejected.push({path:item.path,classification:'rejected-symlink',fileType:'symlink',mode:file.mode,byteLength:Buffer.byteLength(file.target),byteDigest:`sha256:${sha256(file.target)}`,target:item.target});failures.push(failure('SYMLINK_REJECTED','In-scope or exclusion-boundary symlink rejected',slot,file.path));continue;}
     if(file.kind==='hardlink'){const buffer=fs.readFileSync(file.full);rejected.push({path:file.path,classification:'rejected-hardlink',fileType:'hardlink',mode:file.mode,byteLength:buffer.length,byteDigest:`sha256:${sha256(buffer)}`});failures.push(failure('HARDLINK_REJECTED','Governed regular file has multiple hard links',slot,file.path));continue;}
     if(file.kind!=='file'){rejected.push({path:file.path,classification:'rejected-special',fileType:file.kind,mode:file.mode,byteLength:null,byteDigest:null});failures.push(failure('FILE_TYPE','Non-regular governed filesystem entry',slot,file.path));continue;}
+    // Decide secrecy from the path before a descriptor exists. Everything below this line
+    // that reads bytes is unreachable for a credential-bearing path.
+    const secret=classifySecretPath(file.path);
     const matches=manifest.rules.filter((r)=>selectorMatches(file.path,r.selector,inventory,r.id));
-    if(matches.length!==1){const buffer=fs.readFileSync(file.full);unknown.push({agent:slot,path:safeText(file.path),classification:matches.length?'ambiguous':'unclassified',fileType:'file',mode:file.mode,executable:executableContent(file.path,buffer,file.stat.mode),byteLength:buffer.length,byteDigest:`sha256:${sha256(buffer)}`,matches:matches.map((x)=>x.id).sort()});failures.push(failure(matches.length?'AMBIGUOUS_CLASSIFICATION':'UNCLASSIFIED_FILE',matches.length?'File matches multiple rules':'File is not in the closed inventory',slot,file.path,{rules:matches.map((x)=>x.id).sort()}));continue;}
-    const rule=matches[0];let packageInfo=null;let content;
+    if(matches.length!==1){
+      // A newly encountered credential-like path is still fail-closed -- it is reported as
+      // unclassified like any other unknown file -- but it is classified by path policy
+      // rather than opened, so an unreviewed secret never enters the evidence.
+      if(secret.secret){
+        secretPaths.push({agent:slot,path:safeText(file.path),result:'SECRET_PATH_EXCLUDED',reason:secret.reason,classification:'unclassified',mode:file.mode,contentsRead:false});
+        unknown.push({agent:slot,path:safeText(file.path),classification:matches.length?'ambiguous':'unclassified',fileType:'file',mode:file.mode,executable:Boolean(file.stat.mode&0o111),byteLength:null,byteDigest:null,secretPathExcluded:true,matches:matches.map((x)=>x.id).sort()});
+        failures.push(failure('SECRET_PATH_UNGOVERNED','Credential-bearing path is not declared by a secret-path rule',slot,file.path,{reason:secret.reason}));
+        continue;
+      }
+      const buffer=fs.readFileSync(file.full);unknown.push({agent:slot,path:safeText(file.path),classification:matches.length?'ambiguous':'unclassified',fileType:'file',mode:file.mode,executable:executableContent(file.path,buffer,file.stat.mode),byteLength:buffer.length,byteDigest:`sha256:${sha256(buffer)}`,matches:matches.map((x)=>x.id).sort()});failures.push(failure(matches.length?'AMBIGUOUS_CLASSIFICATION':'UNCLASSIFIED_FILE',matches.length?'File matches multiple rules':'File is not in the closed inventory',slot,file.path,{rules:matches.map((x)=>x.id).sort()}));continue;}
+    const rule=matches[0];
+    if(secret.secret||rule.class===SECRET_EXCLUDED_CLASS){
+      // Only metadata is available, so metadata is all that is checked: a regular file,
+      // not executable, not group- or world-writable. No byte length, no digest, no excerpt.
+      const modeProblems=secretModeProblems(file.stat.mode);
+      if(!secret.secret)failures.push(failure('SECRET_PATH_CONTRACT','A secret-path rule governs a path the credential policy does not recognise',slot,file.path,{rule:rule.id}));
+      else if(rule.class!==SECRET_EXCLUDED_CLASS)failures.push(failure('SECRET_PATH_MISCLASSIFIED','Credential-bearing path is governed by a rule that would read its contents',slot,file.path,{rule:rule.id,class:rule.class,reason:secret.reason}));
+      for(const problem of modeProblems)failures.push(failure('SECRET_PATH_MODE',problem,slot,file.path,{mode:file.mode}));
+      secretPaths.push({agent:slot,path:safeText(file.path),result:'SECRET_PATH_EXCLUDED',reason:secret.reason??'declared secret-path rule',classification:rule.class,ruleId:rule.id,mode:file.mode,contentsRead:false});
+      governed.push({path:file.path,classification:rule.class,fileType:file.kind,mode:file.mode,executable:Boolean(file.stat.mode&0o111),byteLength:null,byteDigest:null,behaviorDigest:null,symlinkDisposition:'not-symlink',hardLinkDisposition:'single-link',manifestVersion:manifest.schemaVersion,secretPathExcluded:true,ruleId:rule.id,bytesMustMatch:rule.bytesMustMatch,modeMustMatch:rule.modeMustMatch,divergenceBlocking:rule.divergenceBlocking,transitional:rule.transitional});
+      continue;
+    }
+    let packageInfo=null;let content;
     try{
       content=validateContent(file,rule,schemaValidator,spec,manifest);
       if(rule.validation.kind==='package-behavior'){packageInfo=validatePackage(file.full,spec.packageNames[file.path],manifest.packageBehaviorFields);packageProjections[file.path]=packageInfo.projection;if(packageInfo.errors.length)content.errors.push(...packageInfo.errors);}
@@ -200,7 +241,7 @@ function classifyRepository(slot,root,manifest,inventory,schemaValidator){
     rejectedTreeDigest:framedDigest(rejected),
     completeObservedTreeDigest:framedDigest(completeObserved)
   };
-  return {slot,root:rootReal,head:git(rootReal,['rev-parse','HEAD']),branch:git(rootReal,['branch','--show-current']),remote:normalizeRemote(git(rootReal,['remote','get-url','origin'])),dirty:git(rootReal,['status','--porcelain=v1','--ignored=no']).split('\n').filter(Boolean).map(safeText),governed,unknown,rejected,symlinks,contentInvalid,packageProjections,digests,failures};
+  return {slot,root:rootReal,head:git(rootReal,['rev-parse','HEAD']),branch:git(rootReal,['branch','--show-current']),remote:normalizeRemote(git(rootReal,['remote','get-url','origin'])),dirty:git(rootReal,['status','--porcelain=v1','--ignored=no']).split('\n').filter(Boolean).map(safeText),governed,unknown,rejected,symlinks,contentInvalid,packageProjections,secretPaths,digests,failures};
 }
 
 function identityPreflight(slots,manifest,schemaValidator){
@@ -222,8 +263,15 @@ function identityPreflight(slots,manifest,schemaValidator){
 
 function compare(repositories,manifest,inventory,manifestDigest){
   const failures=[];const maps=Object.fromEntries(repositories.map((r)=>[r.slot,new Map(r.governed.map((x)=>[x.path,x]))]));const inventoried=[...new Set(Object.values(inventory.rules).flat())];const allPaths=[...new Set([...repositories.flatMap((r)=>r.governed.map((x)=>x.path)),...inventoried])].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)));
-  const identical=[],divergent=[],missing=[],variableDifferences=[],quarantined=[],ownerScoped=[],agentOwnedUi=[];
+  const identical=[],divergent=[],missing=[],variableDifferences=[],quarantined=[],ownerScoped=[],agentOwnedUi=[],secretExcluded=[];
   for(const rel of allPaths){const rows=SLOT_NAMES.map((s)=>maps[s].get(rel));const classes=new Set(rows.filter(Boolean).map((x)=>x.classification));if(classes.size>1){failures.push(failure('CLASSIFICATION_MISMATCH','Corresponding path has different classifications',null,rel,{classes:[...classes].sort()}));continue;}const inventoryRule=manifest.rules.find((r)=>(inventory.rules[r.id]??[]).includes(rel));const klass=[...classes][0]??inventoryRule?.class;const present=rows.filter(Boolean);
+    if(klass===SECRET_EXCLUDED_CLASS){
+      // Presence may legitimately differ (one deployment holds a backup the others do not)
+      // and the bytes are unavailable by policy, so the only cross-repository statement the
+      // verifier can honestly make is that the path was seen and never opened.
+      for(const i of SLOT_NAMES.keys())if(rows[i])secretExcluded.push({path:rel,agent:SLOT_NAMES[i],mode:rows[i].mode,result:'SECRET_PATH_EXCLUDED',contentsRead:false});
+      continue;
+    }
     if(AGENT_OWNED_CLASSES.has(klass)){
       // (1) excluded from byte comparison, (2) present only in declared owners,
       // (8) different features permitted.
@@ -234,6 +282,23 @@ function compare(repositories,manifest,inventory,manifestDigest){
       const owners=ownRule?.owners??[];
       const intruders=owners.length?SLOT_NAMES.filter((s2,i)=>rows[i]&&!owners.includes(s2)):[];
       if(intruders.length)failures.push(failure('UI_OWNERSHIP_VIOLATION','Agent-owned UI path is present in an agent that does not declare the surface',null,rel,{owners,presentIn:intruders}));
+      // Owning a copy is not the same as owning the behaviour. An executable that two or
+      // three agents all ship, at the same path, with different bytes, is shared surface
+      // drift wearing an ownership label -- and "obsolete" is a claim about the file, not
+      // evidence about it. Only a rule that declares the divergence to be agent identity
+      // escapes the comparison; everything else is compared where it is present.
+      // Scoped to agent-owned *content*. An agent-owned UI is a different product surface by
+      // design -- the three agents ship deliberately different interfaces -- so comparing its
+      // bytes would flag the very variation the class exists to permit. What keeps a UI
+      // honest is the shared-behaviour checks below, not byte equality.
+      const strictExecutables=klass===AGENT_OWNED_CONTENT_CLASS&&ownRule?.executablePolicy!=='agent-identity';
+      if(strictExecutables&&present.length>1&&present.some((x)=>x.executable)){
+        const digests=present.map((x)=>x.byteDigest);
+        if(new Set(digests).size>1){
+          divergent.push({path:rel,class:klass,records:Object.fromEntries(SLOT_NAMES.map((s2,i)=>[s2,rows[i]?{mode:rows[i].mode,byteDigest:rows[i].byteDigest,behaviorDigest:rows[i].behaviorDigest}:null]))});
+          failures.push(failure('BEHAVIOR_DIVERGENCE','Executable content shipped by more than one agent diverges under an ownership claim',null,rel,{class:klass,rule:ownRule?.id??null,presentIn:SLOT_NAMES.filter((_,i)=>rows[i])}));
+        }
+      }
       for(const i of SLOT_NAMES.map((s2,i2)=>i2))if(rows[i])agentOwnedUi.push({path:rel,agent:SLOT_NAMES[i],digest:rows[i].byteDigest,mode:rows[i].mode});
       continue;
     }
@@ -258,6 +323,13 @@ function compare(repositories,manifest,inventory,manifestDigest){
       else if(new Set(rows.map((x)=>x.fileType)).size!==1)failures.push(failure('VARIABLE_TYPE_MISMATCH','Variable-data file types differ',null,rel));
       else if(rows[0].modeMustMatch&&new Set(rows.map((x)=>x.mode)).size!==1)failures.push(failure('VARIABLE_MODE_MISMATCH','Variable-data modes differ despite modeMustMatch',null,rel));
     }
+  }
+  // A governed file whose declared format could not be established is quarantined rather
+  // than accepted. A malformed or polyglot asset has no single meaning, and a verifier that
+  // shrugs at "it is probably a PNG" is the verifier that let the polyglot through.
+  for(const rel of [...new Set(repositories.flatMap((r)=>r.contentInvalid.map((x)=>x.path)))].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)))){
+    quarantined.push({path:rel,status:'content-invalid-quarantined'});
+    failures.push(failure('QUARANTINED_DIVERGENCE','Governed content could not be established as valid for its declared format and is quarantined',null,rel));
   }
   const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
   // (3)(4)(5)(6)(7) Content governance for every declared agent-owned UI tree.
@@ -287,7 +359,7 @@ function compare(repositories,manifest,inventory,manifestDigest){
         failures.push(failure(f.failureClass,f.message,f.agent,f.affectedPath,f.details));
     }
   }
-  return {identical,divergent,missing,variableDifferences,quarantined,ownerScoped,agentOwnedUi,failures,blockingByClass};
+  return {identical,divergent,missing,variableDifferences,quarantined,ownerScoped,agentOwnedUi,secretExcluded,failures,blockingByClass};
 }
 
 
@@ -388,6 +460,12 @@ export function verify({slots,manifestPath}){
     if(!inventoryValidation.ok)return invalidResult('SCHEMA_INVALID',inventoryValidation.errors.map((e)=>failure('SCHEMA_VALIDATION',`${e.keyword}: ${e.message}`,null,inventoryReal,e.params)));
     const inventory=inventoryValidation.value;const inventoryFailures=validateInventoryContract(inventory,manifest);if(inventoryFailures.length)return invalidResult('MANIFEST_INVALID',inventoryFailures);
     const identities=identityPreflight(slots,manifest,schemaValidator);if(identities.failures.length)return invalidResult('IDENTITY_INVALID',identities.failures,{repositoryInputs:Object.fromEntries(SLOT_NAMES.map((s)=>[s,slots?.[s]??null]))});
+    // The Truth Firewall is the authority this trio defers to, so a parity verdict that did
+    // not know which Truth was running would be a verdict about nothing. Resolve the
+    // activated release, recompute its closure, and refuse to continue if the executable
+    // authority is not the pinned one.
+    const truth=verifyTruthRelease(manifest.truthRelease);
+    if(!truth.ok)return invalidResult('TRUTH_IDENTITY_MISMATCH',truth.problems.map((x)=>failure('TRUTH_IDENTITY_MISMATCH',x.message,null,manifest.truthRelease?.activationWrapper??null,Object.fromEntries(Object.entries(x).filter(([k])=>k!=='message')))),{truthRelease:{pinned:manifest.truthRelease??null,validationMethod:TRUTH_BINDING_CONTRACT.validationMethod}});
     const manifestDigest=`sha256:${sha256(stableJson(canonicalManifest(manifest)))}`;const manifestByteDigest=`sha256:${sha256(fs.readFileSync(manifestReal))}`;const inventoryDigest=`sha256:${sha256(stableJson(canonicalInventory(inventory)))}`;const inventoryByteDigest=`sha256:${sha256(fs.readFileSync(inventoryReal))}`;const manifestFailures=[];
     for(const slot of SLOT_NAMES){
       const local=path.join(identities.resolved[slot],'trio/governance/boundary-manifest.json'),localInventory=path.join(identities.resolved[slot],'trio/governance/path-inventory.json');
@@ -400,23 +478,62 @@ export function verify({slots,manifestPath}){
         const localInvDigest=`sha256:${sha256(stableJson(canonicalInventory(localInvValidation.value)))}`;if(localInvDigest!==inventoryDigest)manifestFailures.push(failure('INVENTORY_DIVERGENCE','Repository-local path inventory differs semantically from the governing inventory',slot,'trio/governance/path-inventory.json',{expected:inventoryDigest,actual:localInvDigest}));
       }catch(error){manifestFailures.push(failure('MANIFEST_DIVERGENCE',error.message,slot,'trio/governance/boundary-manifest.json'));}
     }
-    if(manifestFailures.length)return invalidResult('MANIFEST_DIVERGENCE',manifestFailures,{boundaryManifestDigest:manifestDigest});
-    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const ownerScopeFailures=verifyOwnerScopedIsolation(repositories,manifest,inventory,identities.resolved);const failures=[...repoFailures,...compared.failures,...ownerScopeFailures];const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
+    // Each repository also pins Truth in its runtime closure. A second pin that disagrees
+    // with the executable authority is exactly the kind of stale claim this verifier exists
+    // to catch, so it is compared rather than assumed to agree.
+    const truthClosureFailures=[];
+    for(const slot of SLOT_NAMES){
+      const rel=manifest.truthRelease.runtimeClosureDeclarationPath;
+      try{
+        const closure=readStrictJson(path.join(identities.resolved[slot],...rel.split('/')));
+        const declared=(closure.legitimateExternalDependencies??[]).find((d)=>d.specifier===manifest.truthRelease.specifier);
+        if(!declared)truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH','Repository runtime closure declares no Truth release',slot,rel));
+        else for(const [field,actual] of [['releaseId',declared.releaseId],['packageClosureSha256',declared.packageClosureSha256],['packageClosureFileCount',declared.packageClosureFileCount]])
+          if(actual!==truth.identity[field])truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH',`Repository runtime closure pins a ${field} that is not the activated Truth authority`,slot,rel,{field,pinned:actual===undefined?null:actual,activated:truth.identity[field]}));
+      }catch(error){truthClosureFailures.push(failure('TRUTH_IDENTITY_MISMATCH',`Repository runtime closure is unreadable: ${error.message}`,slot,rel));}
+    }
+    // A stale pin is a blocking finding, not a reason to stop looking. Failing to resolve the
+    // authority at all is different -- that is handled above, because a verifier that does
+    // not know which Truth is running cannot say anything useful about the rest.
+    if(manifestFailures.length)return invalidResult('MANIFEST_DIVERGENCE',manifestFailures,{boundaryManifestDigest:manifestDigest,truthRelease:truth.identity});
+    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const ownerScopeFailures=verifyOwnerScopedIsolation(repositories,manifest,inventory,identities.resolved);// Certification state is measured here and enforced at the publication boundary (see
+    // publishedResult). Keeping the gate out of the comparison engine is deliberate: if
+    // verify() refused to run uncertified, certifying would require a certification, and the
+    // release step could never bootstrap. That circularity is the recursive test execution
+    // this design is required to avoid.
+    const certification=validateCertification();
+    const failures=[...repoFailures,...compared.failures,...ownerScopeFailures,...truthClosureFailures];const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
     const packageBehaviorProjection=Object.fromEntries(repositories.map((r)=>[r.slot,{projection:r.packageProjections,digest:`sha256:${sha256(stableJson(r.packageProjections))}`} ]));
     const implementationPaths={verifier:fileURLToPath(import.meta.url),strictParser:path.join(path.dirname(fileURLToPath(import.meta.url)),'strict-json.mjs'),validator:path.join(path.dirname(fileURLToPath(import.meta.url)),'schema-validation.mjs')};
     const implementation=Object.fromEntries(Object.entries(implementationPaths).map(([key,file])=>[key,{version:key==='verifier'?VERIFIER_CONTRACT.version:key==='strictParser'?'3.0.0':SCHEMA_VALIDATOR.version,digest:`sha256:${sha256(fs.readFileSync(file))}`} ]));
     const schemaFiles=['boundary.schema.json','path-inventory.schema.json','capsule.schema.json','deployment.schema.json','capability-pack.schema.json','runtime-manifest.schema.json'];const schemas=Object.fromEntries(schemaFiles.map((name)=>[name,{digest:`sha256:${sha256(fs.readFileSync(path.join(schemaDir,name)))}`,id:readStrictJson(path.join(schemaDir,name)).$id}]));
     const completeRuleDigest=framedEnvelope({rules:canonicalManifest(manifest).rules,pathInventory:canonicalInventory(inventory)}),completeExclusionDigest=framedEnvelope({exclusions:canonicalManifest(manifest).exclusions});
     const identityContract=Object.fromEntries(SLOT_NAMES.map((slot)=>[slot,manifest.repositories[slot]]));
-    const contractFields={verifier:VERIFIER_CONTRACT,implementation,validator:SCHEMA_VALIDATOR,schemas,boundaryManifestDigest:manifestDigest,boundaryManifestByteDigest:manifestByteDigest,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,completeRuleDigest,completeExclusionDigest,expectedRepositoryIdentity:identityContract,packageBehaviorFields:manifest.packageBehaviorFields,symlinkPolicy:VERIFIER_CONTRACT.symlinkPolicy,hardLinkPolicy:VERIFIER_CONTRACT.hardLinkPolicy,unicodeCasePathPolicy:{normalization:'NFC',allowedPathCharacters:'ASCII printable except ambiguous segment forms',case:VERIFIER_CONTRACT.casePolicy},generatedOutputPolicy:'compared when inventoried; not reproducibly rebuilt',dependencyPolicy:'excluded installed dependencies represented by governed lock and package-manager configuration, not installed bytes',quarantinePolicy:'all listed quarantine remains blocking'};
+    const contractFields={verifier:VERIFIER_CONTRACT,implementation,validator:SCHEMA_VALIDATOR,schemas,boundaryManifestDigest:manifestDigest,boundaryManifestByteDigest:manifestByteDigest,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,completeRuleDigest,completeExclusionDigest,expectedRepositoryIdentity:identityContract,packageBehaviorFields:manifest.packageBehaviorFields,symlinkPolicy:VERIFIER_CONTRACT.symlinkPolicy,hardLinkPolicy:VERIFIER_CONTRACT.hardLinkPolicy,unicodeCasePathPolicy:{normalization:'NFC',allowedPathCharacters:'ASCII printable except ambiguous segment forms',case:VERIFIER_CONTRACT.casePolicy},generatedOutputPolicy:'compared when inventoried; not reproducibly rebuilt',dependencyPolicy:'excluded installed dependencies represented by governed lock and package-manager configuration, not installed bytes',quarantinePolicy:'all listed quarantine remains blocking',credentialPathPolicy:{version:SECRET_PATH_POLICY_VERSION,rule:'credential-bearing paths are classified by path and never opened'},truthRelease:truth.identity,verifierCertification:certification.ok?certification.certification.certificationDigest:null};
     const topLevelContractDigest=framedEnvelope(contractFields);
     const repositoryIdentities=repositories.map((r)=>{const lockDigests=Object.fromEntries(['pnpm-lock.yaml','tui/pnpm-lock.yaml','scripts/trio/package-lock.json'].map((p)=>[p,fs.existsSync(path.join(r.root,p))?`sha256:${sha256(fs.readFileSync(path.join(r.root,p)))}`:null]));const snapshot={agent:r.slot,canonicalRealpath:r.root,expectedRepositoryName:manifest.repositories[r.slot].expectedRepositoryName,remoteIdentity:r.remote,packageIdentity:manifest.repositories[r.slot].packageNames,capsuleIdentity:manifest.repositories[r.slot].capsuleIdentity,head:r.head,branch:r.branch,dirty:r.dirty,dirtyStateVisible:r.dirty.length>0,digests:r.digests,lockDigests,packageProjectionDigest:packageBehaviorProjection[r.slot].digest,generatedOutputState:{digest:r.digests.compiledArtifactDigest,reproduciblyBuilt:false},knownQuarantineCount:r.governed.filter((x)=>x.classification==='quarantined-blocking-divergence').length};return {...snapshot,behavioralEnvelopeDigest:framedEnvelope({topLevelContractDigest,slot:r.slot,expectedIdentity:manifest.repositories[r.slot],snapshot:{head:r.head,branch:r.branch,dirty:r.dirty},treeDigests:r.digests,lockDigests,packageProjectionDigest:packageBehaviorProjection[r.slot].digest,generatedOutputState:snapshot.generatedOutputState})};});
     const blockingStateDigest=framedEnvelope({failures:[...failures].sort((a,b)=>stableJson(a).localeCompare(stableJson(b))),comparison:{divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences}});const observationEnvelopeDigest=framedEnvelope({topLevelContractDigest,repositorySnapshots:repositoryIdentities.map((x)=>({agent:x.agent,head:x.head,branch:x.branch,dirty:x.dirty,behavioralEnvelopeDigest:x.behavioralEnvelopeDigest,completeObservedTreeDigest:x.digests.completeObservedTreeDigest})),blockingStateDigest,status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY'});
-    const result={schemaVersion:'3.0.0',status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY',generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,identityLimitations:['Mutable Git remote/package/capsule metadata verifies labeling consistency, not cryptographic provenance.','Compiled artifacts are compared when inventoried but are not proven reproducible.','Excluded third-party dependency bytes are not individually attested; pinned lock and package-manager configuration are governed.','Identical code may still be unsafe.'],topLevelIdentity:{contractDigest:topLevelContractDigest,observationEnvelopeDigest,blockingStateDigest,contract:contractFields},boundaryManifest:{path:manifestReal,digest:manifestDigest,byteDigest:manifestByteDigest,schemaVersion:manifest.schemaVersion,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,inclusionRuleDigest:`sha256:${sha256(stableJson(manifest.rules))}`,exclusionRuleDigest:`sha256:${sha256(stableJson(manifest.exclusions))}`,completeRuleDigest,completeExclusionDigest},repositoryIdentities,packageBehaviorProjection,summary:{verdict:failures.length?'BLOCKING_DIVERGENCE':'PARITY',blockingCount:failures.length,blockingByClass,identical:compared.identical.length,behavioralDivergences:compared.divergent.length,missingBehaviorFiles:compared.missing.length,quarantined:compared.quarantined.length,variableDifferences:compared.variableDifferences.length,ownerScopedFiles:compared.ownerScoped.length,agentOwnedUiFiles:compared.agentOwnedUi.length,unclassifiedFiles:repositories.reduce((n,r)=>n+r.unknown.length,0),symlinks:repositories.reduce((n,r)=>n+r.symlinks.length,0),contentValidationFailures:repositories.reduce((n,r)=>n+r.contentInvalid.length,0)},intentionalBlockingDivergences:manifest.blockingDivergences,divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences,ownerScoped:compared.ownerScoped,agentOwnedUi:compared.agentOwnedUi,unclassified:repositories.flatMap((r)=>r.unknown),symlinks:repositories.flatMap((r)=>r.symlinks),contentValidationFailures:repositories.flatMap((r)=>r.contentInvalid),failures};return result;
+    const result={schemaVersion:'3.0.0',status:failures.length?'VERIFIER_OK_DIVERGENCE':'VERIFIER_OK_PARITY',generatedAt:new Date().toISOString(),validator:SCHEMA_VALIDATOR,identityLimitations:['Mutable Git remote/package/capsule metadata verifies labeling consistency, not cryptographic provenance.','Compiled artifacts are compared when inventoried but are not proven reproducible.','Excluded third-party dependency bytes are not individually attested; pinned lock and package-manager configuration are governed.','Identical code may still be unsafe.'],topLevelIdentity:{contractDigest:topLevelContractDigest,observationEnvelopeDigest,blockingStateDigest,contract:contractFields},boundaryManifest:{path:manifestReal,digest:manifestDigest,byteDigest:manifestByteDigest,schemaVersion:manifest.schemaVersion,pathInventoryDigest:inventoryDigest,pathInventoryByteDigest:inventoryByteDigest,inclusionRuleDigest:`sha256:${sha256(stableJson(manifest.rules))}`,exclusionRuleDigest:`sha256:${sha256(stableJson(manifest.exclusions))}`,completeRuleDigest,completeExclusionDigest},repositoryIdentities,packageBehaviorProjection,summary:{verdict:failures.length?'BLOCKING_DIVERGENCE':'PARITY',blockingCount:failures.length,blockingByClass,identical:compared.identical.length,behavioralDivergences:compared.divergent.length,missingBehaviorFiles:compared.missing.length,quarantined:compared.quarantined.length,variableDifferences:compared.variableDifferences.length,ownerScopedFiles:compared.ownerScoped.length,agentOwnedUiFiles:compared.agentOwnedUi.length,secretPathsExcluded:compared.secretExcluded.length,unclassifiedFiles:repositories.reduce((n,r)=>n+r.unknown.length,0),symlinks:repositories.reduce((n,r)=>n+r.symlinks.length,0),contentValidationFailures:repositories.reduce((n,r)=>n+r.contentInvalid.length,0)},intentionalBlockingDivergences:manifest.blockingDivergences,divergent:compared.divergent,missing:compared.missing,quarantined:compared.quarantined,variableDifferences:compared.variableDifferences,ownerScoped:compared.ownerScoped,agentOwnedUi:compared.agentOwnedUi,secretPathsExcluded:compared.secretExcluded,secretPathPolicy:{version:SECRET_PATH_POLICY_VERSION,contentsRead:false,result:'SECRET_PATH_EXCLUDED'},truthRelease:truth.identity,verifierCertification:certification.ok?certification.certification:{certified:false,problems:certification.problems},unclassified:repositories.flatMap((r)=>r.unknown),symlinks:repositories.flatMap((r)=>r.symlinks),contentValidationFailures:repositories.flatMap((r)=>r.contentInvalid),failures};return result;
   }catch(error){const kind=error instanceof StrictJsonError?'JSON_INVALID':error?.code==='ENOENT'?'MISSING_INPUT':'VERIFIER_EXCEPTION';return invalidResult(kind,[failure(kind,error.message,null,manifestPath??null)]);}
+}
+
+/**
+ * Apply the self-certification gate to a verdict before it leaves the verifier.
+ *
+ * PARITY is a claim about three repositories; certification is the claim the verifier has to
+ * make about itself first, for exactly these implementation bytes and exactly this fixture
+ * set. An uncertified release may still report what it observed -- the observations are
+ * useful -- but it may not call the result parity.
+ */
+export function publishedResult(result){
+  const certification=result?.verifierCertification;
+  if(!certification||certification.certified!==false)return result;
+  const failures=[...(result.failures??[]),...(certification.problems??[]).map((x)=>failure('VERIFIER_UNCERTIFIED',x.message,null,CERTIFICATION_CONTRACT.artifact,Object.fromEntries(Object.entries(x).filter(([k])=>k!=='message'))))];
+  const blockingByClass={};for(const f of failures)blockingByClass[f.failureClass]=(blockingByClass[f.failureClass]??0)+1;
+  return {...result,status:'VERIFIER_UNCERTIFIED',failures,summary:{...result.summary,verdict:'VERIFIER_UNCERTIFIED',blockingCount:failures.length,blockingByClass}};
 }
 
 export function human(result){const s=result.summary;const lines=[`TRIO verifier status: ${result.status}`,`verdict=${s.verdict} blocking=${s.blockingCount}`];if(s.behavioralDivergences!==undefined)lines.push(`behavior-divergent=${s.behavioralDivergences} missing=${s.missingBehaviorFiles} quarantined=${s.quarantined} variable-differences=${s.variableDifferences} unclassified=${s.unclassifiedFiles}`);for(const f of result.failures.slice(0,200))lines.push(`${f.failureClass}${f.agent?` agent=${f.agent}`:''}${f.affectedPath?` path=${safeText(f.affectedPath)}`:''}: ${safeText(f.message)}`);if(result.failures.length>200)lines.push(`... ${result.failures.length-200} additional failures omitted from human output; use --json`);return lines.join('\n');}
 function parseArgs(argv){const out={slots:{}};for(let i=0;i<argv.length;i++){const a=argv[i];if(a==='--json')out.json=true;else if(a==='--manifest')out.manifestPath=argv[++i];else if(SLOT_NAMES.some((s)=>a===`--${s}`))out.slots[a.slice(2)]=argv[++i];else out.error=`Unknown argument: ${safeText(a)}`;}return out;}
 const isMain=process.argv[1]!==undefined&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url);
-if(isMain){const args=parseArgs(process.argv.slice(2));let result;if(args.error)result=invalidResult('INVALID_INPUT',[failure('ARGUMENT_ERROR',args.error)]);else{const ownRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');result=verify({slots:args.slots,manifestPath:path.resolve(args.manifestPath??path.join(ownRoot,'trio/governance/boundary-manifest.json'))});}process.stdout.write((args.json?JSON.stringify(result,null,2):human(result))+'\n');process.exitCode=result.summary.verdict==='PARITY'?0:1;}
+if(isMain){const args=parseArgs(process.argv.slice(2));let result;if(args.error)result=invalidResult('INVALID_INPUT',[failure('ARGUMENT_ERROR',args.error)]);else{const ownRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');result=verify({slots:args.slots,manifestPath:path.resolve(args.manifestPath??path.join(ownRoot,'trio/governance/boundary-manifest.json'))});}result=publishedResult(result);process.stdout.write((args.json?JSON.stringify(result,null,2):human(result))+'\n');process.exitCode=result.summary.verdict==='PARITY'?0:1;}

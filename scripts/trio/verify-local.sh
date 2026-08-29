@@ -7,7 +7,11 @@ ecosystem_root=$(dirname -- "$self_root")
 pehlichi_root=${1:-$self_root}
 luna_root=${2:-$ecosystem_root/loony-luna}
 ptah_root=${3:-$ecosystem_root/mad-ptah}
-manifest=$self_root/trio/boundary-manifest.json
+# The governed manifest is the one the verifier schema-validates, and it lives beside its
+# schemas/ and path-inventory.json. The older trio/boundary-manifest.json is a previous
+# generation with a different shape; pointing the live run at it produced MISSING_INPUT, so
+# the sanctioned "full run" never actually reached a parity verdict.
+manifest=$self_root/trio/governance/boundary-manifest.json
 overall=0
 parity_json=
 
@@ -29,7 +33,7 @@ run_check() {
 }
 
 if ! command -v node >/dev/null 2>&1; then
-  for label in strict-json schema hostile vulnerable-fixture historical-limit scaffolding characterization parity; do echo "TRIO_CHECK_END $label status=127 class=DEPENDENCY_MISSING dependency=node"; done
+  for label in strict-json schema hostile vulnerable-fixture historical-limit scaffolding mutation credential-non-read truth-identity certification characterization parity; do echo "TRIO_CHECK_END $label status=127 class=DEPENDENCY_MISSING dependency=node"; done
   exit 2
 fi
 if [ ! -d "$script_dir/node_modules/ajv" ]; then echo 'TRIO_DEPENDENCY_ERROR class=DEPENDENCY_MISSING dependency=ajv'; overall=1; fi
@@ -40,6 +44,10 @@ run_check hostile node "$script_dir/verify-runtime-parity.test.mjs"
 run_check vulnerable-fixture node "$script_dir/vulnerable-six-reproduction.test.mjs"
 run_check historical-limit node "$script_dir/preflight-hostile-audit.test.mjs"
 run_check scaffolding node "$script_dir/scaffolding.test.mjs"
+run_check mutation node "$script_dir/mutation.test.mjs"
+run_check credential-non-read node "$script_dir/credential-nonread.test.mjs"
+run_check truth-identity node "$script_dir/truth-identity.test.mjs"
+run_check certification node "$script_dir/certification.test.mjs"
 if node --import tsx -e '' >/dev/null 2>&1; then
   run_check characterization node --import tsx "$script_dir/current-behavior.characterization.test.mjs"
 else

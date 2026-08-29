@@ -1,0 +1,74 @@
+{
+ "contractVersion": "1.0.0",
+ "implementationDigest": "sha256:e30893aaa12500d1f4637ee76929867a6ac1ca2c227dcab3798f5b6dc0738afd",
+ "fixtureDigest": "sha256:9bfa01d9073eaf23ebf08e2c216486b75f0c9277a3ed2cbb6f11ee1baf1c7a90",
+ "suites": [
+  {
+   "id": "hostile",
+   "file": "verify-runtime-parity.test.mjs",
+   "tests": 84,
+   "passed": 84,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "scaffolding",
+   "file": "scaffolding.test.mjs",
+   "tests": 8,
+   "passed": 8,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "schema",
+   "file": "schema-validation.test.mjs",
+   "tests": 13,
+   "passed": 13,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "strict-differential",
+   "file": "strict-json-differential.test.mjs",
+   "tests": 12,
+   "passed": 12,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "mutation",
+   "file": "mutation.test.mjs",
+   "tests": 21,
+   "passed": 21,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "credential-non-read",
+   "file": "credential-nonread.test.mjs",
+   "tests": 6,
+   "passed": 6,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "truth-identity",
+   "file": "truth-identity.test.mjs",
+   "tests": 13,
+   "passed": 13,
+   "failures": 0,
+   "pass": true
+  },
+  {
+   "id": "certification",
+   "file": "certification.test.mjs",
+   "required": false,
+   "tests": 8,
+   "passed": 8,
+   "failures": 0,
+   "pass": true
+  }
+ ],
+ "certifiedAt": "2026-08-29T12:34:30.832Z",
+ "certificationDigest": "sha256:7c3bc7e37a895d958f81a830f9f997141ec669b674baa720c8cccb52524b557d"
+}

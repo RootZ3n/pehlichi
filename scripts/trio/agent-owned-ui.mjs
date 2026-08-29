@@ -238,9 +238,25 @@ export function verifyAgentOwnedUiRule(rule, slotNames) {
   if (!closed) {
     fail('this class requires a closed inventory (or an explicit path list) so a new unclassified file fails');
   }
+  // Agent-owned content may additionally declare a declarative-format check. Owning a file
+  // buys the right to different bytes, never the right to smuggle behaviour into a surface
+  // that claims to be an inert asset, so `inert-image` stays available to this class.
   const wantKind = rule.class === AGENT_OWNED_CONTENT_CLASS ? 'agent-owned-content' : 'agent-owned-ui';
-  if (rule.validation?.kind !== wantKind) {
-    fail(`this class requires validation.kind = ${wantKind}`);
+  const allowedKinds = rule.class === AGENT_OWNED_CONTENT_CLASS
+    ? [wantKind, 'inert-image']
+    : [wantKind];
+  if (!allowedKinds.includes(rule.validation?.kind)) {
+    fail(`this class requires validation.kind in ${allowedKinds.join(' | ')}`);
+  }
+  // Executable content is strict unless the rule says, in the manifest, that the divergence
+  // is agent identity. The default is the strict reading: a label of "obsolete" or "dev
+  // overlay" is a claim about a file, and claims are what this verifier exists to check.
+  if (rule.executablePolicy !== undefined
+      && !['strict', 'agent-identity'].includes(rule.executablePolicy)) {
+    fail(`unknown executablePolicy ${String(rule.executablePolicy)}`);
+  }
+  if (rule.executablePolicy === 'agent-identity' && rule.class !== AGENT_OWNED_CONTENT_CLASS) {
+    fail('only agent-owned content may declare an agent-identity executable policy');
   }
   return out;
 }
