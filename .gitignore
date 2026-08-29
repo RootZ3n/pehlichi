@@ -9,3 +9,8 @@ dist/
 .idea/
 .vscode/
 out/
+
+# Agent-local editor state. Declared here rather than relying on a machine-global
+# ignore file, so cleanliness is decided by the repository and not by whose
+# workstation is running the verifier.
+.claude/settings.local.json
