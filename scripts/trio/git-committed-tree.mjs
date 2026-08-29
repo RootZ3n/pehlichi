@@ -209,6 +209,26 @@ export function planCommittedTree(root,tree){
   return approved;
 }
 
+/**
+ * Read one governed file out of the committed tree, by object identity.
+ *
+ * Bootstrapping needs the governance manifest before any snapshot exists, and reading it
+ * from the worktree would be exactly the live-content dependency this architecture removes.
+ * So it comes from the tree: `ls-tree` for the object id, `cat-file` for the bytes, and the
+ * same pathname and mode policy every other entry is held to.
+ */
+export function readCommittedFile(root,tree,relativePath){
+  const listed=git(root,['ls-tree','-z','--full-tree',tree,'--',relativePath]);
+  if(listed.status!==0)throw new CommittedTreeRefusal(REFUSAL.GIT_METADATA_UNAVAILABLE,relativePath,'git ls-tree failed');
+  const record=String(listed.stdout??'').split('\0').filter(Boolean)[0];
+  if(!record)throw new CommittedTreeRefusal(REFUSAL.GIT_METADATA_UNAVAILABLE,relativePath,'path is not present in the committed tree');
+  const tab=record.indexOf('\t');
+  const [mode,type,oid]=record.slice(0,tab).split(/\s+/);
+  if(classifySecretPath(relativePath).secret)throw new CommittedTreeRefusal(REFUSAL.COMMITTED_SECRET_PATH,relativePath,'a credential-class path is committed');
+  if(type!=='blob'||!COMMITTED_TREE_CONTRACT.permittedBlobModes.includes(mode))throw new CommittedTreeRefusal(REFUSAL.UNSUPPORTED_OBJECT,relativePath,`object ${type}/${mode}`);
+  return readBlob(root,oid);
+}
+
 /** Fetch one approved blob by object identity. Never by working-tree path. */
 function readBlob(root,oid){
   const result=git(root,['cat-file','blob',oid],{buffer:true});

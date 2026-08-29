@@ -31,7 +31,7 @@ import { parseStrictJsonText } from './strict-json.mjs';
 import { createReadAuthority,scanSecretObjects } from './governed-reader.mjs';
 import {
   COMMITTED_TREE_CONTRACT,REFUSAL,CommittedTreeRefusal,
-  readIdentity,assessCleanliness,planCommittedTree,materializeSnapshot,createSnapshotWorkspace
+  readIdentity,assessCleanliness,planCommittedTree,materializeSnapshot,createSnapshotWorkspace,readCommittedFile
 } from './git-committed-tree.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -141,11 +141,17 @@ export async function runAuthoritative({repositories,keepSnapshots=false}={}){
   const missing=SLOTS.filter((slot)=>typeof resolved[slot]!=='string'||!fs.existsSync(resolved[slot]));
   if(missing.length)return refusal('MISSING_REPOSITORY',{missing},startedAt);
 
-  // Governance is read from the *source* repository's committed governance only after its
-  // tree is proven clean, so the declared secret paths used by the cleanliness check come
-  // from the bundled verifier assets rather than from a dirty worktree.
-  const bundledAuthority=createReadAuthority({root:ownRoot,secretObjects:scanSecretObjects(ownRoot,{exclusions:[{path:'.git'},{path:'node_modules'},{path:'dist'}]})});
-  const manifest=parseStrictJsonText(bundledAuthority.readText(path.join(ownRoot,'trio/governance/boundary-manifest.json')));
+  // Governance itself comes out of the committed tree, by object id. Reading it from the
+  // worktree would reintroduce exactly the live-content dependency this design removes --
+  // and it is needed before any snapshot exists, so the blob is the only honest source.
+  let manifest;
+  try{
+    const bootstrapRoot=fs.realpathSync(resolved.pehlichi);
+    manifest=parseStrictJsonText(readCommittedFile(bootstrapRoot,readIdentity(bootstrapRoot).tree,'trio/governance/boundary-manifest.json').toString('utf8'));
+  }catch(error){
+    if(error instanceof CommittedTreeRefusal)return refusal(error.category,{stage:'governance-bootstrap',detail:error.detail,path:error.affectedPath},startedAt);
+    throw error;
+  }
   const governance={
     declaredSecretPaths:manifest.rules.filter((r)=>r.class==='secret-path-excluded').flatMap((r)=>r.selector.paths??[]),
     exclusions:manifest.exclusions,
