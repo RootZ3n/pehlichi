@@ -60,8 +60,16 @@ export function analyzeSemanticClosure({root=path.resolve(path.dirname(fileURLTo
   const authority=createReadAuthority({root,secretObjects:scanSecretObjects(root,{exclusions:[{path:'.git'},{path:'node_modules'},{path:'dist'}]})});
   const manifest=parseStrictJsonText(authority.readText(manifestPath));
   const problems=[];
-  const aggregateText=authority.readText(path.join(root,manifest.aggregateGate.wrapper));
-  for(const invocation of manifest.aggregateGate.requiredInvocations)if(!aggregateText.includes(invocation))problems.push({code:'AGGREGATE_GATE_MISSING',module:manifest.aggregateGate.wrapper,invocation});
+  // The aggregate gate is the required-suite list the authoritative entry point actually
+  // uses, read as a value rather than matched as text. A comment or a string in a shell
+  // wrapper can no longer satisfy it.
+  const entryText=authority.readText(path.join(root,manifest.aggregateGate.entryPoint));
+  const declared=entryText.match(/requiredSuites:Object\.freeze\(\[([\s\S]*?)\]\)/);
+  // Comments must never satisfy the gate: strip them before reading the list, so a suite
+  // that has merely been commented out counts as absent rather than as declared.
+  const declaredBody=declared?declared[1].split('\n').map((line)=>line.replace(/\/\/.*$/,'')).join('\n'):'';
+  const declaredSuites=[...declaredBody.matchAll(/'([^']+\.test\.mjs)'/g)].map((x)=>x[1]);
+  for(const suite of manifest.aggregateGate.requiredSuites)if(!declaredSuites.includes(suite))problems.push({code:'AGGREGATE_GATE_MISSING',module:manifest.aggregateGate.entryPoint,suite});
   const modules=new Map();
   const pending=[...manifest.entryPoints];
   const external=new Set(manifest.externalModules??[]);

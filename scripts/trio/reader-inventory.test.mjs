@@ -7,6 +7,6 @@ test('the complete production module graph has exactly its declared semantic cap
   assert.equal(result.ok,true);
   assert.equal(result.parser.name,'typescript');
   assert.deepEqual(result.capabilities.map((x)=>x.resolvedCapability),[
-    'filesystem.openSync','filesystem.readFileSync','process.spawnSync','process.execFileSync','process.spawnSync'
+    'process.spawnSync','filesystem.openSync','filesystem.openSync','filesystem.readFileSync','process.spawnSync','process.execFileSync','process.spawnSync'
   ]);
 });

@@ -2,10 +2,20 @@
   "schemaVersion": 1,
   "parser": "typescript.createSourceFile",
   "aggregateGate": {
-    "wrapper": "scripts/trio/verify-local.sh",
-    "requiredInvocations": [
-      "run_check semantic-reader-closure node \"$script_dir/semantic-reader-closure.mjs\"",
-      "run_check semantic-reader-mutations node \"$script_dir/semantic-reader-closure.test.mjs\""
+    "entryPoint": "scripts/trio/verify-authoritative.mjs",
+    "evidenceKind": "structural-contract-value",
+    "note": "The gate is the requiredSuites value the entry point actually uses. Text in a shell wrapper cannot satisfy it.",
+    "requiredSuites": [
+      "verify-runtime-parity.test.mjs",
+      "scaffolding.test.mjs",
+      "mutation.test.mjs",
+      "strict-json-differential.test.mjs",
+      "schema-validation.test.mjs",
+      "truth-identity.test.mjs",
+      "credential-boundary.test.mjs",
+      "credential-nonread.test.mjs",
+      "committed-tree.test.mjs",
+      "semantic-reader-closure.test.mjs"
     ]
   },
   "entryPoints": [
@@ -17,9 +27,22 @@
     "scripts/trio/agent-owned-ui.mjs",
     "scripts/trio/secret-path-policy.mjs",
     "scripts/trio/verdict-consistency.mjs",
-    "scripts/trio/semantic-reader-closure.mjs"
+    "scripts/trio/semantic-reader-closure.mjs",
+    "scripts/trio/verify-authoritative.mjs",
+    "scripts/trio/git-committed-tree.mjs"
   ],
-  "externalModules": ["ajv/dist/2020.js", "typescript", "node:crypto", "node:os", "node:path", "node:url", "node:util"],
+  "externalModules": [
+    "ajv/dist/2020.js",
+    "typescript",
+    "node:crypto",
+    "node:os",
+    "node:path",
+    "node:url",
+    "node:util",
+    "node:test",
+    "node:child_process",
+    "node:fs"
+  ],
   "bundledTestSuites": {
     "evidenceWriter": [
       "vulnerable-six-reproduction.test.mjs",
@@ -47,6 +70,7 @@
   "modules": [
     "scripts/trio/agent-owned-ui.mjs",
     "scripts/trio/build-closed-inventory.mjs",
+    "scripts/trio/git-committed-tree.mjs",
     "scripts/trio/governed-reader.mjs",
     "scripts/trio/release-certification.mjs",
     "scripts/trio/schema-validation.mjs",
@@ -55,17 +79,48 @@
     "scripts/trio/strict-json.mjs",
     "scripts/trio/truth-release-binding.mjs",
     "scripts/trio/verdict-consistency.mjs",
+    "scripts/trio/verify-authoritative.mjs",
     "scripts/trio/verify-runtime-parity.mjs",
     "scripts/trio/write-evidence-bundle.mjs"
   ],
   "capabilities": [
+    {
+      "module": "scripts/trio/git-committed-tree.mjs",
+      "resolvedCapability": "filesystem.openSync",
+      "importedOriginalBinding": "filesystem.openSync",
+      "allowedOperation": "descriptor-content-access",
+      "constraints": {
+        "expression": "fs.openSync(target,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|(fs.constants.O_NOFOLLOW??0),mode)",
+        "line": 238,
+        "column": 10
+      },
+      "justification": "Create each snapshot file exclusively with O_EXCL|O_NOFOLLOW. This is the governed materializer: one of exactly two modules permitted raw content access.",
+      "expectedCallSites": 1
+    },
+    {
+      "module": "scripts/trio/git-committed-tree.mjs",
+      "resolvedCapability": "process.spawnSync",
+      "importedOriginalBinding": "process.spawnSync",
+      "allowedOperation": "classified-process",
+      "constraints": {
+        "expression": "cp.spawnSync('git',[...GIT_SAFETY,...args],{ cwd:root,env:GIT_ENV,shell:false,maxBuffer, ...(buffer?{}:{encoding:'utf8'}) })",
+        "line": 103,
+        "column": 16
+      },
+      "justification": "Fixed-argv git metadata and cat-file only, shell:false, with system and global configuration neutralized so repository config cannot change the operation.",
+      "expectedCallSites": 1
+    },
     {
       "module": "scripts/trio/governed-reader.mjs",
       "resolvedCapability": "filesystem.openSync",
       "importedOriginalBinding": "filesystem.openSync",
       "allowedOperation": "descriptor-content-access",
       "justification": "Acquire the one no-follow descriptor whose identity is authorized before content access.",
-      "constraints": {"expression":"fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0))","line":147,"column":14},
+      "constraints": {
+        "expression": "fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0))",
+        "line": 147,
+        "column": 14
+      },
       "expectedCallSites": 1
     },
     {
@@ -74,7 +129,11 @@
       "importedOriginalBinding": "filesystem.readFileSync",
       "allowedOperation": "descriptor-content-access",
       "justification": "Read only the already fstat-authorized descriptor.",
-      "constraints": {"expression":"fs.readFileSync(fd,encoding)","line":155,"column":14},
+      "constraints": {
+        "expression": "fs.readFileSync(fd,encoding)",
+        "line": 155,
+        "column": 14
+      },
       "expectedCallSites": 1
     },
     {
@@ -83,7 +142,11 @@
       "importedOriginalBinding": "process.spawnSync",
       "allowedOperation": "classified-process",
       "justification": "Run a certification contract suite with the current Node executable.",
-      "constraints": {"expression":"cp.spawnSync(process.execPath,['--test',path.join(here,file)],{encoding:'utf8',maxBuffer:64*1024*1024,cwd:here})","line":148,"column":16},
+      "constraints": {
+        "expression": "cp.spawnSync(process.execPath,['--test',path.join(here,file)],{encoding:'utf8',maxBuffer:64*1024*1024,cwd:here})",
+        "line": 148,
+        "column": 16
+      },
       "expectedCallSites": 1
     },
     {
@@ -92,7 +155,11 @@
       "importedOriginalBinding": "process.execFileSync",
       "allowedOperation": "classified-process",
       "justification": "Run only enumerated Git metadata commands; content-extracting Git commands are rejected at wrapper call sites.",
-      "constraints": {"expression":"cp.execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']})","line":128,"column":32},
+      "constraints": {
+        "expression": "cp.execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']})",
+        "line": 128,
+        "column": 32
+      },
       "expectedCallSites": 1
     },
     {
@@ -101,8 +168,30 @@
       "importedOriginalBinding": "process.spawnSync",
       "allowedOperation": "classified-process",
       "justification": "Run explicitly bundled verifier suites with the current Node executable.",
-      "constraints": {"expression":"cp.spawnSync(process.execPath,[path.join(here,file)],{cwd:ownRoot,encoding:'utf8',env:{...process.env,TMPDIR:process.env.TMPDIR??os.tmpdir()},maxBuffer:32*1024*1024})","line":20,"column":28},
+      "constraints": {
+        "expression": "cp.spawnSync(process.execPath,[path.join(here,file)],{cwd:ownRoot,encoding:'utf8',env:{...process.env,TMPDIR:process.env.TMPDIR??os.tmpdir()},maxBuffer:32*1024*1024})",
+        "line": 20,
+        "column": 28
+      },
       "expectedCallSites": 1
     }
-  ]
+  ],
+  "nondelegableRules": {
+    "note": "Hard-coded in the analyzer. This manifest is descriptive evidence only; editing it cannot grant authority.",
+    "rawContentAccessModules": [
+      "scripts/trio/git-committed-tree.mjs",
+      "scripts/trio/governed-reader.mjs"
+    ],
+    "forbidden": [
+      "path-opening parsers",
+      "shell execution",
+      "dynamic builtin acquisition",
+      "process.getBuiltinModule",
+      "nonliteral import/require",
+      "eval",
+      "Function constructor",
+      "vm execution",
+      "runtime-selected reader callbacks"
+    ]
+  }
 }

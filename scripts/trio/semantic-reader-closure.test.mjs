@@ -49,17 +49,22 @@ reject('aliased child-process wrapper',root=>append(root,'scripts/trio/verify-ru
 reject('nonliteral dynamic import',root=>append(root,'scripts/trio/verify-runtime-parity.mjs',"const selectedModule=process.argv[2]; import(selectedModule);"),'NONLITERAL_DYNAMIC_IMPORT');
 reject('unresolved local import',root=>append(root,'scripts/trio/verify-runtime-parity.mjs',"import './module-that-does-not-exist.mjs';"),'UNRESOLVED_LOCAL_IMPORT');
 reject('new module added to verdict closure',root=>{append(root,'scripts/trio/new-reachable.mjs','export const harmless=true;');append(root,'scripts/trio/verify-runtime-parity.mjs',"import './new-reachable.mjs';");},'NEW_REACHABLE_MODULE');
-reject('disabled analyzer invocation',root=>{const file=path.join(root,'scripts/trio/verify-local.sh');fs.writeFileSync(file,fs.readFileSync(file,'utf8').replace('run_check semantic-reader-closure node "$script_dir/semantic-reader-closure.mjs"',''));},'AGGREGATE_GATE_MISSING');
-reject('removed analyzer mutation-suite invocation',root=>{const file=path.join(root,'scripts/trio/verify-local.sh');fs.writeFileSync(file,fs.readFileSync(file,'utf8').replace('run_check semantic-reader-mutations node "$script_dir/semantic-reader-closure.test.mjs"',''));},'AGGREGATE_GATE_MISSING');
+// The gate is now the structural required-suite list the authoritative entry point uses;
+// commenting an entry out must fail exactly as deleting a wrapper line once did.
+reject('disabled analyzer invocation',(root)=>{const p=path.join(root,'scripts/trio/verify-authoritative.mjs');fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace("'semantic-reader-closure.test.mjs'","// 'semantic-reader-closure.test.mjs'"));},'AGGREGATE_GATE_MISSING');
+reject('removed analyzer mutation-suite invocation',(root)=>{const p=path.join(root,'scripts/trio/verify-authoritative.mjs');fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace("'committed-tree.test.mjs',",''));},'AGGREGATE_GATE_MISSING');
 reject('altered manifest hiding an observed capability',root=>{const file=path.join(root,'scripts/trio/reader-capabilities.json');const value=JSON.parse(fs.readFileSync(file,'utf8'));value.capabilities=value.capabilities.filter((x)=>x.resolvedCapability!=='filesystem.readFileSync');fs.writeFileSync(file,JSON.stringify(value));},'OBSERVED_CAPABILITY_UNDECLARED');
 reject('removal of a declared descriptor reader',root=>{const file=path.join(root,'scripts/trio/governed-reader.mjs');fs.writeFileSync(file,fs.readFileSync(file,'utf8').replace('return fs.readFileSync(fd,encoding);','return Buffer.alloc(0);'));},'DECLARED_CAPABILITY_ABSENT');
 
-test('aggregate wrapper executes the semantic gate and propagates its failure',()=>{
-  const root=copyFixture('aggregate-execution');const bin=path.join(root,'fake-bin'),log=path.join(root,'node.log');fs.mkdirSync(bin);
-  const fake=path.join(bin,'node');fs.writeFileSync(fake,`#!/bin/sh\nprintf '%s\\n' "$*" >> "$SEMANTIC_GATE_LOG"\ncase "$*" in\n  *semantic-reader-closure.mjs*) exit 7 ;;\n  *verify-runtime-parity.mjs*) printf '%s\\n' '{"status":"VERIFIER_OK_PARITY","summary":{"verdict":"PARITY"}}'; exit 0 ;;\n  *) exit 0 ;;\nesac\n`);fs.chmodSync(fake,0o755);fs.mkdirSync(path.join(root,'scripts/trio/node_modules/ajv'),{recursive:true});
-  const result=spawnSync('/bin/sh',[path.join(root,'scripts/trio/verify-local.sh'),root,root,root],{encoding:'utf8',env:{PATH:`${bin}:/usr/bin:/bin`,SEMANTIC_GATE_LOG:log,TMPDIR:root}});
-  assert.equal(result.status,1);const calls=fs.readFileSync(log,'utf8');assert.match(calls,/semantic-reader-closure\.mjs/);assert.match(result.stdout,/TRIO_CHECK_END semantic-reader-closure status=7/);
+test('the shell wrapper carries no authority and only execs the Node entry point',()=>{
+  const wrapper=fs.readFileSync(path.join(liveRoot,'scripts/trio/verify-local.sh'),'utf8');
+  const code=wrapper.split('\n').map((l)=>l.trim()).filter((l)=>l!==''&&!l.startsWith('#'));
+  assert.deepEqual(code.filter((l)=>l.startsWith('exec ')).length,1,'exactly one exec');
+  assert.match(code.at(-1),/^exec node .*verify-authoritative\.mjs/,'the last action is the entry point');
+  for(const forbidden of ['run_check','TRIO_CHECK','node --test','status=','parity','certification'])
+    assert.equal(code.some((l)=>l.includes(forbidden)),false,`wrapper must not implement ${forbidden}`);
 });
+
 
 accept('governed-reader descriptor sequence is the only raw filesystem content access');
 accept('authorized byte parser is permitted',root=>append(root,'scripts/trio/verify-runtime-parity.mjs',"import {parseStrictJsonText as semanticTextParser} from './strict-json.mjs'; semanticTextParser('{}');"));

@@ -187,9 +187,9 @@ function framedEnvelope(fields){
 function canonicalInventory(value){const out=structuredClone(value);for(const key of Object.keys(out.rules))out.rules[key].sort((a,b)=>Buffer.from(a).compare(Buffer.from(b)));return stable(out);}
 function publicRecord(record,rule,manifestVersion,content,packageInfo){return {path:record.path,classification:rule.class,fileType:record.kind,mode:record.mode,executable:Boolean(content?.exec),byteLength:content?.buffer?.length??null,byteDigest:content?.buffer?`sha256:${sha256(content.buffer)}`:null,behaviorDigest:packageInfo?`sha256:${packageInfo.projectionDigest}`:content?.buffer?`sha256:${sha256(content.buffer)}`:null,symlinkDisposition:record.kind==='symlink'?'rejected':'not-symlink',hardLinkDisposition:record.kind==='hardlink'?'rejected-multiple-links':'single-link',manifestVersion};}
 
-function classifyRepository(slot,root,manifest,inventory,schemaValidator,authority){
+function classifyRepository(slot,root,manifest,inventory,schemaValidator,authority,committed){
   const spec=manifest.repositories[slot];const failures=[];const rootReal=fs.realpathSync(root);const files=walk(rootReal,manifest.exclusions);const governed=[];const unknown=[];const rejected=[];const symlinks=[];const contentInvalid=[];const packageProjections={};const secretPaths=[];
-  for(const exclusion of manifest.exclusions.filter((x)=>x.kind==='dependency-tree')){const tracked=git(rootReal,['ls-files','--',exclusion.path]).split('\n').filter(Boolean);for(const rel of tracked)failures.push(failure('REPOSITORY_OWNED_EXCLUDED_FILE','A Git-tracked repository file is hidden inside an installed-dependency exclusion',slot,rel,{exclusion:exclusion.path}));}
+  for(const exclusion of manifest.exclusions.filter((x)=>x.kind==='dependency-tree')){const tracked=committed?(committed.trackedUnderExclusions?.[exclusion.path]??[]):git(rootReal,['ls-files','--',exclusion.path]).split('\n').filter(Boolean);for(const rel of tracked)failures.push(failure('REPOSITORY_OWNED_EXCLUDED_FILE','A Git-tracked repository file is hidden inside an installed-dependency exclusion',slot,rel,{exclusion:exclusion.path}));}
   for(const rule of manifest.rules.filter((r)=>VARIABLE_CLASSES.has(r.class)&&r.selector.paths))for(const rel of rule.selector.paths){const full=path.join(rootReal,...rel.split('/'));if(fs.existsSync(full)){const stat=fs.lstatSync(full);if(!stat.isFile()&&!stat.isSymbolicLink())failures.push(failure('VARIABLE_FILE_TYPE','Variable path must be a regular file',slot,rel,{actual:stat.isDirectory()?'directory':'special'}));}}
   for(const file of files){
     if(file.kind==='invalid-path'){rejected.push({path:safeText(file.path),classification:'rejected-invalid-path',fileType:'unknown',mode:null,byteLength:null,byteDigest:null,reason:file.pathErrors.map(safeText)});for(const e of file.pathErrors)failures.push(failure('PATH_AMBIGUITY',e,slot,file.path));continue;}
@@ -250,10 +250,13 @@ function classifyRepository(slot,root,manifest,inventory,schemaValidator,authori
     rejectedTreeDigest:framedDigest(rejected),
     completeObservedTreeDigest:framedDigest(completeObserved)
   };
-  return {slot,root:rootReal,head:git(rootReal,['rev-parse','HEAD']),branch:git(rootReal,['branch','--show-current']),remote:normalizeRemote(git(rootReal,['remote','get-url','origin'])),dirty:git(rootReal,['status','--porcelain=v1','--ignored=no']).split('\n').filter(Boolean).map(safeText),governed,unknown,rejected,symlinks,contentInvalid,packageProjections,secretPaths,digests,failures,authority};
+  // On a committed-tree run the snapshot has no .git; identity comes from the authoritative
+  // capture taken against the source repository before materialization.
+  const identity=committed??{head:git(rootReal,['rev-parse','HEAD']),branch:git(rootReal,['branch','--show-current']),remote:normalizeRemote(git(rootReal,['remote','get-url','origin'])),dirty:git(rootReal,['status','--porcelain=v1','--ignored=no']).split('\n').filter(Boolean)};
+  return {slot,root:rootReal,head:identity.head,branch:identity.branch,remote:identity.remote,dirty:(identity.dirty??[]).map(safeText),governed,unknown,rejected,symlinks,contentInvalid,packageProjections,secretPaths,digests,failures,authority};
 }
 
-function identityPreflight(slots,manifest,schemaValidator,makeAuthority){
+function identityPreflight(slots,manifest,schemaValidator,makeAuthority,committedIdentities){
   const failures=[];const resolved={};const realpaths=new Map();
   for(const slot of SLOT_NAMES){
     const supplied=slots?.[slot];if(typeof supplied!=='string'||!supplied){failures.push(failure('MISSING_REPOSITORY','Required labeled repository slot was not supplied',slot));continue;}
@@ -264,7 +267,7 @@ function identityPreflight(slots,manifest,schemaValidator,makeAuthority){
       const authority=makeAuthority(real);
       if(realpaths.has(real))failures.push(failure('DUPLICATE_REPOSITORY','Two labeled slots resolve to the same canonical repository',slot,null,{otherAgent:realpaths.get(real)}));else realpaths.set(real,slot);
       const spec=manifest.repositories[slot];if(path.basename(real)!==spec.expectedRepositoryName)failures.push(failure('REPOSITORY_NAME_MISMATCH','Canonical repository directory name does not match the labeled slot',slot));
-      let remote;try{remote=normalizeRemote(git(real,['remote','get-url','origin']));}catch{throw new Error('Git origin remote is missing or unreadable');}if(remote!==spec.remoteIdentity)failures.push(failure('REMOTE_IDENTITY_MISMATCH','Git origin does not match the expected stable identity',slot,null,{expected:spec.remoteIdentity,actual:safeText(remote)}));
+      let remote;if(committedIdentities?.[slot])remote=committedIdentities[slot].remote;else try{remote=normalizeRemote(git(real,['remote','get-url','origin']));}catch{throw new Error('Git origin remote is missing or unreadable');}if(remote!==spec.remoteIdentity)failures.push(failure('REMOTE_IDENTITY_MISMATCH','Git origin does not match the expected stable identity',slot,null,{expected:spec.remoteIdentity,actual:safeText(remote)}));
       for(const [packagePath,expected] of Object.entries(spec.packageNames)){try{const p=parseStrictJsonText(authority.readText(path.join(real,packagePath)));if(p.name!==expected)failures.push(failure('PACKAGE_IDENTITY_MISMATCH','Package identity does not match the labeled slot',slot,packagePath,{expected,actual:safeText(p.name)}));}catch(error){if(isSecurityBoundaryError(error))throw error;failures.push(failure('PACKAGE_IDENTITY_MISMATCH',error.message,slot,packagePath));}}
       const capsule=schemaValidator.parseText('capsule',authority.readText(path.join(real,spec.capsulePath)));if(!capsule.ok)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Expected capsule is missing or schema-invalid',slot,spec.capsulePath,{errors:capsule.errors}));else if(capsule.value.identity.id!==spec.capsuleIdentity)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Capsule identity does not match the labeled slot',slot,spec.capsulePath,{expected:spec.capsuleIdentity,actual:safeText(capsule.value.identity.id)}));
     }catch(error){if(isSecurityBoundaryError(error))throw error;failures.push(failure('MALFORMED_REPOSITORY',error.message,slot));}
@@ -481,7 +484,7 @@ function verifyOwnerScopedIsolation(repositories,manifest,inventory,resolved){
   return failures;
 }
 
-export function verify({slots,manifestPath}){
+export function verify({slots,manifestPath,committedIdentities=null}){
   try{
     if(!manifestPath)return invalidResult('INVALID_INPUT',[failure('MISSING_MANIFEST','A boundary manifest path is required')]);
     const manifestReal=path.resolve(manifestPath);const governanceRoot=path.dirname(manifestReal);const governanceAuthority=createReadAuthority({root:governanceRoot,secretObjects:scanSecretObjects(governanceRoot)});const manifestBytes=governanceAuthority.read(manifestReal);const schemaDir=path.join(governanceRoot,'schemas');const schemaValidator=createSchemaValidator(schemaDir,{readText:(file)=>governanceAuthority.readText(file)});const manifestValidation=schemaValidator.parseText('boundary',manifestBytes.toString('utf8'));
@@ -498,7 +501,7 @@ export function verify({slots,manifestPath}){
       if(!authorities.has(realRoot))authorities.set(realRoot,createReadAuthority({root:realRoot,secretObjects:scanSecretObjects(realRoot,{exclusions:manifest.exclusions,declaredPaths:declaredSecretPaths})}));
       return authorities.get(realRoot);
     };
-    const identities=identityPreflight(slots,manifest,schemaValidator,makeAuthority);if(identities.failures.length)return invalidResult('IDENTITY_INVALID',identities.failures,{repositoryInputs:Object.fromEntries(SLOT_NAMES.map((s)=>[s,slots?.[s]??null]))});
+    const identities=identityPreflight(slots,manifest,schemaValidator,makeAuthority,committedIdentities);if(identities.failures.length)return invalidResult('IDENTITY_INVALID',identities.failures,{repositoryInputs:Object.fromEntries(SLOT_NAMES.map((s)=>[s,slots?.[s]??null]))});
     // The Truth Firewall is the authority this trio defers to, so a parity verdict that did
     // not know which Truth was running would be a verdict about nothing. Resolve the
     // activated release, recompute its closure, and refuse to continue if the executable
@@ -535,7 +538,7 @@ export function verify({slots,manifestPath}){
     // authority at all is different -- that is handled above, because a verifier that does
     // not know which Truth is running cannot say anything useful about the rest.
     if(manifestFailures.length)return invalidResult('MANIFEST_DIVERGENCE',manifestFailures,{boundaryManifestDigest:manifestDigest,truthRelease:truth.identity});
-    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator,makeAuthority(identities.resolved[slot])));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const ownerScopeFailures=verifyOwnerScopedIsolation(repositories,manifest,inventory,identities.resolved);// Certification state is measured here and enforced at the publication boundary (see
+    const repositories=SLOT_NAMES.map((slot)=>classifyRepository(slot,identities.resolved[slot],manifest,inventory,schemaValidator,makeAuthority(identities.resolved[slot]),committedIdentities?.[slot]??null));const repoFailures=repositories.flatMap((r)=>r.failures);const compared=compare(repositories,manifest,inventory,manifestDigest);const ownerScopeFailures=verifyOwnerScopedIsolation(repositories,manifest,inventory,identities.resolved);// Certification state is measured here and enforced at the publication boundary (see
     // publishedResult). Keeping the gate out of the comparison engine is deliberate: if
     // verify() refused to run uncertified, certifying would require a certification, and the
     // release step could never bootstrap. That circularity is the recursive test execution
