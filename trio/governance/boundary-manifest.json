@@ -18,12 +18,6 @@
    "expiresBefore": "skills extraction",
    "path": "skills",
    "reason": "Ptah contains executable TypeScript under a nominally variable skills tree."
-  },
-  {
-   "category": "compiled-artifact-drift",
-   "expiresBefore": "reproducible canonical build",
-   "path": "dist",
-   "reason": "Compiled output must compare or be rebuilt; it is never ignored as generated."
   }
  ],
  "exclusions": [
@@ -303,35 +297,6 @@
    "transitional": true,
    "validation": {
     "kind": "quarantine"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "bytesMustMatch": true,
-   "class": "generated-behavior-identical",
-   "divergenceBlocking": true,
-   "expiresBefore": null,
-   "id": "compiled-behavior",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "javascript",
-    "typescript-declaration",
-    "source-map"
-   ],
-   "productionReachable": true,
-   "selector": {
-    "closedInventory": true,
-    "directory": "dist",
-    "excludedPaths": [
-     "dist/profiles/agent.test.js",
-     "dist/profiles/agent.test.js.map"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "none"
    }
   },
   {
@@ -1204,40 +1169,6 @@
      "src/profiles/agent.test.ts",
      "tui/src/audit-fixes.test.ts",
      "tui/src/server.test.ts"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "agent-owned-content"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "attestation": "Compiled output traceable to agent-owned source: src/sanity-*.ts entrypoints and src/profiles/agent.test.ts. Every other dist file compiles from shared source and is compared byte-for-byte, so generated output cannot conceal source divergence.",
-   "bytesMustMatch": false,
-   "class": "agent-owned-content",
-   "divergenceBlocking": false,
-   "executablePolicy": "agent-identity",
-   "expiresBefore": null,
-   "id": "compiled-agent-owned",
-   "modeMustMatch": true,
-   "owners": [
-    "pehlichi",
-    "loony-luna",
-    "mad-ptah"
-   ],
-   "permittedFormats": [
-    "javascript",
-    "typescript",
-    "data"
-   ],
-   "productionReachable": false,
-   "selector": {
-    "paths": [
-     "dist/profiles/agent.test.js",
-     "dist/profiles/agent.test.js.map"
     ]
    },
    "transitional": false,

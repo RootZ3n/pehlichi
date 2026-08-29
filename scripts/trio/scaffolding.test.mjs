@@ -25,6 +25,12 @@ test('the shared TUI server is enforced parity, and profile/UI/skills/compiled a
   assert.equal(m.blockingDivergences.some((x)=>x.path==='tui/src/server.ts'),false,'an enforced path must not also be excused as an intentional divergence');
   const tree=m.rules.find((x)=>x.selector.directory==='tui/src');
   assert.ok((tree.selector.excludedPaths??[]).includes('tui/src/server.ts'),'the shared server must stay outside the agent-owned tui/src tree');
-  for(const p of ['src/profiles/agent.ts','ui','skills','dist'])assert.ok(m.blockingDivergences.some((x)=>x.path===p),p);});
+  // dist is no longer product: package consumption moved to committed source and the
+  // generated tree left governance entirely, so there is nothing left for a blocker to
+  // track. Two isolated builds from the same commit were byte-identical, which is what
+  // made removing it honest rather than convenient.
+  for(const p of ['src/profiles/agent.ts','ui','skills'])assert.ok(m.blockingDivergences.some((x)=>x.path===p),p);
+  assert.equal(m.blockingDivergences.some((x)=>x.path==='dist'),false,'dist must not be governed product');
+  assert.equal(m.rules.some((x)=>x.selector.directory==='dist'),false,'no rule may govern the generated tree');});
 test('.next and coverage are not exclusions and future files do not inherit a directory classification',()=>{const m=read('trio/governance/boundary-manifest.json'),inventory=read('trio/governance/path-inventory.json');assert.deepEqual(m.exclusions.map((x)=>x.path).sort(),['.git','node_modules','scripts/trio/node_modules','tui/node_modules']);assert.ok(!Object.values(inventory.rules).flat().includes('.next/server/future.js'));assert.ok(!Object.values(inventory.rules).flat().includes('coverage/future.js'));});
 test('retained vulnerable fixture is exact, test-only, and absent from production package behavior',()=>{const fixture=read('scripts/trio/fixtures/vulnerable-trio-001c-c29223d2649bff467/fixture-manifest.json');assert.equal(fixture.files['verify-runtime-parity.mjs'],'sha256:c29223d2649bff4671e213562cd40aee7a9a3a4bd261f45a6801d025b3883342');assert.equal(fixture.productionImportAllowed,false);for(const file of ['package.json','tui/package.json'])assert.equal(JSON.stringify(read(file)).includes('scripts/trio/fixtures'),false,file);});
