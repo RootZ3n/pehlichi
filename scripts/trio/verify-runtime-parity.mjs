@@ -266,7 +266,13 @@ function identityPreflight(slots,manifest,schemaValidator,makeAuthority,committe
       // Built from a metadata-only sweep, before this slot's first content read.
       const authority=makeAuthority(real);
       if(realpaths.has(real))failures.push(failure('DUPLICATE_REPOSITORY','Two labeled slots resolve to the same canonical repository',slot,null,{otherAgent:realpaths.get(real)}));else realpaths.set(real,slot);
-      const spec=manifest.repositories[slot];if(path.basename(real)!==spec.expectedRepositoryName)failures.push(failure('REPOSITORY_NAME_MISMATCH','Canonical repository directory name does not match the labeled slot',slot));
+      const spec=manifest.repositories[slot];
+      // On a committed-tree run the input is a snapshot directory, so its basename is a
+      // temporary name by construction. The repository identity was established against the
+      // source repository before materialization and is carried in the committed identity.
+      const expectedName=committedIdentities?.[slot]?.expectedRepositoryName??spec.expectedRepositoryName;
+      const actualName=committedIdentities?.[slot]?.repositoryName??path.basename(real);
+      if(actualName!==expectedName)failures.push(failure('REPOSITORY_NAME_MISMATCH','Canonical repository directory name does not match the labeled slot',slot));
       let remote;if(committedIdentities?.[slot])remote=committedIdentities[slot].remote;else try{remote=normalizeRemote(git(real,['remote','get-url','origin']));}catch{throw new Error('Git origin remote is missing or unreadable');}if(remote!==spec.remoteIdentity)failures.push(failure('REMOTE_IDENTITY_MISMATCH','Git origin does not match the expected stable identity',slot,null,{expected:spec.remoteIdentity,actual:safeText(remote)}));
       for(const [packagePath,expected] of Object.entries(spec.packageNames)){try{const p=parseStrictJsonText(authority.readText(path.join(real,packagePath)));if(p.name!==expected)failures.push(failure('PACKAGE_IDENTITY_MISMATCH','Package identity does not match the labeled slot',slot,packagePath,{expected,actual:safeText(p.name)}));}catch(error){if(isSecurityBoundaryError(error))throw error;failures.push(failure('PACKAGE_IDENTITY_MISMATCH',error.message,slot,packagePath));}}
       const capsule=schemaValidator.parseText('capsule',authority.readText(path.join(real,spec.capsulePath)));if(!capsule.ok)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Expected capsule is missing or schema-invalid',slot,spec.capsulePath,{errors:capsule.errors}));else if(capsule.value.identity.id!==spec.capsuleIdentity)failures.push(failure('CAPSULE_IDENTITY_MISMATCH','Capsule identity does not match the labeled slot',slot,spec.capsulePath,{expected:spec.capsuleIdentity,actual:safeText(capsule.value.identity.id)}));

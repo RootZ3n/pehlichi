@@ -130,7 +130,8 @@ function prepareSlot(slot,repositoryRoot,workspace,governance){
     .filter((x)=>x.kind==='dependency-tree')
     .map((x)=>[x.path,entries.filter((e)=>e.path===x.path||e.path.startsWith(x.path+'/')).map((e)=>e.path)]));
   return {slot,repositoryRoot,identity:before,snapshot,entries:entries.length,
-    committed:{head:before.head,branch:before.branch,remote:governance.remoteIdentity?.[slot]??null,dirty:[],trackedUnderExclusions}};
+    committed:{head:before.head,branch:before.branch,remote:governance.remoteIdentity?.[slot]??null,dirty:[],trackedUnderExclusions,
+      repositoryName:path.basename(repositoryRoot),expectedRepositoryName:governance.expectedRepositoryName?.[slot]??null}};
 }
 
 /** The whole authoritative sequence. Returns the run artifact; never publishes by itself. */
@@ -148,7 +149,8 @@ export async function runAuthoritative({repositories,keepSnapshots=false}={}){
   const governance={
     declaredSecretPaths:manifest.rules.filter((r)=>r.class==='secret-path-excluded').flatMap((r)=>r.selector.paths??[]),
     exclusions:manifest.exclusions,
-    remoteIdentity:Object.fromEntries(SLOTS.map((slot)=>[slot,manifest.repositories[slot].remoteIdentity]))
+    remoteIdentity:Object.fromEntries(SLOTS.map((slot)=>[slot,manifest.repositories[slot].remoteIdentity])),
+    expectedRepositoryName:Object.fromEntries(SLOTS.map((slot)=>[slot,manifest.repositories[slot].expectedRepositoryName]))
   };
 
   const workspace=createSnapshotWorkspace();
