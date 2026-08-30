@@ -306,7 +306,7 @@
    "id": "demo-factory-quarantine",
    "modeMustMatch": true,
    "owner": "loony-luna",
-   "ownerTreeDigest": "sha256:70b4fb391c46d8a2831ca256abb6652660f5a6a6da1a3f5c862260919c31354d",
+   "ownerTreeDigest": "sha256:66302bdb57284e361bb36c78590258089b68353813831c6869c8b27554df40c8",
    "permittedFormats": [
     "code",
     "asset",
