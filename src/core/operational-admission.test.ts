@@ -260,17 +260,25 @@ test('23. health, status, UI, connectivity and identity remain available without
 
 // --- 24: a component test cannot produce an admission receipt ----------------------------------
 
-test('24. a lower-level component test cannot produce an operational admission receipt', async () => {
-  // `executeAgentRun` is reachable from the module for component tests, and it returns a run
-  // result. What it can never return is an admission: only `admitWork` produces one, and it
-  // is not called below the boundary.
+test('24. no component below the boundary is reachable, under any spelling', async () => {
+  // This used to assert the opposite -- that `executeAgentRun` was reachable from the module,
+  // for component tests. An independent audit used exactly that reachability: a namespace
+  // import and a computed property name, `"execute" + "AgentRun"`, ran an agent turn while the
+  // committed status refused it. Being absent from the public index was never a boundary,
+  // because relative imports inside the package were always part of the threat model.
   const loop = await import('./loop.js') as Record<string, unknown>;
-  assert.equal(typeof loop.executeAgentRun, 'function');
+  const namespaceProperties = [...Object.keys(loop), ...Object.getOwnPropertyNames(loop)];
+  for (const name of ['executeAgentRun', 'executeAgentInShadow'])
+    assert.equal(namespaceProperties.includes(name), false, `${name} is still on the loop namespace`);
+  // The audit's exact expression, reproduced: it must now resolve to nothing.
+  assert.equal(loop['execute' + 'AgentRun'], undefined, 'the computed-property bypass still resolves');
+  assert.equal(loop['execute' + 'AgentInShadow'], undefined);
+
+  // And the executor still never decides admission -- it is below the boundary, not beside it.
   const source = readFileSync(join(here, 'loop.ts'), 'utf8');
-  const body = source.slice(source.indexOf('export async function executeAgentRun'));
+  const body = source.slice(source.indexOf('async function executeAgentRun'));
   assert.equal(/admitWork|admitRunWork|admitted\s*:\s*true/.test(body), false,
     'the component below the boundary decides admission, which it must never do');
-  // And the public API does not expose it, so no ordinary consumer can reach it at all.
   const publicApi = await import('./index.js') as Record<string, unknown>;
   assert.equal('executeAgentRun' in publicApi, false);
 });

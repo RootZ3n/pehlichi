@@ -11,6 +11,13 @@ import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
+// The loop's decisions live here, apart from its effects. Production uses these; so do the
+// pure component tests. A pure layer production does not use tests one implementation and
+// ships another.
+import {
+  MUTATING_TOOLS, firstLine, parsePlan, summaryProblems, summaryRejection,
+  unprovenClaim, validateToolLane
+} from "./loop-mechanics.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
@@ -289,7 +296,7 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
  * A shadow run below the admission boundary. Same standing as `executeAgentRun`: a component,
  * not an entry point, and not part of the public API.
  */
-export async function executeAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
+async function executeAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
   const { seedFrom, onShadowCreated, ...rest } = opts;
   const shadow = ShadowWorkspace.create();
   onShadowCreated?.(shadow.root);
@@ -315,6 +322,10 @@ export async function executeAgentInShadow(opts: RunAgentInShadowOptions): Promi
  * result of the run, and returning one would let a caller log it as an ordinary failure and
  * retry. It carries the structured refusal and no secret material.
  */
+// `unprovenClaim` is part of this module's public surface and always was. It is pure, so it
+// lives in the mechanics layer now and is forwarded here rather than duplicated.
+export { unprovenClaim } from "./loop-mechanics.js";
+
 export class OperationalWorkRefused extends Error {
   constructor(public readonly refusal: AdmissionRefusal) {
     super(describeRefusal(refusal));
@@ -343,19 +354,28 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 }
 
 /**
- * The agent loop itself, below the admission boundary.
+ * The agent loop itself: the effectful executor, private to this module.
  *
- * This is a deterministic component, not an entry point. It is deliberately absent from the
- * package's public API: `src/index.ts` and `src/core/index.ts` export `runAgent`, which is
- * gated, and never this. Component tests drive it directly with fixture-owned dependencies to
- * exercise loop mechanics -- and a component test that does so has proved something about the
- * loop, never that a run was admitted.
+ * It is not exported, and that is the whole of its protection. Being absent from the public
+ * index was not: an independent audit reached it from a disposable production module with
+ *
+ *     import * as loopMechanics from "./loop.js";
+ *     const componentName = "execute" + "AgentRun";
+ *     return loopMechanics[componentName](options);
+ *
+ * -- a namespace import and a computed property, defeating a guard that searched for known
+ * spellings. Relative imports inside the package were always part of the threat model; "not in
+ * the public index" never described a boundary. A function that is not exported has no property
+ * on any namespace object, under any spelling, computed or otherwise.
+ *
+ * Everything that reaches a model, a tool, the filesystem, a subprocess or the network happens
+ * below this line, so the only way in is `runAgent`, which decides first. Component tests
+ * cannot drive it; they test the pure mechanics in `loop-mechanics.ts`, which perform no
+ * effects, and the cases that genuinely need a complete turn stay dormant until the governance
+ * transition rather than pretending a scripted turn proved an admitted one.
  */
-export async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
-  if (!Array.isArray(opts.toolNames)) throw new Error('explicit validated tool lane is required');
-  const lane = Object.freeze([...opts.toolNames]);
-  if (new Set(lane).size !== lane.length) throw new Error('tool lane contains duplicate names');
-  if (lane.some((name) => typeof name !== 'string' || name.length === 0)) throw new Error('tool lane contains an invalid name');
+async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
+  const lane = validateToolLane(opts.toolNames);
   const clock = opts.clock ?? Date.now;
   const localProcessScope = opts.processScope === undefined ? createIsolatedProcessScope("agent-run") : undefined;
   const processScope = opts.processScope ?? localProcessScope!;
@@ -856,74 +876,18 @@ function validateSummary(
   summary: { rootCause: string; changes: string[]; verification: string[]; noChangeRequired?: boolean },
   emitter: EventEmitter,
 ): void {
-  const problems: string[] = [];
-  if (typeof summary.rootCause !== "string" || summary.rootCause.trim() === "") {
-    problems.push("rootCause is empty");
-  }
-  if (summary.noChangeRequired !== true && (!Array.isArray(summary.changes) || summary.changes.length === 0)) {
-    problems.push("changes[] is empty");
-  }
-  if (summary.noChangeRequired !== true && (!Array.isArray(summary.verification) || summary.verification.length === 0)) {
-    problems.push("verification[] is empty");
-  }
+  const problems = summaryProblems(summary);
   if (problems.length > 0) {
-    const message = `done rejected — invalid summary: ${problems.join("; ")}`;
+    const message = summaryRejection(problems);
     emitter.emit({ kind: "error", where: "done", message });
     throw new Error(message);
   }
-}
-
-/**
- * Tools that DIRECTLY mutate the workspace. A successful call to one of these is
- * change evidence for the evidence gate. (A successful command — terminal/execute_code —
- * also counts as change evidence at the call site, since a command can modify files.)
- */
-const MUTATING_TOOLS: ReadonlySet<string> = new Set(["write_file", "patch"]);
-
-/**
- * EVIDENCE GATE check: return a human-readable problem string when a `done` summary CLAIMS
- * work that no tool actually performed this run, or null when the claims are backed (or
- * bypassed by noChangeRequired). This is the truth-check that complements validateSummary's
- * shape-check: shape asks "did you fill the arrays?", evidence asks "did you actually do it?".
- */
-export function unprovenClaim(
-  summary: { changes: string[]; verification: string[]; noChangeRequired?: boolean },
-  evidence: { changeEvidence: boolean; verifyEvidence: boolean },
-): string | null {
-  // A conversational answer legitimately claims nothing to prove.
-  if (summary.noChangeRequired === true) return null;
-  if (Array.isArray(summary.verification) && summary.verification.length > 0 && !evidence.verifyEvidence) {
-    return "verification[] claims checks were run, but no command actually ran and passed this session (no terminal/execute_code success).";
-  }
-  if (Array.isArray(summary.changes) && summary.changes.length > 0 && !evidence.changeEvidence) {
-    return "changes[] claims files were changed, but no mutating tool (write_file/patch/command) succeeded this session.";
-  }
-  return null;
 }
 
 /** The up-front planning request appended to the transcript when planning is enabled. */
 const PLAN_INSTRUCTION =
   "Before acting, lay out a brief numbered plan (1., 2., 3., ...) of the steps you will take to " +
   "accomplish the task. Then proceed, executing each step in order.";
-
-/** Extract a numbered plan from narration: lines like "1. do x" / "2) do y". */
-function parsePlan(text: string): string[] {
-  const steps: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/^\s*\d+[.)]\s+(.+?)\s*$/);
-    if (m && m[1] !== undefined) steps.push(m[1]);
-  }
-  return steps;
-}
-
-/** First non-empty line of a string, trimmed (for compact accomplishment entries). */
-function firstLine(s: string): string {
-  for (const line of s.split(/\r?\n/)) {
-    const t = line.trim();
-    if (t.length > 0) return t;
-  }
-  return "";
-}
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

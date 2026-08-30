@@ -152,12 +152,35 @@ test('production admission never treats a self-test or qualification label as au
   assert.equal(/includes\(/.test(body), false, 'admitWork consults a list of privileged categories');
 });
 
-test('the component below the boundary is not reachable from the package public API', () => {
+test('the effectful executors are not exported from anywhere', () => {
+  // Not "absent from the public index" -- that was the property this suite used to check, and
+  // an audit walked straight past it with a relative import. Not exported at all, so there is
+  // no namespace property to reach under any spelling, computed or otherwise.
+  const loopSource = readFileSync(LOOP, 'utf8');
+  for (const name of ['executeAgentRun', 'executeAgentInShadow']) {
+    assert.equal(new RegExp(`export\\s+(async\\s+)?function\\s+${name}\\b`).test(loopSource), false,
+      `loop.ts exports ${name}`);
+    assert.equal(new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(loopSource), false,
+      `loop.ts re-exports ${name} in an export clause`);
+  }
   for (const index of ['src/index.ts', 'src/core/index.ts']) {
     const text = code(readFileSync(join(repositoryRoot, index), 'utf8'));
     for (const name of ['executeAgentRun', 'executeAgentInShadow'])
       assert.equal(new RegExp(`\\b${name}\\b`).test(text), false, `${index} re-exports ${name}`);
   }
+});
+
+test('no module star-re-exports the loop, which would export whatever it exports tomorrow', () => {
+  // `runtime/core/loop.ts` was `export * from '../../src/core/loop.js'`. A star re-export cannot
+  // be audited by reading it, and it forwarded both executors into a second namespace -- so
+  // closing the escape in loop.ts alone would have left the identical computed-property bypass
+  // one import away.
+  const offenders: string[] = [];
+  for (const file of sources()) {
+    if (file.path.endsWith('.test.ts') || file.path.endsWith('.test.mjs')) continue;
+    if (/export\s*\*\s*from\s*['"][^'"]*loop\.js['"]/.test(code(file.text))) offenders.push(file.path);
+  }
+  assert.deepEqual(offenders, [], `a module star-re-exports the loop:\n  ${offenders.join('\n  ')}`);
 });
 
 test('no production surface calls the component instead of the gated entry point', () => {

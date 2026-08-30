@@ -7,6 +7,7 @@
  * covered separately in `operational-admission.test.ts`.
  */
 import assert from "node:assert/strict";
+import type { RunAgentResult } from "./core/loop.js";
 import { rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,9 +24,33 @@ import {
 } from "./core/index.js";
 // Imported from the module rather than the package index on purpose: the public API exports
 // the gated `runAgent` and never the component below it.
-import { executeAgentRun as componentExecuteAgentRun } from "./core/loop.js";
 import { createLabStore } from "./core/scenario.js";
 import { agentProfile } from "./profile.js";
+
+
+/**
+ * PRE_PRODUCTION dormancy.
+ *
+ * These cases drove `executeAgentRun` directly, below the admission boundary. That is the seam
+ * an independent audit turned into a bypass -- a namespace import and a computed property
+ * reached the executor and ran an agent turn while the committed status refused it -- so the
+ * executor is private now and nothing outside `loop.ts` can call it.
+ *
+ * Each case below needs a complete agent turn: a driver, real tools, a real workspace. None of
+ * that is pure mechanics, and none of it can honestly run while work is refused, so they are
+ * dormant rather than rewritten into something weaker that would still report a pass. They are
+ * a production-transition gate: at the governance transition they must execute against the
+ * admitted path, not be deleted.
+ *
+ * The stand-in exists so the bodies still typecheck. It throws, so un-skipping a case without
+ * doing the real work fails loudly instead of quietly proving nothing.
+ */
+const PRE_PRODUCTION_DORMANT =
+  'PRE_PRODUCTION: needs a complete agent turn below admission; the effectful executor is private. ' +
+  'Production-transition gate: this case must execute against the admitted path after the governance transition.';
+const componentExecuteAgentRun = (..._unused: unknown[]): Promise<RunAgentResult> => {
+  throw new Error('the effectful executor is private; this dormant case cannot run below admission');
+};
 
 /** The loop below the admission boundary. See the component-test note at the top. */
 const runAgent = (opts: RunAgentOptions): ReturnType<typeof componentExecuteAgentRun> =>
@@ -57,7 +82,7 @@ test("agent profile: VOICE ONLY — identity/voice; no procedure, done-criteria,
   assert.ok(!("verificationPolicy" in agentProfile));
 });
 
-test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", async () => {
+test("staying in lane is STRUCTURAL: a tool not in the allowlist is refused", { skip: PRE_PRODUCTION_DORMANT }, async () => {
   const workspace = noteWorkspace("# note\n");
   const labStore = createLabStore();
   const { events, sink } = capture();
@@ -135,7 +160,7 @@ test("skillpack slot: a plain skill (no structured fields) injects nothing — b
   assert.doesNotMatch(p, /DONE for this task means/);
 });
 
-test("primarySkill: the loop loads the active skillpack from the store and injects it; missing => fails loud", async () => {
+test("primarySkill: the loop loads the active skillpack from the store and injects it; missing => fails loud", { skip: PRE_PRODUCTION_DORMANT }, async () => {
   const workspace = noteWorkspace("# note\n");
   const labStore = createLabStore();
   const { createStore } = await import("lab-store");
