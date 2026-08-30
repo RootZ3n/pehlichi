@@ -76,6 +76,69 @@ value that reads as a grant, a caller-controlled field on the run options, a sec
 branch, a production surface calling the component instead of the gate, or the boundary reading
 the environment. It is semantic, not nominal — renaming the constant does not evade it.
 
+## Amendment: effect-dominated admission
+
+A later independent audit classified `INTRA_PACKAGE_COMPONENT_ESCAPE`. A disposable production
+module wrote
+
+```ts
+import * as loopMechanics from "./loop.js";
+const componentName = "execute" + "AgentRun";
+return loopMechanics[componentName](options);
+```
+
+and executed an agent turn while the committed status refused all work. The guard above passed
+it: the guard searched for known spellings, and a computed property has no spelling. The
+executor was absent from the public index, which had been treated as the boundary — but relative
+imports inside the package were always part of the threat model, so "not in the public index"
+never described one.
+
+The decisions this ADR now records:
+
+- **Effectful below-admission executors are not exported.** `executeAgentRun` and
+  `executeAgentInShadow` are module-private in `src/core/loop.ts`. There is no property on any
+  namespace object to reach — by name, by computed key, by destructuring, by reflection, or
+  under a symbol. Deleting the name while exporting equivalent authority under another one is
+  the same defect and is refused as such.
+
+- **No star re-export in the production closure.** `runtime/core/loop.ts` was
+  `export * from '../../src/core/loop.js'`, which forwarded both executors into a second
+  namespace where the identical bypass would have worked. A star re-export cannot be audited by
+  reading it: it exports whatever its target exports, including whatever the target starts
+  exporting tomorrow. Every re-export in the closure is now named.
+
+- **Every production path to an effect is dominated by the admission decision.**
+  `src/core/effect-sinks.ts` is the committed inventory of which production modules can reach a
+  model, a tool, the filesystem, a subprocess, the network or dynamic code, and
+  `src/core/admission-dominance.test.ts` re-derives it from the sources and fails on any
+  difference in either direction. A new sink that nobody classified fails the build.
+
+- **Unresolved production reachability fails closed.** A computed member access on a module
+  namespace, or a dynamic import whose target is not a literal, cannot be followed by any
+  analysis, so both are refused in the production closure rather than assumed harmless. One
+  exemption exists — `src/core/external-runtime-integrity.ts`, whose target must appear in a
+  committed declaration inside a digest-verified root with escapes and symlinks refused — and
+  the guard checks those containments are still present rather than taking the exemption on
+  trust.
+
+- **Pure component testing carries no operational authority.** The loop's decisions live in
+  `src/core/loop-mechanics.ts`: functions from caller-supplied values to data, with no imports
+  and nothing callable in any return. Production uses them, so the pure layer is not a second
+  implementation. A passing case there proves the loop decides correctly and proves nothing
+  about whether a run was admitted.
+
+- **Cases that need a complete turn stay dormant, and are a production-transition gate.** The
+  component tests that drove the executor are skipped under `PRE_PRODUCTION` with the reason
+  recorded, and each keeps a stand-in that throws, so un-skipping one without doing the real
+  work fails loudly instead of quietly proving nothing. At the governance transition these must
+  *execute* against the admitted path — together with the dormant end-to-end and
+  Hermes-equivalence cases — rather than be deleted. A skip is neither a pass nor evidence.
+
+- **Refusal is proved by traps, not by prose.** `src/core/preproduction-zero-bypass.test.ts`
+  arms the driver, the tools, the approval callback and the event sinks to throw if reached,
+  then attempts every work category and asserts both the refusal and that nothing was touched. A
+  bypass that did its work and then returned a refusal would pass a message-reading test.
+
 ## Consequences
 
 - The Trio cannot demonstrate Hermes-equivalence by running, because it is not permitted to

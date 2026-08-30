@@ -106,7 +106,12 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // Independent code-level trust anchor for the architecture-controlled shape.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;
 // doing so also requires an explicit, review-visible verifier change.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '7e4b8872737e983dc0157c9e5d710320534d74e81da7e2e0a3c643d69cd7d14f';
+//
+// Moved when the effectful executor was made private and the loop's decisions were split into
+// `src/core/loop-mechanics.ts`, with `src/core/effect-sinks.ts` added as the governed effect
+// inventory. That is a change to the architecture-controlled shape, so it is recorded here by
+// hand rather than absorbed by regeneration -- which is exactly what this anchor is for.
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'df13ecc1740971c97005478a6d18278caf8eeef4a34f9a915b42ea81cc5392a3';
 
 interface Inventory {
   schemaVersion: 3;

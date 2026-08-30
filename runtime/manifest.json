@@ -4,7 +4,7 @@
   "closedInventorySource": "trio/path-inventory.json",
   "closedInventorySha256": "9b0532d44e30d41e192bc453d1e78fffa670fbd63d22e61745af3c88fec1aa92",
   "runtimeClosureSource": "trio/runtime-closure.json",
-  "runtimeClosureSha256": "a0a2356f913152ffcd42cd9697bb023aef2e3e970623b980209915625def563f",
+  "runtimeClosureSha256": "4c00d4be318036e2eba3cd4e60416d7accea2b772c10143ce8a5f655c4aa1637",
   "securityInvariants": {
     "toolAuthority": "configured request intersected with trusted deployment ceiling",
     "toolOutputGuard": "mandatory",
