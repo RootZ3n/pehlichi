@@ -39,13 +39,30 @@ const ts = require_('typescript');
 
 export const PROVENANCE_GENERATOR = Object.freeze({
   name: 'scripts/trio/build-provenance.mjs',
-  version: '1.0.0',
+  version: '1.1.0',
   derivesFrom: 'the committed tree only; ignored and untracked paths are refused',
   outputs: Object.freeze(['trio/path-inventory.json', 'trio/runtime-closure.json',
-    'trio/boundary-manifest.json#trustedInventory', 'runtime/manifest.json#digests'])
+    'trio/boundary-manifest.json#trustedInventory', 'runtime/manifest.json#digests',
+    'trio/governance/path-inventory.json'])
 });
 
+/**
+ * The three repositories the governed closed inventory spans.
+ *
+ * The external comparison's inventory is a property of the Trio, not of one member: it
+ * enumerates every governed path across all three, so a file that exists only in Luna is still
+ * in the inventory Pehlichi ships. Deriving it from one tree would drop the other two agents'
+ * owned content and make the inventory itself diverge -- and `trio/` is behaviour-identical, so
+ * that would be a blocking divergence in its own right.
+ */
+const SLOTS = Object.freeze(['pehlichi', 'loony-luna', 'mad-ptah']);
+
 const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+/** Key-sorted, so a regenerated file is byte-stable regardless of assembly order. */
+const stableKeys = (value) => Array.isArray(value) ? value.map(stableKeys)
+  : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, stableKeys(value[k])]))
+    : value;
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
 const posix = (p) => p.split(path.sep).join('/');
 
@@ -57,6 +74,21 @@ function trackedPaths() {
 }
 
 const tracked = trackedPaths();
+
+/**
+ * Tracked paths for a peer repository.
+ *
+ * Peers are located as siblings by slot name. A peer that is absent is fatal rather than
+ * skipped: an inventory silently derived from two of three repositories would be missing the
+ * third's governed paths, and the omission would look exactly like the defect this generator
+ * exists to prevent.
+ */
+function peerTrackedPaths(slot) {
+  const peer = path.resolve(root, '..', slot);
+  const result = cp.spawnSync('git', ['ls-files', '-z'], { cwd: peer, encoding: 'buffer', shell: false, maxBuffer: 64 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`cannot enumerate the committed tree of ${slot} at ${peer}; the governed inventory spans all three repositories`);
+  return new Set(String(result.stdout).split('\0').filter(Boolean));
+}
 function requireTracked(rel, why) {
   if (!tracked.has(rel)) throw new Error(`${why}: ${rel} is not committed, so it may not enter provenance`);
   return rel;
@@ -103,6 +135,47 @@ function closureFrom(entryPoints, { label }) {
 /** Every tracked file under a closed directory. These are the paths that must be acknowledged. */
 function trackedUnder(directory) {
   return [...tracked].filter((rel) => rel === directory || rel.startsWith(`${directory}/`)).sort();
+}
+
+/**
+ * The governed closed inventory the external comparison checks against.
+ *
+ * Every directory rule in the boundary manifest is a closed enumeration: a committed file that
+ * matches a rule's directory but is absent from that rule's list does not match the rule at
+ * all, and falls through as UNCLASSIFIED_FILE. That is the mechanism, and it worked -- two
+ * files committed in a previous change were never enumerated, and six unclassified paths were
+ * the result. What was missing was anything deriving the enumeration, so the omission was
+ * possible in the first place.
+ *
+ * Deriving it here closes that: a newly committed file under a governed directory is
+ * enumerated automatically, and `--check` fails when the committed inventory no longer matches
+ * the committed trees.
+ */
+export function buildGovernanceInventory() {
+  const manifest = readJson('trio/governance/boundary-manifest.json');
+  const current = readJson('trio/governance/path-inventory.json');
+  const excluded = (rel) => (manifest.exclusions ?? []).some((x) => rel === x.path || rel.startsWith(`${x.path}/`));
+
+  const union = new Set();
+  for (const slot of SLOTS)
+    for (const rel of (slot === path.basename(root) ? tracked : peerTrackedPaths(slot)))
+      if (!excluded(rel)) union.add(rel);
+
+  /** The same selector semantics the verifier applies, minus the closed-inventory test itself. */
+  const matches = (rel, selector) => {
+    if (!rel.startsWith(`${selector.directory}/`)) return false;
+    if ((selector.excludedPaths ?? []).includes(rel)) return false;
+    if ((selector.excludedDirectories ?? []).some((d) => rel === d || rel.startsWith(`${d}/`))) return false;
+    if (selector.allowedSuffixes && !selector.allowedSuffixes.some((x) => rel.endsWith(x))) return false;
+    return true;
+  };
+
+  const rules = {};
+  for (const rule of manifest.rules.filter((r) => r.selector.directory))
+    rules[rule.id] = [...union].filter((rel) => matches(rel, rule.selector))
+      .sort((a, b) => Buffer.from(a).compare(Buffer.from(b)));
+
+  return { schemaVersion: current.schemaVersion, status: current.status, rules };
 }
 
 export function buildProvenance() {
@@ -172,8 +245,11 @@ export function buildProvenance() {
   const nextBoundary = { ...boundary, trustedInventory: { ...boundary.trustedInventory, pathInventorySha256, runtimeClosureSha256 } };
   const nextRuntimeManifest = { ...runtimeManifest, closedInventorySha256: pathInventorySha256, runtimeClosureSha256 };
 
+  const governanceInventory = buildGovernanceInventory();
+
   return {
     files: {
+      'trio/governance/path-inventory.json': `${JSON.stringify(stableKeys(governanceInventory), null, 2)}\n`,
       'trio/path-inventory.json': inventoryBytes,
       'trio/runtime-closure.json': closureBytes,
       'trio/boundary-manifest.json': `${JSON.stringify(nextBoundary, null, 2)}\n`,

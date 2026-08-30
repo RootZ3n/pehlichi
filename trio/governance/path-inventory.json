@@ -243,6 +243,7 @@
     ],
     "source-runtime": [
       "src/cli/repl.ts",
+      "src/core/admission-bypass-guard.test.ts",
       "src/core/agent-tools/agent-tools.test.ts",
       "src/core/agent-tools/audit-fixes.test.ts",
       "src/core/agent-tools/brain-tools.ts",
@@ -322,6 +323,7 @@
       "src/core/external-runtime-integrity.ts",
       "src/core/gbrain-bridge.test.ts",
       "src/core/gbrain-bridge.ts",
+      "src/core/governed-inventory.test.ts",
       "src/core/index.ts",
       "src/core/lab-transcript.test.ts",
       "src/core/lab-transcript.ts",

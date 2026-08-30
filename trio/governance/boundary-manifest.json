@@ -497,7 +497,10 @@
      ".json"
     ],
     "closedInventory": true,
-    "directory": "docs"
+    "directory": "docs",
+    "excludedPaths": [
+     "docs/trio/ADR-006-PREPRODUCTION-ZERO-BYPASS.md"
+    ]
    },
    "transitional": false,
    "validation": {
@@ -796,6 +799,30 @@
    "transitional": false,
    "validation": {
     "kind": "package-behavior"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "model-behavior-data",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "shared-governance-doctrine",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "markdown"
+   ],
+   "productionReachable": false,
+   "selector": {
+    "paths": [
+     "docs/trio/ADR-006-PREPRODUCTION-ZERO-BYPASS.md"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "model-data"
    }
   },
   {
