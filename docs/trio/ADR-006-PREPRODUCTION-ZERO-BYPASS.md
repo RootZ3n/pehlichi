@@ -79,16 +79,10 @@ the environment. It is semantic, not nominal — renaming the constant does not 
 ## Amendment: effect-dominated admission
 
 A later independent audit classified `INTRA_PACKAGE_COMPONENT_ESCAPE`. A disposable production
-module wrote
-
-```ts
-import * as loopMechanics from "./loop.js";
-const componentName = "execute" + "AgentRun";
-return loopMechanics[componentName](options);
-```
-
-and executed an agent turn while the committed status refused all work. The guard above passed
-it: the guard searched for known spellings, and a computed property has no spelling. The
+module took a namespace import of the loop module, built the executor's name at runtime by
+concatenating two string fragments, read that name off the namespace as a computed property, and
+called it — executing an agent turn while the committed status refused all work. The guard above
+passed it: the guard searched for known spellings, and a computed property has no spelling. The
 executor was absent from the public index, which had been treated as the boundary — but relative
 imports inside the package were always part of the threat model, so "not in the public index"
 never described one.
