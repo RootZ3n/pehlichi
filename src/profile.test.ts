@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { QUALIFICATION_AUTHORITY } from "./core/operational-admission.js";
 import { rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { QUALIFICATION_AUTHORITY } from "./core/operational-admission.js";
 
 import type { ModuleMeta } from "lab-store";
 

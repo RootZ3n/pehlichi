@@ -191,6 +191,39 @@
    "allowedTypes": [
     "file"
    ],
+   "attestation": "Identity, UI and deployment tests plus per-agent sanity entrypoints. Shared-runtime and portable-role behaviour tests live under tests/ and remain byte-identical; these assert each deployment's own identity and surface, so identical content would mean they assert nothing.",
+   "bytesMustMatch": false,
+   "class": "agent-owned-content",
+   "divergenceBlocking": false,
+   "executablePolicy": "agent-identity",
+   "expiresBefore": null,
+   "id": "agent-identity-tests-and-sanity",
+   "modeMustMatch": true,
+   "owners": [
+    "pehlichi",
+    "loony-luna",
+    "mad-ptah"
+   ],
+   "permittedFormats": [
+    "typescript"
+   ],
+   "productionReachable": false,
+   "selector": {
+    "paths": [
+     "src/profiles/agent.test.ts",
+     "tui/src/audit-fixes.test.ts",
+     "tui/src/server.test.ts"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "agent-owned-content"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
    "bytesMustMatch": false,
    "class": "validated-variable-data",
    "divergenceBlocking": false,
@@ -292,6 +325,32 @@
    "transitional": true,
    "validation": {
     "kind": "quarantine"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "attestation": "Deployment credentials. Each agent authenticates as itself, so these values are required to differ; the verifier classifies them by path and never opens them.",
+   "bytesMustMatch": false,
+   "class": "secret-path-excluded",
+   "divergenceBlocking": false,
+   "expiresBefore": null,
+   "id": "credential-path-exclusions",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "opaque"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "paths": [
+     ".env",
+     "tui/.env"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "secret-path-excluded"
    }
   },
   {
@@ -631,6 +690,30 @@
    "allowedTypes": [
     "file"
    ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "portable-role-packs",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "json",
+    "documentation"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "closedInventory": true,
+    "directory": "role-packs"
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
    "attestation": "Repository ignore rules. Shared operational exclusions are identical; the remaining entries are each agent's own build, state and deployment paths, owned by that deployment.",
    "bytesMustMatch": false,
    "class": "agent-owned-content",
@@ -713,30 +796,6 @@
    "transitional": false,
    "validation": {
     "kind": "package-behavior"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
-   "expiresBefore": null,
-   "id": "tui-server-shared-runtime",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "typescript"
-   ],
-   "productionReachable": true,
-   "selector": {
-    "paths": [
-     "tui/src/server.ts"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "none"
    }
   },
   {
@@ -909,6 +968,30 @@
    "class": "behavior-identical",
    "divergenceBlocking": true,
    "expiresBefore": null,
+   "id": "trio-provenance-generator",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "javascript"
+   ],
+   "productionReachable": false,
+   "selector": {
+    "paths": [
+     "scripts/trio/build-provenance.mjs"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
    "id": "trio-scaffolding",
    "modeMustMatch": true,
    "permittedFormats": [
@@ -959,6 +1042,30 @@
    "transitional": false,
    "validation": {
     "kind": "agent-owned-ui"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "tui-server-shared-runtime",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "typescript"
+   ],
+   "productionReachable": true,
+   "selector": {
+    "paths": [
+     "tui/src/server.ts"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
    }
   },
   {
@@ -1090,39 +1197,6 @@
    "allowedTypes": [
     "file"
    ],
-   "attestation": "Identity, UI and deployment tests plus per-agent sanity entrypoints. Shared-runtime and portable-role behaviour tests live under tests/ and remain byte-identical; these assert each deployment's own identity and surface, so identical content would mean they assert nothing.",
-   "bytesMustMatch": false,
-   "class": "agent-owned-content",
-   "divergenceBlocking": false,
-   "executablePolicy": "agent-identity",
-   "expiresBefore": null,
-   "id": "agent-identity-tests-and-sanity",
-   "modeMustMatch": true,
-   "owners": [
-    "pehlichi",
-    "loony-luna",
-    "mad-ptah"
-   ],
-   "permittedFormats": [
-    "typescript"
-   ],
-   "productionReachable": false,
-   "selector": {
-    "paths": [
-     "src/profiles/agent.test.ts",
-     "tui/src/audit-fixes.test.ts",
-     "tui/src/server.test.ts"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "agent-owned-content"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
    "bytesMustMatch": true,
    "class": "behavior-identical",
    "divergenceBlocking": true,
@@ -1141,56 +1215,6 @@
    "transitional": false,
    "validation": {
     "kind": "none"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "bytesMustMatch": true,
-   "class": "behavior-identical",
-   "divergenceBlocking": true,
-   "expiresBefore": null,
-   "id": "portable-role-packs",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "json",
-    "documentation"
-   ],
-   "productionReachable": true,
-   "selector": {
-    "closedInventory": true,
-    "directory": "role-packs"
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "none"
-   }
-  },
-  {
-   "allowedTypes": [
-    "file"
-   ],
-   "attestation": "Deployment credentials. Each agent authenticates as itself, so these values are required to differ; the verifier classifies them by path and never opens them.",
-   "bytesMustMatch": false,
-   "class": "secret-path-excluded",
-   "divergenceBlocking": false,
-   "expiresBefore": null,
-   "id": "credential-path-exclusions",
-   "modeMustMatch": true,
-   "permittedFormats": [
-    "opaque"
-   ],
-   "productionReachable": true,
-   "selector": {
-    "paths": [
-     ".env",
-     "tui/.env"
-    ]
-   },
-   "transitional": false,
-   "validation": {
-    "kind": "secret-path-excluded"
    }
   }
  ],
