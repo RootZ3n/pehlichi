@@ -125,22 +125,32 @@ export {
  * the kernel chat session, the REPL, a test harness -- declares what the run is for through
  * the same vocabulary rather than inventing its own.
  */
+/**
+ * The operational-work admission boundary.
+ *
+ * Read-only status and refusal vocabulary only. Nothing here grants admission, and there is
+ * deliberately no exported token, purpose or capability that could: while the governed status
+ * is locked, `runAgent` executes nothing, and no value a caller can obtain changes that.
+ *
+ * `executeAgentRun` and `executeAgentInShadow` are also absent on purpose -- they live below
+ * the boundary and are not part of the public API.
+ */
 export {
-  admitOperation,
-  admitRun,
+  admitWork,
+  admitRunWork,
+  admitNonWorkSurface,
   readOperationalStatus,
   describeRefusal,
   OperationalStatusUnreadable,
-  QUALIFICATION_AUTHORITY,
-  QUALIFICATION_PURPOSES,
   GOVERNED_STATUS_PATH,
   type OperationalStatus,
   type OperationalState,
   type OperationalAuthorization,
-  type AdmissionRequest,
   type AdmissionDecision,
   type AdmissionRefusal,
-  type RunPurpose,
+  type RefusalCode,
+  type WorkCategory,
+  type NonWorkSurface,
 } from "./operational-admission.js";
 
 export {

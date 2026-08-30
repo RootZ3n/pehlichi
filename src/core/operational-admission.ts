@@ -1,24 +1,25 @@
 /**
  * The operational-work admission boundary.
  *
- * `trio/governance/boundary-manifest.json` has carried `state: PRE_PRODUCTION` and
- * `authorization: NOT_AUTHORIZED_FOR_OPERATIONAL_WORK` for as long as the Trio has existed.
- * Nothing read them. They were a sentence in a manifest, and an agent that is declared
- * unavailable for real work but will do real work when asked is available for real work.
+ * While the committed governed status is PRE_PRODUCTION or NOT_AUTHORIZED_FOR_OPERATIONAL_WORK,
+ * there is no way to execute work. Not a flag, not a purpose, not a token, not an environment
+ * variable, not a role, not a route. There is no branch below that can return an admission
+ * while the status is locked, which is a stronger statement than "the branch is hard to reach".
  *
- * This is the executable form of that declaration. Every agent run passes through
- * `admitRun` before any model is called or any tool is registered, and while the committed
- * status is locked the only runs that proceed are the ones that name themselves qualification,
- * audit or self-test *and* carry the exact authority for it.
+ * The first attempt at this gate was bypassable and an independent audit said so plainly. It
+ * accepted a caller-supplied `purpose` and a caller-supplied `authority`, and the authority was
+ * a plaintext constant exported from shared core. Any in-process caller could import it, label
+ * operational work `self-test`, and be admitted -- and reuse the same string for a different
+ * operation tomorrow. A secret that every caller can read is not an authority; a claim the
+ * caller makes about itself is not an authorization.
  *
- * What deliberately does not appear anywhere below: role, capability pack, model, route,
- * service health, and Matrix identity. Authorization is a property of the committed governed
- * status and the declared purpose of the run, and of nothing else. A gate that could be
- * satisfied by "but this agent is the coordinator" or "but the request came over Matrix"
- * would be a gate that the first operational request talks its way through.
+ * So nothing the caller says is consulted. `admitWork` reads the committed status and compares
+ * it against the one state in which work is permitted. Everything else refuses. The request's
+ * category exists to make the refusal legible, never to influence it.
  *
- * The Trio may stay online while locked -- health, UI and Matrix connectivity are not
- * operational work and never reach this boundary.
+ * A future commissioning capability -- externally issued, bound to an authenticated actor, an
+ * exact work order, a scope, a nonce, an expiry and a single use -- is deliberately not built
+ * here. Adding a weaker placeholder now would be the same defect wearing a different name.
  */
 
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** src/core -> repository root. The governed status is committed; it is never configurable. */
+/**
+ * src/core -> repository root.
+ *
+ * Not a parameter on the production path. If a caller could name the repository whose
+ * governance is consulted, it could point at one that says PRODUCTION, and the whole gate
+ * would be a suggestion. Tests that need a different status build a fixture root and call
+ * `readOperationalStatus`/`admitWork` directly -- below this boundary, never through it.
+ */
 const REPOSITORY_ROOT = join(here, '..', '..');
 export const GOVERNED_STATUS_PATH = 'trio/governance/boundary-manifest.json';
 
@@ -42,55 +50,63 @@ export interface OperationalStatus {
 }
 
 /**
- * What a run says it is for.
+ * How a request is described in a refusal.
  *
- * `ordinary-work` is the default everywhere precisely because omitting the field must not be a
- * way through: a caller that says nothing is asking to do real work.
+ * Every member is work. There is no privileged member, and adding one would not help: the
+ * category is not consulted when deciding, only when explaining. `qualification` and
+ * `self-test` appear here precisely so that a request labelled either of them is visibly
+ * refused rather than quietly special-cased.
  */
-export type RunPurpose =
+export type WorkCategory =
+  | 'agent-run'
   | 'ordinary-work'
   | 'repair'
   | 'build'
   | 'maintenance'
+  | 'cleanup'
+  | 'reconnaissance'
   | 'commissioning'
   | 'qualification'
-  | 'audit'
-  | 'self-test';
-
-/** The purposes that may proceed while locked, and only with the exact authority below. */
-export const QUALIFICATION_PURPOSES: readonly RunPurpose[] = Object.freeze(['qualification', 'audit', 'self-test']);
+  | 'self-test'
+  | 'matrix-originated'
+  | 'cli-originated'
+  | 'role-pack-operation'
+  | 'model-route-operation';
 
 /**
- * The exact authority a qualification run must carry.
+ * Surfaces that are not work.
  *
- * Naming it is the point. A run cannot reach a qualification lane by having the right role or
- * by leaving a field blank; it has to state this string, which means every such run is
- * greppable and every one of them is deliberate.
+ * The Trio stays online while locked: it reports health, renders its UI, holds its Matrix
+ * connection and displays its own identity. None of these executes work, none of them carries
+ * tools, and none of them routes through the work gate -- they are listed here so that "the
+ * service is up" is never mistaken for "the service is admitted".
  */
-export const QUALIFICATION_AUTHORITY = 'trio-qualification/pre-production-self-test/1';
+export type NonWorkSurface =
+  | 'service-startup'
+  | 'health-report'
+  | 'status-display'
+  | 'ui-render'
+  | 'matrix-connectivity'
+  | 'identity-display';
 
-export interface AdmissionRequest {
-  /** What is being attempted, for the refusal record. Never interpreted as authorization. */
-  readonly operation: string;
-  readonly purpose?: RunPurpose;
-  readonly authority?: string;
-}
+export type RefusalCode = 'OPERATIONAL_WORK_NOT_AUTHORIZED' | 'OPERATIONAL_STATUS_UNREADABLE';
 
+/**
+ * A refusal carries four fields and nothing else.
+ *
+ * No operation label, no prose from the manifest, no configuration, no prompt, no model data.
+ * A refusal is emitted on paths that may have been reached by hostile input, so the safe
+ * shape is the small one.
+ */
 export interface AdmissionRefusal {
-  readonly category:
-    | 'OPERATIONAL_WORK_NOT_AUTHORIZED'
-    | 'QUALIFICATION_AUTHORITY_REQUIRED'
-    | 'OPERATIONAL_STATUS_UNREADABLE';
-  readonly operation: string;
-  readonly purpose: RunPurpose;
+  readonly code: RefusalCode;
   readonly state: OperationalState | 'UNKNOWN';
-  readonly authorization: OperationalAuthorization | 'UNKNOWN';
-  readonly productionAgent: string | null;
-  readonly reason: string;
+  readonly category: WorkCategory;
+  readonly nextAction: string;
 }
 
 export type AdmissionDecision =
-  | { readonly admitted: true; readonly purpose: RunPurpose; readonly state: OperationalState }
+  | { readonly admitted: true; readonly state: OperationalState }
   | { readonly admitted: false; readonly refusal: AdmissionRefusal };
 
 export class OperationalStatusUnreadable extends Error {
@@ -100,14 +116,17 @@ export class OperationalStatusUnreadable extends Error {
   }
 }
 
+/** The one next action there is. Stated once so every refusal says the same thing. */
+const NEXT_ACTION = 'a separately authorized governance transition is required; no runtime override exists';
+
 const NON_EMPTY = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
 /**
  * Read and validate the committed governed status.
  *
- * Every failure path throws. A status that is missing, unparseable, or shaped wrongly must
- * not resolve to "probably fine": not knowing whether operational work is authorized is the
- * same as it not being authorized.
+ * Every failure path throws. Not knowing whether operational work is authorized is the same
+ * as it not being authorized, so there is no shape of unreadable input that resolves to
+ * "probably fine".
  */
 export function readOperationalStatus(repositoryRoot: string = REPOSITORY_ROOT): OperationalStatus {
   let raw: string;
@@ -135,6 +154,14 @@ export function readOperationalStatus(repositoryRoot: string = REPOSITORY_ROOT):
   if (!NON_EMPTY(status.productionAgent) || !NON_EMPTY(status.clearedBy) || !NON_EMPTY(status.reason)) {
     throw new OperationalStatusUnreadable('operationalStatus is missing required declarative fields');
   }
+  // The two fields must agree. A manifest that says PRODUCTION while withholding authorization
+  // -- or the reverse -- describes no coherent state, and guessing which half to believe is
+  // exactly the kind of reconciliation that turns a gate into a negotiation.
+  const cleared = status.state === 'PRODUCTION' && status.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK';
+  const locked = status.state === 'PRE_PRODUCTION' && status.authorization === 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK';
+  if (!cleared && !locked) {
+    throw new OperationalStatusUnreadable('operationalStatus.state and operationalStatus.authorization contradict each other');
+  }
   return {
     state: status.state,
     authorization: status.authorization,
@@ -145,71 +172,55 @@ export function readOperationalStatus(repositoryRoot: string = REPOSITORY_ROOT):
 }
 
 /**
- * Decide whether a run may proceed.
+ * Decide whether work may execute.
  *
- * Takes the request and the status, and nothing else. There is no context parameter for a
- * reason: a boundary that accepts a context is a boundary somebody will eventually put an
- * override in.
+ * There is exactly one condition under which this returns an admission, and it is a property
+ * of the committed status alone. The `category` argument reaches the refusal and nothing else;
+ * no value of it, and no other argument, can produce an admission while the status is locked.
  */
-export function admitOperation(request: AdmissionRequest, status: OperationalStatus): AdmissionDecision {
-  const purpose: RunPurpose = request.purpose ?? 'ordinary-work';
-  const refuse = (category: AdmissionRefusal['category'], reason: string): AdmissionDecision => ({
+export function admitWork(category: WorkCategory, status: OperationalStatus): AdmissionDecision {
+  if (status.state === 'PRODUCTION' && status.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK') {
+    return { admitted: true, state: status.state };
+  }
+  return {
     admitted: false,
-    refusal: {
-      category,
-      operation: request.operation,
-      purpose,
-      state: status.state,
-      authorization: status.authorization,
-      productionAgent: status.productionAgent,
-      reason
-    }
-  });
-
-  if (status.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK') {
-    return { admitted: true, purpose, state: status.state };
-  }
-  if (!QUALIFICATION_PURPOSES.includes(purpose)) {
-    return refuse('OPERATIONAL_WORK_NOT_AUTHORIZED',
-      `this agent is ${status.state} and not authorized for operational work; ${status.productionAgent} is the production agent`);
-  }
-  if (request.authority !== QUALIFICATION_AUTHORITY) {
-    return refuse('QUALIFICATION_AUTHORITY_REQUIRED',
-      'a qualification, audit or self-test run must carry the exact qualification authority');
-  }
-  return { admitted: true, purpose, state: status.state };
+    refusal: { code: 'OPERATIONAL_WORK_NOT_AUTHORIZED', state: status.state, category, nextAction: NEXT_ACTION }
+  };
 }
 
 /**
- * The boundary as a run gate: read the committed status, decide, fail closed.
+ * The production work gate: read the committed status, decide, fail closed.
  *
- * An unreadable or malformed status produces a refusal rather than an exception escaping into
- * the caller, so the caller cannot accidentally treat "the gate crashed" as "the gate passed".
+ * An unreadable, missing, malformed or self-contradictory status becomes a refusal rather
+ * than an exception escaping into the caller, so "the gate crashed" can never be handled as
+ * "the gate passed".
  */
-export function admitRun(request: AdmissionRequest, repositoryRoot: string = REPOSITORY_ROOT): AdmissionDecision {
+export function admitRunWork(category: WorkCategory): AdmissionDecision {
   let status: OperationalStatus;
   try {
-    status = readOperationalStatus(repositoryRoot);
-  } catch (error) {
+    status = readOperationalStatus();
+  } catch {
     return {
       admitted: false,
-      refusal: {
-        category: 'OPERATIONAL_STATUS_UNREADABLE',
-        operation: request.operation,
-        purpose: request.purpose ?? 'ordinary-work',
-        state: 'UNKNOWN',
-        authorization: 'UNKNOWN',
-        productionAgent: null,
-        reason: error instanceof OperationalStatusUnreadable
-          ? error.detail
-          : 'the governed operational status could not be established'
-      }
+      refusal: { code: 'OPERATIONAL_STATUS_UNREADABLE', state: 'UNKNOWN', category, nextAction: NEXT_ACTION }
     };
   }
-  return admitOperation(request, status);
+  return admitWork(category, status);
 }
 
-/** A one-line refusal for logs and transcripts. Carries identity and reason, never secrets. */
+/**
+ * Whether a non-work surface may serve.
+ *
+ * Always yes. Health, status, UI and Matrix connectivity are not gated because refusing them
+ * would take the agent offline rather than keep it from working, and an agent nobody can ask
+ * "what state are you in?" is worse than one that answers "locked". Deliberately a separate
+ * function: the work path has no branch that a surface name could reach.
+ */
+export function admitNonWorkSurface(_surface: NonWorkSurface): { readonly admitted: true } {
+  return { admitted: true };
+}
+
+/** A one-line refusal for logs and transcripts. Carries the four fields, nothing else. */
 export function describeRefusal(refusal: AdmissionRefusal): string {
-  return `${refusal.category}: ${refusal.operation} refused (purpose=${refusal.purpose}, state=${refusal.state}) — ${refusal.reason}`;
+  return `${refusal.code}: ${refusal.category} refused (state=${refusal.state}) — ${refusal.nextAction}`;
 }

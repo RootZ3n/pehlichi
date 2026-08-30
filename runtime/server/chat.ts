@@ -3,6 +3,8 @@
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
 import { loadSkin, type Skin } from './skin.js';
 import { TruthSessionGate } from './truth-gate.js';
+import { admitRunWork } from '../../src/core/operational-admission.js';
+import { OperationalWorkRefused } from '../../src/core/loop.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -95,6 +97,14 @@ export class ChatSession {
    * Calls MiMo directly via the OpenAI-compatible chat completions API.
    */
   async send(userMessage: string, onStream?: StreamCallback): Promise<ChatResponse> {
+    // OPERATIONAL ADMISSION. The converse lane answers without tools, but it still calls a
+    // model on a user's behalf, which is operational work: "it only talks" is not a category
+    // of admission any more than "it only reads" is. This lane reaches a model without going
+    // through `runAgent`, so it carries its own call to the same boundary rather than
+    // inheriting one it never passes through.
+    const admission = admitRunWork('ordinary-work');
+    if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
+
     // The caller's callback receives transport liveness and never a model delta. Deltas
     // are still consumed below so the request shape and the accumulated content are
     // unchanged; what stops is delivery.

@@ -11,7 +11,6 @@ import {
   defaultApprovalPolicy,
   type KernelChatResponse,
   type KernelChatSessionOptions,
-  type RunPurpose,
   type KernelToolCall,
 } from './kernel-session.js';
 import { loadPersonality, type Personality } from './personality.js';
@@ -53,13 +52,6 @@ export interface LegacyAgentChatOptions {
   /** Deterministic compatibility seam; production callers omit it. */
   readonly driver?: Driver;
   readonly repositoryRoot?: string;
-  /**
-   * OPERATIONAL ADMISSION: what turns driven through this legacy facade are for. Unset means
-   * `ordinary-work`, which is what a deployed turn is, and while the committed governed
-   * status is PRE_PRODUCTION every such turn is refused at the kernel boundary.
-   */
-  readonly operationalPurpose?: RunPurpose;
-  readonly operationalAuthority?: string;
 }
 
 function isKernelOptions(value: LegacyAgentChatOptions | KernelChatSessionOptions): value is KernelChatSessionOptions {
@@ -119,8 +111,6 @@ export class AgentChatSession {
       ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
     });
     this.kernel = new KernelChatSession({
-      ...(options.operationalPurpose !== undefined ? { operationalPurpose: options.operationalPurpose } : {}),
-      ...(options.operationalAuthority !== undefined ? { operationalAuthority: options.operationalAuthority } : {}),
       profile: { ...agentProfile, name: capsule.identity.displayName, role: capsule.identity.role, icon: capsule.identity.icon },
       driver,
       workspaceRoot,

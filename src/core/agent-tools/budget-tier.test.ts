@@ -1,4 +1,12 @@
 /**
+ * COMPONENT TEST. This drives `executeAgentRun`, the agent loop below the production
+ * admission boundary, with fixture-owned dependencies. It proves things about the loop.
+ *
+ * It does not, and must not be read to, prove that `runAgent` admitted any work: while the
+ * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
+ * covered separately in `operational-admission.test.ts`.
+ */
+/**
  * Loop-level proof that per-tier budgets cap iterations (lab-trust sprint, Phase 7).
  * A converse tier caps a casual prompt at 4 tool/driver turns; a read-only tier at 12.
  */
@@ -10,19 +18,11 @@ import { test } from 'node:test';
 
 import { ScriptedDriver, type DriverAction } from '../driver.js';
 import type { AgentEvent } from '../events.js';
-import { runAgent as governedRunAgent, type RunAgentOptions } from '../loop.js';
-import { QUALIFICATION_AUTHORITY } from '../operational-admission.js';
+import { executeAgentRun as componentExecuteAgentRun, type RunAgentOptions } from '../loop.js';
 
-/**
- * The agent's own self-tests declare that purpose and carry the exact qualification
- * authority; while PRE_PRODUCTION a run that declares neither is refused.
- */
-const runAgent = (opts: RunAgentOptions): ReturnType<typeof governedRunAgent> =>
-  governedRunAgent({
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
-    ...opts,
-  });
+/** The loop below the admission boundary. See the component-test note at the top. */
+const runAgent = (opts: RunAgentOptions): ReturnType<typeof componentExecuteAgentRun> =>
+  componentExecuteAgentRun(opts);
 import type { AgentProfile } from '../profile.js';
 
 const profile: AgentProfile = { name: 'T', role: 'test', personaPreamble: 'test', skillTags: ['test'] };

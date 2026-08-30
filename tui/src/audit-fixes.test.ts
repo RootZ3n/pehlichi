@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import {
   ScriptedDriver,
@@ -26,6 +25,24 @@ import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
 import { agentProfile } from '../../src/profile.js';
 import { KernelChatSession } from './lib/kernel-session.js';
 import { createPehServer, type PehServerOptions } from './server.js';
+import { readOperationalStatus } from '../../src/core/operational-admission.js';
+
+/**
+ * Cases that require a completed turn.
+ *
+ * While the committed governed status is PRE_PRODUCTION the production admission boundary
+ * refuses every work execution, so these cannot run — and must not be made to run, because
+ * every mechanism for that would be the bypass this gate exists to remove. They are skipped
+ * on a condition read from the governed status itself, so they return the moment governance
+ * is deliberately transitioned, with no edit and no flag.
+ *
+ * A skip here is neither a pass nor qualification evidence.
+ */
+const OPERATIONAL_STATUS = readOperationalStatus();
+const requiresAdmission: { skip?: string } = OPERATIONAL_STATUS.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK'
+  ? {}
+  : { skip: `${OPERATIONAL_STATUS.state}: work execution is refused at the admission boundary; this case runs again after a governance transition` };
+
 
 /** A driver that always finishes with a valid summary (reusable across many turns). */
 const doneDriver: Driver = {
@@ -35,11 +52,7 @@ const doneDriver: Driver = {
 };
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer({
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
-    ...opts,
-  });
+  const { server } = createPehServer(opts);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -51,14 +64,11 @@ async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promi
 
 // ── C4: checkpoint save → resume cycle, and /reset erases the transcript ────────
 
-test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the transcript cannot resurrect', async () => {
+test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the transcript cannot resurrect', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   const checkpointDir = mkdtempSync(join(tmpdir(), 'c4-cp-'));
   const base = {
-    // A self-test session, declared and authorized as one.
-    operationalPurpose: 'self-test' as const,
-    operationalAuthority: QUALIFICATION_AUTHORITY,
     profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir, toolNames: [],
   };
   try {
@@ -88,7 +98,7 @@ test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the
 
 // ── H2: every room gets its own session; no cross-room context bleed ───────────
 
-test('H2. /chat routes each room to its own session — one room never sees another’s history', async () => {
+test('H2. /chat routes each room to its own session — one room never sees another’s history', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
 
@@ -133,7 +143,7 @@ test('H2. /chat routes each room to its own session — one room never sees anot
 
 // ── H4: the TokenMonitor is fed REAL usage drained from the driver ─────────────
 
-test('H4. token usage from the driver is recorded in the session TokenMonitor (not stuck at zero)', async () => {
+test('H4. token usage from the driver is recorded in the session TokenMonitor (not stuck at zero)', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
 
@@ -148,8 +158,6 @@ test('H4. token usage from the driver is recorded in the session TokenMonitor (n
 
   try {
     const session = new KernelChatSession({
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
       profile: agentProfile,
       driver: new UsageDriver(),
       workspaceRoot: ws,
@@ -204,7 +212,7 @@ test('H1. /chat rejects an unauthenticated request when a chat token is configur
   }
 });
 
-test('H1. /chat with the correct bearer token passes the auth gate', async () => {
+test('H1. /chat with the correct bearer token passes the auth gate', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   const actions: DriverAction[] = [

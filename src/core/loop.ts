@@ -10,7 +10,7 @@ import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
-import { admitRun, describeRefusal, type RunPurpose } from "./operational-admission.js";
+import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
@@ -186,17 +186,6 @@ export interface RunAgentOptions {
    */
   readonly approvalCallback?: ApprovalCallback;
   /**
-   * OPERATIONAL ADMISSION: what this run is for.
-   *
-   * Checked against the committed governed operational status before anything else happens.
-   * Unset means `ordinary-work`, because a run that does not say what it is for is asking to
-   * do real work, and while the Trio is PRE_PRODUCTION real work is refused. A qualification,
-   * audit or self-test run must also carry `operationalAuthority`.
-   */
-  readonly operationalPurpose?: RunPurpose;
-  /** The exact qualification authority. Nothing else admits a run while the status is locked. */
-  readonly operationalAuthority?: string;
-  /**
    * CONVERSATION SEEDING (opt-in): prior turns inserted between the system prompt and
    * this run's task, so an HTTP chat server can preserve context across requests by
    * threading the accumulated transcript through successive `runAgent` calls. Unset =>
@@ -291,12 +280,22 @@ export interface ShadowRunResult {
  * separate operator-gated step and is deliberately NOT performed here.
  */
 export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
+  const admission = admitRunWork('agent-run');
+  if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
+  return executeAgentInShadow(opts);
+}
+
+/**
+ * A shadow run below the admission boundary. Same standing as `executeAgentRun`: a component,
+ * not an entry point, and not part of the public API.
+ */
+export async function executeAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
   const { seedFrom, onShadowCreated, ...rest } = opts;
   const shadow = ShadowWorkspace.create();
   onShadowCreated?.(shadow.root);
   if (seedFrom !== undefined) shadow.seed(seedFrom);
   try {
-    await runAgent({ ...rest, workspaceRoot: shadow.root });
+    await executeAgentRun({ ...rest, workspaceRoot: shadow.root });
     return { shadowRoot: shadow.root, discarded: true };
   } finally {
     // ALWAYS discard — there is no promote path in the loop or the agent.
@@ -317,23 +316,42 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
  * retry. It carries the structured refusal and no secret material.
  */
 export class OperationalWorkRefused extends Error {
-  constructor(public readonly refusal: ReturnType<typeof describeRefusal> extends string ? Parameters<typeof describeRefusal>[0] : never) {
+  constructor(public readonly refusal: AdmissionRefusal) {
     super(describeRefusal(refusal));
     this.name = 'OperationalWorkRefused';
   }
 }
 
+/**
+ * THE PRODUCTION WORK ADMISSION BOUNDARY.
+ *
+ * Every production execution path arrives here: the chat session, the HTTP server, the Matrix
+ * bridge, the CLI, cron, and delegated sub-agents by way of `runAgentInShadow`. While the
+ * committed governed status is locked this function executes nothing at all.
+ *
+ * `opts` is not consulted before the decision, and there is nothing in it that could be. The
+ * previous gate took a caller-supplied purpose and a caller-supplied authority, and the
+ * authority was a constant exported from shared core -- so any in-process caller could relabel
+ * operational work and be admitted. Both fields are gone. The category below is a literal, not
+ * a value read from the caller, so there is no argument to this function that changes the
+ * answer.
+ */
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
-  // OPERATIONAL ADMISSION GATE. First, before the tool lane is validated, before a driver is
-  // touched, and before any tool is registered: an agent declared unavailable for operational
-  // work must not perform operational work. Role, model, route, service health and Matrix
-  // identity are not consulted, because none of them is an authorization.
-  const admission = admitRun({
-    operation: 'runAgent',
-    ...(opts.operationalPurpose !== undefined ? { purpose: opts.operationalPurpose } : {}),
-    ...(opts.operationalAuthority !== undefined ? { authority: opts.operationalAuthority } : {})
-  });
+  const admission = admitRunWork('agent-run');
   if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
+  return executeAgentRun(opts);
+}
+
+/**
+ * The agent loop itself, below the admission boundary.
+ *
+ * This is a deterministic component, not an entry point. It is deliberately absent from the
+ * package's public API: `src/index.ts` and `src/core/index.ts` export `runAgent`, which is
+ * gated, and never this. Component tests drive it directly with fixture-owned dependencies to
+ * exercise loop mechanics -- and a component test that does so has proved something about the
+ * loop, never that a run was admitted.
+ */
+export async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
   if (!Array.isArray(opts.toolNames)) throw new Error('explicit validated tool lane is required');
   const lane = Object.freeze([...opts.toolNames]);
   if (new Set(lane).size !== lane.length) throw new Error('tool lane contains duplicate names');

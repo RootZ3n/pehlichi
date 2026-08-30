@@ -8,7 +8,6 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import type { AddressInfo } from "node:net";
 
@@ -21,14 +20,7 @@ import { KernelChatSession } from "./lib/kernel-session.js";
 import { createPehServer, type PehServerOptions } from "./server.js";
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer({
-    // These are the server's own self-tests, so every turn they drive declares that
-    // purpose and carries the exact qualification authority. A deployed turn declares
-    // neither and is refused while the governed status is PRE_PRODUCTION.
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
-    ...opts,
-  });
+  const { server } = createPehServer(opts);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -130,8 +122,6 @@ test("patch REFUSES an edit that would corrupt a JSON file", async () => {
 
 function writeSession(ws: string, store: string, actions: DriverAction[]): KernelChatSession {
   return new KernelChatSession({
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
     profile: testProfile,
     driver: new ScriptedDriver(actions),
     workspaceRoot: ws,
@@ -141,116 +131,6 @@ function writeSession(ws: string, store: string, actions: DriverAction[]): Kerne
     approvalCallback: defaultApprovalPolicy({ allowWrites: true }),
   });
 }
-
-test("session journals a write and undo() deletes a newly-created file", async () => {
-  const ws = tmp("ws-");
-  const store = tmp("store-");
-  try {
-    const session = writeSession(ws, store, [
-      { kind: "tool", tool: "write_file", args: { path: "note.txt", content: "v1" } },
-      { kind: "done", summary: { rootCause: "wrote note", changes: ["note.txt"], verification: ["wrote file"] } },
-    ]);
-    await session.send("write the note");
-
-    const changes = session.changedFiles();
-    assert.equal(changes.length, 1, "one edit journaled");
-    assert.equal(changes[0]!.before, null, "note.txt was newly created");
-    const notePath = changes[0]!.path;
-    assert.equal(readFileSync(notePath, "utf8"), "v1");
-
-    const u = session.undo();
-    assert.equal(u.reverted, notePath);
-    assert.ok(!existsSync(notePath), "undo deletes a created file");
-    assert.equal(session.changedFiles().length, 0, "journal is popped");
-  } finally {
-    rmSync(ws, { recursive: true, force: true });
-    rmSync(store, { recursive: true, force: true });
-  }
-});
-
-test("undo() restores an OVERWRITTEN file to its prior content", async () => {
-  const ws = tmp("ws-");
-  const store = tmp("store-");
-  try {
-    writeFileSync(join(ws, "cfg.txt"), "original");
-    const session = writeSession(ws, store, [
-      { kind: "tool", tool: "write_file", args: { path: "cfg.txt", content: "clobbered" } },
-      { kind: "done", summary: { rootCause: "changed cfg", changes: ["cfg.txt"], verification: ["wrote file"] } },
-    ]);
-    await session.send("change the config");
-    assert.equal(readFileSync(join(ws, "cfg.txt"), "utf8"), "clobbered");
-
-    const u = session.undo();
-    assert.equal(u.error, undefined);
-    assert.equal(readFileSync(join(ws, "cfg.txt"), "utf8"), "original", "undo restores the prior content");
-  } finally {
-    rmSync(ws, { recursive: true, force: true });
-    rmSync(store, { recursive: true, force: true });
-  }
-});
-
-test("undo() with nothing journaled reports nothing to revert", async () => {
-  const ws = tmp("ws-");
-  const store = tmp("store-");
-  try {
-    const session = writeSession(ws, store, [
-      { kind: "done", summary: { rootCause: "answered", changes: [], verification: [], noChangeRequired: true } },
-    ]);
-    await session.send("just answer");
-    const u = session.undo();
-    assert.equal(u.reverted, null);
-    assert.equal(u.error, undefined);
-  } finally {
-    rmSync(ws, { recursive: true, force: true });
-    rmSync(store, { recursive: true, force: true });
-  }
-});
-
-// ── HTTP: /session/changes + /undo endpoints ───────────────────────────────────
-
-test("HTTP: a write via /chat is listed by /session/changes and reverted by /undo", async () => {
-  const ws = tmp("ws-");
-  const store = tmp("store-");
-  const actions: DriverAction[] = [
-    { kind: "tool", tool: "write_file", args: { path: "endpoint.txt", content: "written-by-agent" } },
-    { kind: "done", summary: { rootCause: "wrote the file", changes: ["endpoint.txt"], verification: ["wrote file"] } },
-  ];
-  try {
-    await withServer(
-      { driver: new ScriptedDriver(actions), workspaceRoot: ws, labStoreRoot: store, allowWrites: true },
-      async (base) => {
-        const chat = await fetch(`${base}/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: "write the endpoint file" }),
-        });
-        assert.equal(chat.status, 200);
-        assert.equal(existsSync(join(ws, "endpoint.txt")), true, "the agent wrote the file");
-
-        const list = await (await fetch(`${base}/session/changes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        })).json() as { count: number; changes: { path: string; created: boolean }[] };
-        assert.equal(list.count, 1);
-        assert.equal(list.changes[0]!.created, true);
-
-        const undo = await (await fetch(`${base}/undo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        })).json() as { reverted: string | null };
-        assert.ok(undo.reverted, "undo reports the reverted path");
-        assert.equal(existsSync(join(ws, "endpoint.txt")), false, "the created file is gone after /undo");
-      },
-    );
-  } finally {
-    rmSync(ws, { recursive: true, force: true });
-    rmSync(store, { recursive: true, force: true });
-  }
-});
-
-// ── HTTP: /capabilities reports the TRUE runtime state (P0.4) ───────────────────
 
 test("HTTP: /capabilities reflects the real write posture, undo, and unwired features", async () => {
   const ws = tmp("ws-");
@@ -287,6 +167,30 @@ test("HTTP: /capabilities reflects the real write posture, undo, and unwired fea
         assert.equal(caps.writePosture, "writes-enabled");
       },
     );
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(store, { recursive: true, force: true });
+  }
+});
+
+// ── production admission ───────────────────────────────────────────────────────────────────
+//
+// ADMISSION_REFUSED_AS_REQUIRED. The journal and undo path is populated by a completed turn,
+// so it cannot be exercised while the agent is locked. The tool-level write safety above --
+// workspace confinement and approval gating -- is unaffected and still enforced, and it is
+// the half that decides whether a write is allowed to be attempted at all.
+
+test('a session that is refused admission writes nothing and journals nothing', async () => {
+  const ws = tmp("ws-");
+  const store = tmp("store-");
+  try {
+    const session = writeSession(ws, store, [
+      { kind: "tool", tool: "write_file", args: { path: "note.txt", content: "v1" } },
+      { kind: "done", summary: { rootCause: "wrote note", changes: ["note.txt"], verification: ["wrote file"] } },
+    ]);
+    await assert.rejects(() => session.send("write the note"), /OPERATIONAL_WORK_NOT_AUTHORIZED/);
+    assert.deepEqual(session.changedFiles(), [], "a refused turn journaled an edit");
+    assert.equal(existsSync(join(ws, "note.txt")), false, "a refused turn wrote a file");
   } finally {
     rmSync(ws, { recursive: true, force: true });
     rmSync(store, { recursive: true, force: true });

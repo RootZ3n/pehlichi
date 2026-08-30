@@ -8,11 +8,28 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { after, test } from 'node:test';
-import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import { ScriptedDriver, type Driver, type DriverAction } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
 import { createPehServer, hasTaskKeyword, hasInspectIntent, mentionsTool, type PehServerOptions } from './server.js';
+import { readOperationalStatus } from '../../src/core/operational-admission.js';
+
+/**
+ * Cases that require a completed turn.
+ *
+ * While the committed governed status is PRE_PRODUCTION the production admission boundary
+ * refuses every work execution, so these cannot run — and must not be made to run, because
+ * every mechanism for that would be the bypass this gate exists to remove. They are skipped
+ * on a condition read from the governed status itself, so they return the moment governance
+ * is deliberately transitioned, with no edit and no flag.
+ *
+ * A skip here is neither a pass nor qualification evidence.
+ */
+const OPERATIONAL_STATUS = readOperationalStatus();
+const requiresAdmission: { skip?: string } = OPERATIONAL_STATUS.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK'
+  ? {}
+  : { skip: `${OPERATIONAL_STATUS.state}: work execution is refused at the admission boundary; this case runs again after a governance transition` };
+
 
 /** A driver that NEVER finishes — every turn narrates, so the budget always exhausts. */
 const neverDoneDriver: Driver = {
@@ -35,11 +52,7 @@ async function withServer<T>(
   // These are the server's own self-tests, so every turn they drive declares that purpose
   // and carries the exact qualification authority. A deployed turn declares neither and is
   // refused while the committed governed status is PRE_PRODUCTION.
-  const { server } = createPehServer({
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
-    ...opts,
-  });
+  const { server } = createPehServer(opts);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   const base = `http://127.0.0.1:${port}`;
@@ -52,7 +65,7 @@ async function withServer<T>(
 
 // ── Blocker 1: production runs on the kernel ──────────────────────────────────
 
-test('B1. /chat drives the kernel loop: tool calls flow through the kernel registry + event system', async () => {
+test('B1. /chat drives the kernel loop: tool calls flow through the kernel registry + event system', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   // A terminal tool call then a valid done — exercising the kernel registry + summary.
@@ -89,7 +102,7 @@ test('B1. /chat drives the kernel loop: tool calls flow through the kernel regis
   }
 });
 
-test('B1. validateSummary fires on done: an invalid summary fails the run (HTTP 500), not a quiet 200', async () => {
+test('B1. validateSummary fires on done: an invalid summary fails the run (HTTP 500), not a quiet 200', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   const actions: DriverAction[] = [
@@ -118,7 +131,7 @@ test('B1. validateSummary fires on done: an invalid summary fails the run (HTTP 
 
 // ── Blocker 5: structured tool results with receipts are NOT stripped ─────────
 
-test('B5. /chat response includes the terminal RECEIPT alongside the tool result (not just prose)', async () => {
+test('B5. /chat response includes the terminal RECEIPT alongside the tool result (not just prose)', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   const actions: DriverAction[] = [
@@ -150,7 +163,7 @@ test('B5. /chat response includes the terminal RECEIPT alongside the tool result
 
 // ── Blocker 2: budget exhaustion is a clear partial, NOT a stale 200 replay ────
 
-test('B2. exhausting the iteration budget returns a non-200 partial — and never a stale replay', async () => {
+test('B2. exhausting the iteration budget returns a non-200 partial — and never a stale replay', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   try {
@@ -187,7 +200,7 @@ test('B2. exhausting the iteration budget returns a non-200 partial — and neve
   }
 });
 
-test('B2b. auto-continue: a budget-exhausted turn that was progressing resumes and COMPLETES', async () => {
+test('B2b. auto-continue: a budget-exhausted turn that was progressing resumes and COMPLETES', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   // Window 1: three narrations exhaust maxIterations:3 → a 'budget' partial. The server auto-continues;
@@ -367,7 +380,7 @@ test('B1. /health surfaces instanceId and cronJobs for the operator (H1/H3)', as
 
 // ── BLOCKER-2 / H4: bridge tasks are pollable by their X-Task-Id ───────────────
 
-test('B2. /task/:id/status reports completed for a finished task and 404 for an unknown one', async () => {
+test('B2. /task/:id/status reports completed for a finished task and 404 for an unknown one', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   try {
@@ -396,7 +409,7 @@ test('B2. /task/:id/status reports completed for a finished task and 404 for an 
   }
 });
 
-test('B2. /task/:id/status reports failed when the run errors', async () => {
+test('B2. /task/:id/status reports failed when the run errors', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   // An invalid summary (empty changes) makes validateSummary reject => /chat 500 => task failed.
@@ -425,7 +438,7 @@ test('B2. /task/:id/status reports failed when the run errors', async () => {
   }
 });
 
-test('B2. /task/:id/status reports running while the task is in flight', async () => {
+test('B2. /task/:id/status reports running while the task is in flight', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   let release!: () => void;
@@ -524,7 +537,7 @@ test('fast-path: a keyword-free /chat message routes to converse — the kernel 
   }
 });
 
-test('fast-path: a /chat message WITH a task keyword still drives the kernel+tools loop', async () => {
+test('fast-path: a /chat message WITH a task keyword still drives the kernel+tools loop', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   const actions: DriverAction[] = [
@@ -556,7 +569,7 @@ test('fast-path: a /chat message WITH a task keyword still drives the kernel+too
   }
 });
 
-test('timeout: /chat returns a 422 partial (never hangs) when the kernel exceeds the budget', async () => {
+test('timeout: /chat returns a 422 partial (never hangs) when the kernel exceeds the budget', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
   // A driver that blocks far longer than the (tiny) test budget.
@@ -589,4 +602,58 @@ test('timeout: /chat returns a 422 partial (never hangs) when the kernel exceeds
 
 after(() => {
   // Nothing global to clean; each test disposes its own workspace + server.
+});
+
+// ── production admission ───────────────────────────────────────────────────────────────────
+//
+// ADMISSION_REFUSED_AS_REQUIRED. None of the following is qualification evidence.
+
+/** The four-field refusal the boundary emits, as it appears in an HTTP body. */
+function assertRefusal(status: number, body: Record<string, unknown>): void {
+  assert.equal(status, 503, `expected a refusal, got ${status}: ${JSON.stringify(body).slice(0, 200)}`);
+  const refusal = body.refusal as Record<string, unknown> | undefined;
+  assert.ok(refusal, 'the response carries no structured refusal');
+  assert.deepEqual(Object.keys(refusal).sort(), ['category', 'code', 'nextAction', 'state']);
+  assert.equal(refusal.code, 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+  assert.equal(refusal.state, OPERATIONAL_STATUS.state);
+  // `agent-run` from the kernel lane, `ordinary-work` from the tool-free converse lane. Both
+  // are the same boundary; which one answers depends only on how the message was routed.
+  assert.ok(['agent-run', 'ordinary-work'].includes(refusal.category as string),
+    `unexpected refusal category ${String(refusal.category)}`);
+  // Nothing from the manifest, the prompt, the model or the configuration.
+  const serialized = JSON.stringify(body).toLowerCase();
+  for (const leak of ['personapreamble', 'apikey', 'bearer ', 'sk-', 'baseurl'])
+    assert.equal(serialized.includes(leak), false, `the refusal body carried ${leak}`);
+}
+
+test('a /chat turn is routed, authenticated and then refused', async () => {
+  await withServer({ driver: alwaysDoneDriver, workspaceRoot: createWorkspace(), labStoreRoot: createLabStore() }, async (base) => {
+    const r = await fetch(`${base}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'fix the build and run the tests' }),
+    });
+    assertRefusal(r.status, await r.json() as Record<string, unknown>);
+  });
+});
+
+test('a refused turn reports no result and no tool calls', async () => {
+  await withServer({ driver: alwaysDoneDriver, workspaceRoot: createWorkspace(), labStoreRoot: createLabStore(), allowWrites: true }, async (base) => {
+    const r = await fetch(`${base}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'write a file and fix the build' }),
+    });
+    const body = await r.json() as Record<string, unknown>;
+    assertRefusal(r.status, body);
+    assert.equal(body.ok, undefined, 'a refused turn reported an ok result');
+    assert.equal(body.toolCalls, undefined, 'a refused turn reported tool calls');
+  });
+});
+
+test('body validation still runs before admission, so a malformed request is still a 400', async () => {
+  await withServer({ driver: alwaysDoneDriver, workspaceRoot: createWorkspace(), labStoreRoot: createLabStore() }, async (base) => {
+    const r = await fetch(`${base}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    assert.equal(r.status, 400, 'an empty body should fail validation rather than reach admission');
+  });
 });

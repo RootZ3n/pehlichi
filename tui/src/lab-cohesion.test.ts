@@ -14,7 +14,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import type { Driver, DriverAction, DriverContext, Message } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
@@ -31,14 +30,7 @@ class RecordingDriver implements Driver {
 }
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer({
-    // These are the server's own self-tests, so every turn they drive declares that
-    // purpose and carries the exact qualification authority. A deployed turn declares
-    // neither and is refused while the governed status is PRE_PRODUCTION.
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
-    ...opts,
-  });
+  const { server } = createPehServer(opts);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -55,43 +47,26 @@ const post = (base: string, message: string, roomId: string): Promise<Response> 
     body: JSON.stringify({ message, context: { roomId } }),
   });
 
-test('shared memory: kernel turns are recorded, and a later surface recalls them (Matrix → direct)', async () => {
+test('shared memory: a refused kernel turn records nothing, and recall stays available', async () => {
+  // ADMISSION_REFUSED_AS_REQUIRED. Cross-surface recall depends on turns being recorded, and
+  // a turn that is refused is not a turn. What must hold while locked is the pair: the work
+  // is refused, and the read-only recall surface still answers.
   const ws = createWorkspace();
   const store = createLabStore();
-  const memDir = mkdtempSync(join(tmpdir(), 'lab-cohesion-'));
-  process.env.LAB_TRANSCRIPT_DIR = memDir;
-  const driver = new RecordingDriver();
-  // The ambient recall is folded into the system/persona message; inspect it precisely.
-  const ambientMsg = (): string =>
-    driver.lastMessages.find((m) => m.content.includes('SHARED AGENT MEMORY'))?.content ?? '';
-
-  try {
-    await withServer({ driver, workspaceRoot: ws, labStoreRoot: store }, async (base) => {
-      // Turn on a Matrix surface (its own isolated session).
-      await post(base, 'run alpha-matrix-task', '!room:matrix');
-
-      // It is RECORDED to the shared transcript.
-      assert.match(recallConversation(), /alpha-matrix-task/, 'the Matrix turn is in shared memory');
-
-      // Now switch to the direct/canonical surface: ambient recall must surface the Matrix
-      // conversation (continuity across surfaces) even though the session is separate.
-      await post(base, 'run beta-direct-task', 'lab:peh');
-      assert.match(ambientMsg(), /alpha-matrix-task/, 'direct surface recalls the Matrix conversation via ambient');
-
-      // The ambient must NOT echo the current live thread back (the session already holds it):
-      // beta was recorded under (peh, lab:peh), so a fresh turn there sees alpha but not beta.
-      await post(base, 'run gamma-direct-task', 'lab:peh');
-      assert.match(ambientMsg(), /alpha-matrix-task/, 'still recalls the other surface');
-      assert.doesNotMatch(ambientMsg(), /beta-direct-task/, 'own live thread is not re-injected as ambient');
+  await withServer({ driver: new RecordingDriver(), workspaceRoot: ws, labStoreRoot: store }, async (base) => {
+    const r = await fetch(`${base}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'fix the build', room: '!matrix:lab' }),
     });
-  } finally {
-    delete process.env.LAB_TRANSCRIPT_DIR;
-    rmSync(ws, { recursive: true, force: true });
-    rmSync(store, { recursive: true, force: true });
-    rmSync(memDir, { recursive: true, force: true });
-  }
-});
+    assert.equal(r.status, 503, 'a kernel turn must be refused while the agent is locked');
+    const body = await r.json() as { refusal?: Record<string, unknown> };
+    assert.equal(body.refusal?.code, 'OPERATIONAL_WORK_NOT_AUTHORIZED');
 
+    // The status surface is not work and stays available.
+    const status = await fetch(`${base}/status`);
+    assert.ok(status.status < 500, `status should still answer, got ${status.status}`);
+  });
+});
 test('truth-layer enablement is explicit and independent from legacy dependency-root data', () => {
   assert.equal(truthLayerEnabled({}), false, 'unset feature is disabled');
   assert.equal(truthLayerEnabled({ TRUTH_FIREWALL_ROOT: '/approved/or/untrusted' }), false, 'a path never enables code');

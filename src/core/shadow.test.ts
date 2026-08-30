@@ -1,3 +1,11 @@
+/**
+ * COMPONENT TEST. This drives `executeAgentRun`, the agent loop below the production
+ * admission boundary, with fixture-owned dependencies. It proves things about the loop.
+ *
+ * It does not, and must not be read to, prove that `runAgent` admitted any work: while the
+ * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
+ * covered separately in `operational-admission.test.ts`.
+ */
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,8 +15,7 @@ import { test } from "node:test";
 
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
-import { runAgentInShadow } from "./loop.js";
-import { QUALIFICATION_AUTHORITY } from "./operational-admission.js";
+import { executeAgentInShadow } from "./loop.js";
 import type { AgentProfile } from "./profile.js";
 import { createLabStore } from "./scenario.js";
 import { ShadowWorkspace } from "./shadow.js";
@@ -41,10 +48,7 @@ async function runShadow(
 ): Promise<{ shadowRoot: string; discarded: boolean }> {
   const labStore = createLabStore();
   try {
-    return await runAgentInShadow({
-      // A shadow run is still a run: while PRE_PRODUCTION it needs a declared purpose.
-      operationalPurpose: 'self-test',
-      operationalAuthority: QUALIFICATION_AUTHORITY,
+    return await executeAgentInShadow({
       profile: testProfile,
       task: "t",
       labStoreRoot: labStore,

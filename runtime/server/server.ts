@@ -31,7 +31,7 @@ import {
   type DriverAction,
   type AgentEvent,
   type ToolDef,
-  type RunPurpose,
+  OperationalWorkRefused,
 } from '../../src/core/index.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
@@ -358,6 +358,20 @@ function preflight(res: ServerResponse): void {
   res.end();
 }
 
+/**
+ * A work request refused by the operational admission boundary.
+ *
+ * 503 rather than 500: nothing failed. The service is up, reachable and authenticated, and it
+ * is declining to execute work because its governed status says it may not. The body carries
+ * the boundary's four fields and nothing else -- no message from the manifest, no
+ * configuration, no model data.
+ */
+function refusedResponse(res: ServerResponse, error: unknown): boolean {
+  if (!(error instanceof OperationalWorkRefused)) return false;
+  json(res, 503, { error: 'operational work is not authorized', refusal: error.refusal });
+  return true;
+}
+
 function json(res: ServerResponse, status: number, data: unknown): void {
   // CORS: the read-only UI engine (ui/index.html) is opened from file:// or a
   // separate static origin and only issues simple GETs — a permissive ACAO lets
@@ -378,13 +392,6 @@ export interface AgentServerOptions {
   /** Inject a driver (tests pass a ScriptedDriver; production uses a resilient MimoDriver). */
   readonly driver?: Driver;
   readonly maxIterations?: number;
-  /**
-   * OPERATIONAL ADMISSION: what turns served by this server are for. Unset means
-   * `ordinary-work`, which is what a deployed chat turn is; the Trio's own qualification
-   * harnesses set it explicitly and supply the exact authority.
-   */
-  readonly operationalPurpose?: RunPurpose;
-  readonly operationalAuthority?: string;
   /** Allow write/destructive tools without gating (default false — writes require approval). */
   readonly allowWrites?: boolean;
   /**
@@ -621,13 +628,6 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
       taskId: `${config.deployment.namespaces.task}-${roomKey}${overrideWorkspace ? `@${basename(overrideWorkspace)}` : ''}`,
       roomKey,
       ...(opts.maxIterations !== undefined ? { maxIterations: opts.maxIterations } : {}),
-      // OPERATIONAL ADMISSION: a chat turn served here is ordinary work unless the caller
-      // says otherwise, and while the Trio is PRE_PRODUCTION ordinary work is refused at the
-      // kernel boundary. The service still answers health, UI and Matrix connectivity; it
-      // just does not do real work. Only the Trio's own qualification harnesses pass a
-      // different purpose, and they must carry the exact authority to be admitted.
-      ...(opts.operationalPurpose !== undefined ? { operationalPurpose: opts.operationalPurpose } : {}),
-      ...(opts.operationalAuthority !== undefined ? { operationalAuthority: opts.operationalAuthority } : {}),
       approvalCallback: defaultApprovalPolicy({ allowWrites: allowWritesEffective }),
       // P0.1: prove-don't-assert. ON in production; OFF under an injected test driver unless
       // the test explicitly opts in (scripted drivers finish without running real tools).
@@ -994,6 +994,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
           toolCalls: [],
         });
       } catch (err) {
+        if (refusedResponse(res, err)) return;
         return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
     }
@@ -1045,6 +1046,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
             usage: usageCost(currentModel(), reply.usage),
           });
         } catch (err) {
+          if (refusedResponse(res, err)) return;
           return json(res, 500, {
             error: err instanceof Error ? err.message : String(err),
             ...modeFields(requestedMode, selection.selected, selection.autoHeuristicUsed),
@@ -1198,6 +1200,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
           const rec = tasks.get(taskId);
           if (rec) { rec.status = 'failed'; rec.finishedAt = now(); }
         }
+        if (refusedResponse(res, err)) return;
         return json(res, 500, {
           error: err instanceof Error ? err.message : String(err),
           ...modeFields(requestedMode, selection.selected, selection.autoHeuristicUsed),

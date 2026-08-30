@@ -1,17 +1,24 @@
 /**
+ * COMPONENT TEST. This drives `executeAgentRun`, the agent loop below the production
+ * admission boundary, with fixture-owned dependencies. It proves things about the loop.
+ *
+ * It does not, and must not be read to, prove that `runAgent` admitted any work: while the
+ * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
+ * covered separately in `operational-admission.test.ts`.
+ */
+/**
  * EVIDENCE GATE (P0.1) — the finalization gate must reject a `done` that CLAIMS work no
  * tool actually performed, and accept it once the work is proven. This is the truth-check
  * that complements validateSummary's shape-check.
  */
 import assert from "node:assert/strict";
-import { QUALIFICATION_AUTHORITY } from './operational-admission.js';
 
 import { rmSync } from "node:fs";
 import { test } from "node:test";
 
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
-import { runAgent as governedRunAgent, unprovenClaim, type RunAgentOptions } from "./loop.js";
+import { executeAgentRun as componentExecuteAgentRun, unprovenClaim, type RunAgentOptions } from "./loop.js";
 import type { AgentProfile } from "./profile.js";
 import { createLabStore, createWorkspace } from "./scenario.js";
 import { createToolRegistry } from './tools.js';
@@ -25,11 +32,7 @@ const testProfile: AgentProfile = {
 
 const allowAll = () => ({ approved: true as const });
 const runAgent = (opts: Omit<RunAgentOptions, 'toolNames'> & { toolNames?: readonly string[] }) =>
-  governedRunAgent({
-    // The agent's own self-tests declare that purpose and carry the exact qualification
-    // authority; while PRE_PRODUCTION a run that declares neither is refused.
-    operationalPurpose: 'self-test',
-    operationalAuthority: QUALIFICATION_AUTHORITY,
+  componentExecuteAgentRun({
     ...opts,
     toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()],
   });

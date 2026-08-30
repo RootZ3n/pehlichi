@@ -14,18 +14,31 @@ import {
   type ConfiguredServerOptions,
 } from '../../tui/src/server.js';
 import { createAgentServer } from '../../runtime/server/server.js';
-import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
+import { readOperationalStatus } from '../../src/core/operational-admission.js';
 
-/**
- * These are the agent's own Hermes-parity self-tests. Every turn they drive declares that
- * purpose and carries the exact qualification authority; a deployed turn declares neither
- * and is refused while the committed governed status is PRE_PRODUCTION.
- */
-const QUALIFY = { operationalPurpose: 'self-test' as const, operationalAuthority: QUALIFICATION_AUTHORITY };
 import {
+
+
   CAPABILITY_PACK_TOOLS, authorizedToolNames, loadAgentRuntimeConfiguration,
   type AgentRuntimeConfiguration,
 } from '../../runtime/server/config.js';
+
+/**
+ * Cases that require a completed turn.
+ *
+ * While the committed governed status is PRE_PRODUCTION the production admission boundary
+ * refuses every work execution, so these cannot run — and must not be made to run, because
+ * every mechanism for that would be the bypass this gate exists to remove. They are skipped
+ * on a condition read from the governed status itself, so they return the moment governance
+ * is deliberately transitioned, with no edit and no flag.
+ *
+ * A skip here is neither a pass nor qualification evidence.
+ */
+const OPERATIONAL_STATUS = readOperationalStatus();
+const requiresAdmission: { skip?: string } = OPERATIONAL_STATUS.authorization === 'AUTHORIZED_FOR_OPERATIONAL_WORK'
+  ? {}
+  : { skip: `${OPERATIONAL_STATUS.state}: work execution is refused at the admission boundary; this case runs again after a governance transition` };
+
 
 const cleanup: string[] = [];
 afterEach(() => { for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -41,8 +54,7 @@ type ConfiguredServer = ReturnType<typeof createConfiguredServer>;
 const expectedToolNames = authorizedToolNames(configuredRuntime);
 
 async function withServer<T>(opts: ConfiguredServerOptions, fn: (base: string, runtime: ConfiguredServer) => Promise<T>, config: AgentRuntimeConfiguration = configuredRuntime): Promise<T> {
-  const qualified = { ...QUALIFY, ...opts };
-  const runtime = config === configuredRuntime ? createConfiguredServer(qualified) : createAgentServer(config, qualified);
+  const runtime = config === configuredRuntime ? createConfiguredServer(opts) : createAgentServer(config, opts);
   const { server } = runtime;
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -104,7 +116,7 @@ class CaptureToolDriver implements Driver {
   }
 }
 
-test('live lane is exact across /tools, execution, rooms, SSE, workspace, and registry additions', async () => {
+test('live lane is exact across /tools, execution, rooms, SSE, workspace, and registry additions', requiresAdmission, async () => {
   const { workspace, store } = roots();
   const override = createWorkspace(); cleanup.push(override);
   let inLaneRuns = 0;
@@ -147,7 +159,7 @@ test('live lane is exact across /tools, execution, rooms, SSE, workspace, and re
   }
 });
 
-test('checkpoint reconstruction retains the declared lane and prior history', async () => {
+test('checkpoint reconstruction retains the declared lane and prior history', requiresAdmission, async () => {
   const { workspace, store } = roots();
   const checkpointDir = join(store, 'checkpoints');
   const fixtureConfig = withBaseTool('audit_fixture');
@@ -172,7 +184,7 @@ const hostileFamilies = [
 ] as const;
 
 for (const [family, hostile] of hostileFamilies) {
-  test(`Velum fences and surfaces hostile ${family} output through live HTTP`, async () => {
+  test(`Velum fences and surfaces hostile ${family} output through live HTTP`, requiresAdmission, async () => {
     const { workspace, store } = roots();
     const fixtureConfig = withBaseTool('audit_fixture');
     const driver = new CaptureToolDriver('audit_fixture');
@@ -196,7 +208,7 @@ for (const [family, hostile] of hostileFamilies) {
   });
 }
 
-test('Velum always fences clean and detector-missed encoded content without hard-blocking either', async () => {
+test('Velum always fences clean and detector-missed encoded content without hard-blocking either', requiresAdmission, async () => {
   for (const output of ['Benign security documentation discussing defensive prompt-injection testing.', 'aWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw==']) {
     const { workspace, store } = roots();
     const fixtureConfig = withBaseTool('audit_fixture');
@@ -212,7 +224,7 @@ test('Velum always fences clean and detector-missed encoded content without hard
   }
 });
 
-test('SSE exposes permitted Velum metadata and receipt but never raw hostile evidence', async () => {
+test('SSE exposes permitted Velum metadata and receipt but never raw hostile evidence', requiresAdmission, async () => {
   const { workspace, store } = roots();
   const fixtureConfig = withBaseTool('audit_fixture');
   const driver = new CaptureToolDriver('audit_fixture');
@@ -232,7 +244,7 @@ test('SSE exposes permitted Velum metadata and receipt but never raw hostile evi
   }, fixtureConfig);
 });
 
-test('strict explicit modes are authoritative and buffered/SSE selection agrees', async () => {
+test('strict explicit modes are authoritative and buffered/SSE selection agrees', requiresAdmission, async () => {
   const { workspace, store } = roots();
   let kernelCalls = 0;
   let converseCalls = 0;
@@ -254,7 +266,7 @@ test('strict explicit modes are authoritative and buffered/SSE selection agrees'
   });
 });
 
-test('selected/requested mode remains disclosed on buffered and streaming errors', async () => {
+test('selected/requested mode remains disclosed on buffered and streaming errors', requiresAdmission, async () => {
   const { workspace, store } = roots();
   const driver: Driver = { async next() { throw new Error('scripted kernel failure'); } };
   await withServer({
@@ -326,7 +338,7 @@ test('capability packs are config-only grants and exactly extend the declared la
   });
 });
 
-test('characterization: HTTP timeout returns while model work, history, checkpoint, and task continue', async () => {
+test('characterization: HTTP timeout returns while model work, history, checkpoint, and task continue', requiresAdmission, async () => {
   const { workspace, store } = roots();
   const checkpointDir = join(store, 'late-checkpoints');
   let release!: () => void;
@@ -380,4 +392,24 @@ test('/health reports an uncommitted development tree as provenance-unbound', as
     if (prior === undefined) delete process.env[releaseEnv];
     else process.env[releaseEnv] = prior;
   }
+});
+
+// ── production admission ───────────────────────────────────────────────────────────────────
+//
+// ADMISSION_REFUSED_AS_REQUIRED. Hermes-equivalence cannot be demonstrated by an agent that
+// is not permitted to act — which is the governance position, not a gap in this suite. The
+// cases above are skipped on the committed status and return at a governance transition.
+
+test('the live HTTP surface refuses work while the governed status is locked', async () => {
+  const { workspace, store } = roots();
+  await withServer({ driver: { async next() { return done(); } }, workspaceRoot: workspace, labStoreRoot: store }, async (base) => {
+    const r = await fetch(`${base}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'fix the build' }),
+    });
+    assert.equal(r.status, 503, 'a work request must be refused, not executed');
+    const body = await r.json() as { refusal?: Record<string, unknown> };
+    assert.equal(body.refusal?.code, 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+    assert.equal(body.refusal?.state, OPERATIONAL_STATUS.state);
+  });
 });

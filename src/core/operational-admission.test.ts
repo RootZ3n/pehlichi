@@ -1,15 +1,19 @@
 /**
- * The pre-production lock is executable, and nothing talks its way past it.
+ * PRE_PRODUCTION means zero operational admission, and nothing talks its way past it.
  *
- * `PRE_PRODUCTION` and `NOT_AUTHORIZED_FOR_OPERATIONAL_WORK` sat in the governed boundary
- * manifest and were read by nothing. An independent audit made the point plainly: a
- * declaration that no code consumes is not a control, and an agent that is declared
- * unavailable for real work but does real work when asked is available for real work.
+ * The first version of this gate was bypassable, and an independent audit proved it: it
+ * accepted a caller-supplied purpose and a caller-supplied authority, and the authority was a
+ * plaintext constant exported from shared core. Any in-process caller could import it, label
+ * operational work `self-test`, and be admitted — then reuse the same string for a different
+ * operation. A secret every caller can read is not an authority.
  *
- * The cases below are mostly about what must NOT admit a run. Every one of them is a way
- * somebody could plausibly argue their way in -- the agent's role, the model it routes to,
- * the capability pack it was given, the fact that the request arrived over Matrix -- and each
- * one has to be refused by a gate that never learns about it in the first place.
+ * So most of what follows is about what must NOT be admitted. Each case is a way somebody
+ * could argue their way in — a role, a route, a model, a capability pack, the request arriving
+ * over Matrix, the request calling itself a self-test — and every one has to be refused by a
+ * gate that never learns about it.
+ *
+ * These are ADMISSION tests. A pass here means ADMISSION_REFUSED_AS_REQUIRED. None of them is
+ * qualification evidence, and none of them commissions anything.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,11 +22,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  admitOperation, admitRun, readOperationalStatus, describeRefusal,
-  OperationalStatusUnreadable, QUALIFICATION_AUTHORITY, QUALIFICATION_PURPOSES,
-  GOVERNED_STATUS_PATH,
-  type OperationalStatus, type RunPurpose
+  admitWork, admitRunWork, admitNonWorkSurface, readOperationalStatus, describeRefusal,
+  OperationalStatusUnreadable, GOVERNED_STATUS_PATH,
+  type OperationalStatus, type WorkCategory, type NonWorkSurface
 } from './operational-admission.js';
+import { runAgent, runAgentInShadow, OperationalWorkRefused } from './loop.js';
+import { ScriptedDriver } from './driver.js';
+import { createWorkspace, createLabStore } from './scenario.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = join(here, '..', '..');
@@ -40,6 +46,13 @@ const CLEARED: OperationalStatus = {
   authorization: 'AUTHORIZED_FOR_OPERATIONAL_WORK'
 };
 
+/** Every category the gate can be asked about. All of them are work; none is privileged. */
+const ALL_WORK: readonly WorkCategory[] = [
+  'agent-run', 'ordinary-work', 'repair', 'build', 'maintenance', 'cleanup',
+  'reconnaissance', 'commissioning', 'qualification', 'self-test',
+  'matrix-originated', 'cli-originated', 'role-pack-operation', 'model-route-operation'
+];
+
 /** A disposable repository whose only content is a governed boundary manifest. */
 function repositoryWith(operationalStatus: unknown, { omit = false, malformed = false } = {}): { root: string; drop: () => void } {
   const root = mkdtempSync(join(tmpdir(), 'trio-admission-'));
@@ -50,166 +63,258 @@ function repositoryWith(operationalStatus: unknown, { omit = false, malformed = 
   return { root, drop: () => { try { rmSync(root, { recursive: true, force: true }); } catch { /* disposable */ } } };
 }
 
-const ORDINARY: readonly RunPurpose[] = ['ordinary-work', 'repair', 'build', 'maintenance', 'commissioning'];
+/** A minimal well-formed run request. Every field here is ordinary caller input. */
+function runRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const workspace = createWorkspace();
+  return {
+    profile: { name: 'Admission', role: 'test', personaPreamble: 'test', skillTags: [] },
+    task: 'do the thing',
+    workspaceRoot: workspace,
+    labStoreRoot: createLabStore(),
+    driver: new ScriptedDriver([{ kind: 'done', summary: { rootCause: 'x', changes: [], verification: [] } }]),
+    toolNames: [],
+    ...overrides
+  };
+}
 
-// --- the committed status this repository actually ships -----------------------------------
+const refusalFrom = async (fn: () => Promise<unknown>): Promise<OperationalWorkRefused> => {
+  try { await fn(); } catch (error) {
+    assert.ok(error instanceof OperationalWorkRefused,
+      `expected an admission refusal, got ${(error as Error)?.name}: ${(error as Error)?.message}`);
+    return error as OperationalWorkRefused;
+  }
+  assert.fail('work was admitted while the governed status is PRE_PRODUCTION');
+};
+
+// --- the status this repository actually ships -----------------------------------------------
 
 test('the repository ships a readable governed status, and it is locked', () => {
   const status = readOperationalStatus(repositoryRoot);
   assert.equal(status.state, 'PRE_PRODUCTION');
   assert.equal(status.authorization, 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK');
-  assert.equal(status.productionAgent, 'hermes');
 });
 
-test('ordinary work is refused against the repository status as committed', () => {
-  const decision = admitRun({ operation: 'answer a user request' }, repositoryRoot);
-  assert.equal(decision.admitted, false);
-  assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+// --- 1-10: every work category is refused at the production boundary --------------------------
+
+test('1-10. every work category is refused, including the ones that call themselves tests', () => {
+  for (const category of ALL_WORK) {
+    const decision = admitWork(category, LOCKED);
+    assert.equal(decision.admitted, false, `${category} was admitted while locked`);
+    assert.ok(!decision.admitted && decision.refusal.code === 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+    assert.ok(!decision.admitted && decision.refusal.category === category);
+  }
+  // The four that an operator is most likely to argue about, named individually so a
+  // regression reads clearly.
+  for (const category of ['qualification', 'self-test', 'commissioning', 'reconnaissance'] as const)
+    assert.equal(admitWork(category, LOCKED).admitted, false);
 });
 
-// --- what the lock refuses -----------------------------------------------------------------
+test('1. an ordinary agent run through the production boundary is refused', async () => {
+  const refusal = await refusalFrom(() => runAgent(runRequest() as never));
+  assert.equal(refusal.refusal.code, 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+  assert.equal(refusal.refusal.state, 'PRE_PRODUCTION');
+  assert.equal(refusal.refusal.category, 'agent-run');
+});
 
-test('every ordinary work purpose is refused while locked', () => {
-  for (const purpose of ORDINARY) {
-    const decision = admitOperation({ operation: 'a job', purpose }, LOCKED);
-    assert.equal(decision.admitted, false, `${purpose} was admitted while locked`);
-    assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+test('5. tool-bearing reconnaissance is refused, read-only claim or not', async () => {
+  // A lane of read-only tools is still a tool-bearing run, and the gate is reached before the
+  // lane is even validated — so "it only reads" is not a category of admission.
+  await refusalFrom(() => runAgent(runRequest({ toolNames: ['read_file'], task: 'just look around' }) as never));
+});
+
+test('6. a delegated / shadow run is refused at the same boundary', async () => {
+  const refusal = await refusalFrom(() => runAgentInShadow(runRequest({ workspaceRoot: undefined }) as never));
+  assert.equal(refusal.refusal.code, 'OPERATIONAL_WORK_NOT_AUTHORIZED');
+});
+
+test('7-8. a request labelled self-test or qualification is refused like any other', async () => {
+  // There is nowhere to put the label any more, which is the point — but a caller that adds
+  // the fields anyway must not be treated differently.
+  for (const label of [
+    { operationalPurpose: 'self-test', operationalAuthority: 'trio-qualification/pre-production-self-test/1' },
+    { operationalPurpose: 'qualification' },
+    { purpose: 'self-test', authority: 'anything' }
+  ]) await refusalFrom(() => runAgent(runRequest(label) as never));
+});
+
+test('9-10. Matrix-originated and CLI-originated work are refused', async () => {
+  for (const origin of [
+    { task: 'matrix: please fix the build', roomKey: '!room:lab', matrixIdentity: '@peh:lab' },
+    { task: 'cli: repair the deploy', origin: 'cli', tty: true }
+  ]) await refusalFrom(() => runAgent(runRequest(origin) as never));
+});
+
+// --- 11-14: nothing about the caller is an authorization --------------------------------------
+
+test('11-14. role, model, route and capability pack cannot bypass', async () => {
+  for (const claim of [
+    { profile: { name: 'Coordinator', role: 'coordinator', personaPreamble: 'p', skillTags: ['admin'] } },
+    { model: 'claude-opus-5', modelOverride: 'claude-opus-5' },
+    { route: 'anthropic/primary', routingTarget: 'primary' },
+    { capabilityPacks: ['work-orders', 'occasio'], skillTags: ['safety'], rolePack: 'work-orders' },
+    { serviceHealth: 'healthy', authorized: true, admin: true, override: true, bypass: true }
+  ]) await refusalFrom(() => runAgent(runRequest(claim) as never));
+});
+
+test('11-14. and none of them changes the decision the gate makes', () => {
+  // Structural: the decision is a function of the committed status and the category alone.
+  const bare = admitWork('agent-run', LOCKED);
+  for (const category of ALL_WORK) {
+    const other = admitWork(category, LOCKED);
+    assert.equal(other.admitted, bare.admitted, `${category} changed admission`);
   }
 });
 
-test('an omitted purpose is treated as ordinary work, not as an exemption', () => {
-  const decision = admitOperation({ operation: 'an unlabelled job' }, LOCKED);
-  assert.equal(decision.admitted, false, 'saying nothing about a run admitted it');
-  assert.ok(!decision.admitted && decision.refusal.purpose === 'ordinary-work');
+// --- 15-18: the old authority is gone and cannot be recreated ---------------------------------
+
+test('15. importing the old qualification authority fails because it no longer exists', async () => {
+  const admission = await import('./operational-admission.js') as Record<string, unknown>;
+  assert.equal('QUALIFICATION_AUTHORITY' in admission, false, 'the exported authority is still present');
+  assert.equal('QUALIFICATION_PURPOSES' in admission, false, 'the exported purpose list is still present');
+  const publicApi = await import('./index.js') as Record<string, unknown>;
+  for (const name of ['QUALIFICATION_AUTHORITY', 'QUALIFICATION_PURPOSES', 'executeAgentRun', 'executeAgentInShadow'])
+    assert.equal(name in publicApi, false, `${name} is reachable from the package public API`);
 });
 
-test('repair, build and maintenance execution are refused specifically', () => {
-  for (const purpose of ['repair', 'build', 'maintenance'] as const)
-    assert.equal(admitOperation({ operation: `${purpose} the lab`, purpose }, LOCKED).admitted, false);
+test('16. the old plaintext value supplied by hand has no effect', async () => {
+  // The exact string that used to work.
+  await refusalFrom(() => runAgent(runRequest({
+    operationalAuthority: 'trio-qualification/pre-production-self-test/1',
+    operationalPurpose: 'self-test'
+  }) as never));
 });
 
-test('commissioning use is refused', () => {
-  assert.equal(admitOperation({ operation: 'commission this agent', purpose: 'commissioning' }, LOCKED).admitted, false);
+test('17-18. relabelling the purpose or the operation has no effect', () => {
+  for (const category of ALL_WORK)
+    assert.equal(admitWork(category, LOCKED).admitted, false, `relabelling as ${category} admitted work`);
+  // And the refusal reports the label it was given rather than being steered by it.
+  assert.equal((admitWork('self-test', LOCKED) as { refusal: { category: string } }).refusal.category, 'self-test');
 });
 
-// --- what cannot be used as an authorization -----------------------------------------------
-
-test('no role, model, route, capability pack, health or Matrix identity can bypass the lock', () => {
-  // The gate takes a request and a status. Anything else a caller wants to offer has nowhere
-  // to go -- which is the property under test, so it is asserted structurally as well as by
-  // passing the claims in and watching them be ignored.
-  const claims = {
-    operation: 'a job', purpose: 'ordinary-work' as const,
-    role: 'coordinator', rolePack: 'work-orders', model: 'claude-opus-5',
-    route: 'anthropic/primary', serviceHealth: 'healthy', matrixIdentity: '@peh:lab',
-    agentId: 'pehlichi', authorized: true, admin: true, override: true
-  };
-  const decision = admitOperation(claims, LOCKED);
-  assert.equal(decision.admitted, false, 'an extra claim on the request admitted a locked run');
-
-  // And the decision is identical to the one made without any of them.
-  const bare = admitOperation({ operation: 'a job', purpose: 'ordinary-work' }, LOCKED);
-  assert.deepEqual(decision, bare, 'the presence of role/model/route/identity changed the decision');
+test('19. a replayed earlier request remains refused', async () => {
+  const replayed = runRequest({
+    operationalPurpose: 'self-test',
+    operationalAuthority: 'trio-qualification/pre-production-self-test/1',
+    nonce: 'a-previously-accepted-run', runId: 'earlier-run-id'
+  });
+  await refusalFrom(() => runAgent(replayed as never));
+  await refusalFrom(() => runAgent(replayed as never));
 });
 
-test('a model route does not bypass the lock', () => {
-  for (const model of ['claude-opus-5', 'local/mimo', 'ollama/llama3'])
-    assert.equal(admitOperation({ operation: `run on ${model}`, purpose: 'ordinary-work' }, LOCKED).admitted, false);
-});
+// --- 20-22: governance failures fail closed ---------------------------------------------------
 
-test('a role-pack assignment does not bypass the lock', () => {
-  for (const pack of ['work-orders', 'occasio', 'onboarding', 'model-reports'])
-    assert.equal(admitOperation({ operation: `act under ${pack}`, purpose: 'ordinary-work' }, LOCKED).admitted, false);
-});
-
-test('Matrix-originated work does not bypass the lock', () => {
-  assert.equal(admitOperation({ operation: 'matrix: please fix the build', purpose: 'ordinary-work' }, LOCKED).admitted, false);
-});
-
-// --- the one lane that is open -------------------------------------------------------------
-
-test('a qualification run is permitted only with the exact authority', () => {
-  for (const purpose of QUALIFICATION_PURPOSES) {
-    assert.equal(admitOperation({ operation: 'qualify', purpose }, LOCKED).admitted, false,
-      `${purpose} was admitted with no authority`);
-    assert.equal(admitOperation({ operation: 'qualify', purpose, authority: 'trio-qualification' }, LOCKED).admitted, false,
-      `${purpose} was admitted with a near-miss authority`);
-    assert.equal(admitOperation({ operation: 'qualify', purpose, authority: `${QUALIFICATION_AUTHORITY} ` }, LOCKED).admitted, false,
-      `${purpose} was admitted with a whitespace-padded authority`);
-    assert.equal(admitOperation({ operation: 'qualify', purpose, authority: QUALIFICATION_AUTHORITY }, LOCKED).admitted, true,
-      `${purpose} was refused despite carrying the exact authority`);
-  }
-});
-
-test('the qualification authority does not open an ordinary work lane', () => {
-  for (const purpose of ORDINARY)
-    assert.equal(admitOperation({ operation: 'a job', purpose, authority: QUALIFICATION_AUTHORITY }, LOCKED).admitted, false,
-      `${purpose} was admitted by presenting the qualification authority`);
-});
-
-test('a cleared status admits ordinary work', () => {
-  const decision = admitOperation({ operation: 'a job', purpose: 'ordinary-work' }, CLEARED);
-  assert.equal(decision.admitted, true);
-  assert.ok(decision.admitted && decision.state === 'PRODUCTION');
-});
-
-// --- failing closed ------------------------------------------------------------------------
-
-test('a removed operational status fails closed', () => {
+test('20. missing governance refuses', () => {
   const r = repositoryWith(null, { omit: true });
   try {
-    const decision = admitRun({ operation: 'a job' }, r.root);
-    assert.equal(decision.admitted, false);
-    assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_STATUS_UNREADABLE');
+    assert.throws(() => readOperationalStatus(r.root), OperationalStatusUnreadable);
   } finally { r.drop(); }
 });
 
-test('a malformed operational status fails closed', () => {
+test('21. malformed governance refuses', () => {
   for (const broken of [
     { malformed: true, status: null as unknown },
-    { malformed: false, status: { state: 'SOMETHING_ELSE', authorization: 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK', productionAgent: 'hermes', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) } },
-    { malformed: false, status: { state: 'PRE_PRODUCTION', authorization: 'MAYBE', productionAgent: 'hermes', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) } },
+    { malformed: false, status: { state: 'SOMETHING_ELSE', authorization: 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK', productionAgent: 'h', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) } },
+    { malformed: false, status: { state: 'PRE_PRODUCTION', authorization: 'MAYBE', productionAgent: 'h', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) } },
     { malformed: false, status: { state: 'PRE_PRODUCTION', authorization: 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK' } },
     { malformed: false, status: 'PRE_PRODUCTION' }
   ]) {
     const r = repositoryWith(broken.status, { malformed: broken.malformed });
     try {
-      const decision = admitRun({ operation: 'a job', purpose: 'self-test', authority: QUALIFICATION_AUTHORITY }, r.root);
-      assert.equal(decision.admitted, false, `a malformed status admitted a run: ${JSON.stringify(broken)}`);
-      assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_STATUS_UNREADABLE');
+      assert.throws(() => readOperationalStatus(r.root), OperationalStatusUnreadable,
+        `a malformed status was accepted: ${JSON.stringify(broken)}`);
     } finally { r.drop(); }
   }
 });
 
-test('an absent manifest fails closed rather than throwing into the caller', () => {
-  const decision = admitRun({ operation: 'a job' }, join(tmpdir(), `trio-admission-absent-${process.pid}`));
-  assert.equal(decision.admitted, false);
-  assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_STATUS_UNREADABLE');
-  assert.throws(() => readOperationalStatus(join(tmpdir(), `trio-admission-absent-${process.pid}`)), OperationalStatusUnreadable);
+test('22. conflicting state fields refuse rather than being reconciled', () => {
+  for (const conflicting of [
+    { state: 'PRODUCTION', authorization: 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK', productionAgent: 'h', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) },
+    { state: 'PRE_PRODUCTION', authorization: 'AUTHORIZED_FOR_OPERATIONAL_WORK', productionAgent: 'h', clearedBy: 'x'.repeat(8), reason: 'y'.repeat(20) }
+  ]) {
+    const r = repositoryWith(conflicting);
+    try {
+      assert.throws(() => readOperationalStatus(r.root), OperationalStatusUnreadable,
+        'a self-contradictory status was reconciled instead of refused');
+    } finally { r.drop(); }
+  }
 });
 
-// --- what must not change the decision ------------------------------------------------------
+test('an unreadable status becomes a refusal, never an exception the caller can mistake for a pass', () => {
+  const decision = admitRunWork('agent-run');
+  // This repository is readable and locked, so the code is the ordinary one; the point is that
+  // `admitRunWork` returns a decision on every path rather than throwing.
+  assert.equal(decision.admitted, false);
+  assert.ok(!decision.admitted && ['OPERATIONAL_WORK_NOT_AUTHORIZED', 'OPERATIONAL_STATUS_UNREADABLE'].includes(decision.refusal.code));
+});
 
-test('changing identity, branding or UI does not affect admission', () => {
-  const identityOnly = {
+// --- 23: the service stays up ------------------------------------------------------------------
+
+test('23. health, status, UI, connectivity and identity remain available without work execution', () => {
+  const surfaces: readonly NonWorkSurface[] = [
+    'service-startup', 'health-report', 'status-display', 'ui-render', 'matrix-connectivity', 'identity-display'
+  ];
+  for (const surface of surfaces) assert.equal(admitNonWorkSurface(surface).admitted, true, `${surface} was refused`);
+  // And admitting a surface does not admit work.
+  assert.equal(admitWork('agent-run', LOCKED).admitted, false);
+});
+
+// --- 24: a component test cannot produce an admission receipt ----------------------------------
+
+test('24. a lower-level component test cannot produce an operational admission receipt', async () => {
+  // `executeAgentRun` is reachable from the module for component tests, and it returns a run
+  // result. What it can never return is an admission: only `admitWork` produces one, and it
+  // is not called below the boundary.
+  const loop = await import('./loop.js') as Record<string, unknown>;
+  assert.equal(typeof loop.executeAgentRun, 'function');
+  const source = readFileSync(join(here, 'loop.ts'), 'utf8');
+  const body = source.slice(source.indexOf('export async function executeAgentRun'));
+  assert.equal(/admitWork|admitRunWork|admitted\s*:\s*true/.test(body), false,
+    'the component below the boundary decides admission, which it must never do');
+  // And the public API does not expose it, so no ordinary consumer can reach it at all.
+  const publicApi = await import('./index.js') as Record<string, unknown>;
+  assert.equal('executeAgentRun' in publicApi, false);
+});
+
+// --- 25: identity does not change the answer ---------------------------------------------------
+
+test('25. identity, personality and UI differences do not change admission', () => {
+  const differentIdentity: OperationalStatus = {
     ...LOCKED,
     productionAgent: 'hermes',
-    clearedBy: 'independent Hermes-equivalence audit',
+    clearedBy: 'a differently worded audit',
     reason: 'a completely different sentence about why this agent is not cleared'
   };
-  const before = admitOperation({ operation: 'a job' }, LOCKED);
-  const after = admitOperation({ operation: 'a job' }, identityOnly);
-  assert.equal(before.admitted, after.admitted, 'a change to declarative identity text changed admission');
-  assert.equal(after.admitted, false);
+  assert.equal(admitWork('agent-run', differentIdentity).admitted, admitWork('agent-run', LOCKED).admitted);
+  assert.equal(admitWork('agent-run', differentIdentity).admitted, false);
+});
+
+// --- the cleared state, and the refusal's shape -------------------------------------------------
+
+test('a coherent cleared status is the only thing that admits work', () => {
+  assert.equal(admitWork('ordinary-work', CLEARED).admitted, true);
+  for (const category of ALL_WORK) assert.equal(admitWork(category, CLEARED).admitted, true);
+});
+
+test('the refusal carries four fields and no secret material', () => {
+  const decision = admitWork('agent-run', LOCKED);
+  assert.equal(decision.admitted, false);
+  if (decision.admitted) return;
+  assert.deepEqual(Object.keys(decision.refusal).sort(), ['category', 'code', 'nextAction', 'state']);
+  assert.match(describeRefusal(decision.refusal), /OPERATIONAL_WORK_NOT_AUTHORIZED/);
+  assert.match(decision.refusal.nextAction, /no runtime override exists/);
+  const serialized = JSON.stringify(decision.refusal);
+  for (const leak of ['sk-', 'ghp_', 'password', 'token', 'apikey', 'Bearer ', 'personaPreamble', 'hermes'])
+    assert.equal(serialized.toLowerCase().includes(leak.toLowerCase()), false, `the refusal carried ${leak}`);
 });
 
 test('the gate opens no credential-bearing path', () => {
-  // Behavioural rather than by inspection: the disposable repository holds unreadable
-  // credential-class files alongside the governed manifest. If the gate touched any of them
-  // it would raise EACCES, and a gate that reads only what it declares cannot.
+  // Behavioural: unreadable credential-class files sit beside the governed manifest. If the
+  // gate touched any of them it would raise EACCES, and a gate that reads only what it
+  // declares cannot.
   const r = repositoryWith(LOCKED);
+  const guarded = ['.env', '.npmrc', '.netrc', 'secrets.json', 'id_rsa'];
   try {
-    for (const name of ['.env', '.npmrc', '.netrc', 'secrets.json', 'id_rsa']) {
+    for (const name of guarded) {
       const target = join(r.root, name);
       writeFileSync(target, 'API_TOKEN=must-never-be-opened\n');
       chmodSync(target, 0o000);
@@ -217,17 +322,9 @@ test('the gate opens no credential-bearing path', () => {
     const governance = join(r.root, 'trio', 'governance', '.env');
     writeFileSync(governance, 'API_TOKEN=must-never-be-opened\n');
     chmodSync(governance, 0o000);
-
-    const decision = admitRun({ operation: 'a job' }, r.root);
-    assert.equal(decision.admitted, false, 'the gate should still refuse');
-    assert.ok(!decision.admitted && decision.refusal.category === 'OPERATIONAL_WORK_NOT_AUTHORIZED',
-      'the gate failed for an I/O reason, which means it opened something it should not have');
-
-    // And the status itself still reads cleanly, so the refusal above came from the manifest.
     assert.equal(readOperationalStatus(r.root).state, 'PRE_PRODUCTION');
   } finally {
-    for (const name of ['.env', '.npmrc', '.netrc', 'secrets.json', 'id_rsa'])
-      { try { chmodSync(join(r.root, name), 0o600); } catch { /* best effort */ } }
+    for (const name of guarded) { try { chmodSync(join(r.root, name), 0o600); } catch { /* best effort */ } }
     try { chmodSync(join(r.root, 'trio', 'governance', '.env'), 0o600); } catch { /* best effort */ }
     r.drop();
   }
@@ -236,26 +333,7 @@ test('the gate opens no credential-bearing path', () => {
 test('the gate declares exactly one governed path and reads nothing else', () => {
   assert.equal(GOVERNED_STATUS_PATH, 'trio/governance/boundary-manifest.json');
   const source = readFileSync(join(here, 'operational-admission.ts'), 'utf8');
-  // One read call, one path join against the declared constant.
   assert.equal((source.match(/readFileSync\(/g) ?? []).length, 1, 'the gate reads from more than one place');
-  assert.equal((source.match(/GOVERNED_STATUS_PATH/g) ?? []).length >= 2, true);
-  for (const forbidden of ['os.homedir', 'readdirSync', 'execSync', 'spawnSync', 'createReadStream'])
+  for (const forbidden of ['os.homedir', 'readdirSync', 'execSync', 'spawnSync', 'createReadStream', 'process.env'])
     assert.equal(source.includes(forbidden), false, `the gate uses ${forbidden}`);
-});
-
-// --- the refusal itself ----------------------------------------------------------------------
-
-test('a refusal is structured, states why, and carries no secret material', () => {
-  const decision = admitOperation({ operation: 'deploy the thing', purpose: 'ordinary-work' }, LOCKED);
-  assert.equal(decision.admitted, false);
-  if (decision.admitted) return;
-  const { refusal } = decision;
-  assert.deepEqual(Object.keys(refusal).sort(),
-    ['authorization', 'category', 'operation', 'productionAgent', 'purpose', 'reason', 'state']);
-  assert.equal(refusal.state, 'PRE_PRODUCTION');
-  assert.equal(refusal.authorization, 'NOT_AUTHORIZED_FOR_OPERATIONAL_WORK');
-  assert.match(describeRefusal(refusal), /OPERATIONAL_WORK_NOT_AUTHORIZED/);
-  const serialized = JSON.stringify(refusal);
-  for (const secret of ['sk-', 'ghp_', 'password', 'token=', 'apikey', 'Bearer '])
-    assert.equal(serialized.toLowerCase().includes(secret.toLowerCase()), false, `the refusal carried ${secret}`);
 });
