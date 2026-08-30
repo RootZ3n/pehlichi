@@ -10,7 +10,19 @@ import { test } from 'node:test';
 
 import { ScriptedDriver, type DriverAction } from '../driver.js';
 import type { AgentEvent } from '../events.js';
-import { runAgent } from '../loop.js';
+import { runAgent as governedRunAgent, type RunAgentOptions } from '../loop.js';
+import { QUALIFICATION_AUTHORITY } from '../operational-admission.js';
+
+/**
+ * The agent's own self-tests declare that purpose and carry the exact qualification
+ * authority; while PRE_PRODUCTION a run that declares neither is refused.
+ */
+const runAgent = (opts: RunAgentOptions): ReturnType<typeof governedRunAgent> =>
+  governedRunAgent({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
 import type { AgentProfile } from '../profile.js';
 
 const profile: AgentProfile = { name: 'T', role: 'test', personaPreamble: 'test', skillTags: ['test'] };

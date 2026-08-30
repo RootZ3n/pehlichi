@@ -4,6 +4,8 @@
  * that complements validateSummary's shape-check.
  */
 import assert from "node:assert/strict";
+import { QUALIFICATION_AUTHORITY } from './operational-admission.js';
+
 import { rmSync } from "node:fs";
 import { test } from "node:test";
 
@@ -23,7 +25,14 @@ const testProfile: AgentProfile = {
 
 const allowAll = () => ({ approved: true as const });
 const runAgent = (opts: Omit<RunAgentOptions, 'toolNames'> & { toolNames?: readonly string[] }) =>
-  governedRunAgent({ ...opts, toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()] });
+  governedRunAgent({
+    // The agent's own self-tests declare that purpose and carry the exact qualification
+    // authority; while PRE_PRODUCTION a run that declares neither is refused.
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+    toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()],
+  });
 
 function capture(): { events: AgentEvent[]; sink: (e: AgentEvent) => void } {
   const events: AgentEvent[] = [];

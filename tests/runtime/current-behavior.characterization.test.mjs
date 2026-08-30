@@ -17,11 +17,15 @@ const serverMod=await import(path.join(root,'tui/src/server.ts'));
 const core=await import(path.join(root,'src/core/index.ts'));
 const cron=await import(path.join(root,'src/core/agent-tools/cron-tools.ts'));
 const agentTools=await import(path.join(root,'src/core/agent-tools/index.ts'));
+// These are the agent's own self-tests. Every run they start declares that purpose and
+// carries the exact qualification authority, or the operational-admission gate refuses it
+// before the behaviour being characterized is ever reached.
+const QUALIFY={operationalPurpose:'self-test',operationalAuthority:core.QUALIFICATION_AUTHORITY};
 const createServer=serverMod.createPehServer??serverMod.createLunaServer??serverMod.createPtahServer;
 const prefix=pkg.name==='pehlichi'?'PEHLICHI':pkg.name==='loony-luna'?'LUNA':'PTAH';
 const doneDriver={next:async()=>({kind:'done',summary:{rootCause:'characterized',changes:[],verification:[],noChangeRequired:true}})};
 function temp(prefixName){return fs.mkdtempSync(path.join(os.tmpdir(),prefixName));}
-async function withServer(opts,fn){const made=createServer(opts);await new Promise((resolve)=>made.server.listen(0,'127.0.0.1',resolve));const addr=made.server.address();try{return await fn(`http://127.0.0.1:${addr.port}`);}finally{await new Promise((resolve)=>made.server.close(resolve));}}
+async function withServer(opts,fn){const made=createServer({...QUALIFY,...opts});await new Promise((resolve)=>made.server.listen(0,'127.0.0.1',resolve));const addr=made.server.address();try{return await fn(`http://127.0.0.1:${addr.port}`);}finally{await new Promise((resolve)=>made.server.close(resolve));}}
 function env(name,value,fn){const old=process.env[name];if(value===undefined)delete process.env[name];else process.env[name]=value;try{return fn();}finally{if(old===undefined)delete process.env[name];else process.env[name]=old;}}
 
 test(`KNOWN BLOCKING DEFECT: ${pkg.name} accepts unauthenticated task-route traffic when no token exists`,async()=>{
@@ -41,8 +45,8 @@ test('PARTLY REPAIRED: AGENT_FS_UNRESTRICTED still relaxes workspace resolution;
     // REPAIRED: the direct entrypoints no longer run an unrestricted turn. Both refuse
     // without a validated tool lane, so "ordinary server/direct entrypoints do not reject"
     // is no longer true of runAgent or runAgentInShadow.
-    await assert.rejects(async()=>core.runAgent({task:'characterize',workspaceRoot:ws,labStoreRoot:store,driver:doneDriver,profile:{name:'Characterization',role:'test',personaPreamble:'test',skillTags:[]}}),/validated tool lane/,'runAgent refuses an unvalidated lane');
-    await assert.rejects(async()=>core.runAgentInShadow({task:'characterize shadow/delegation seam',labStoreRoot:store,driver:doneDriver,profile:{name:'Characterization',role:'test',personaPreamble:'test',skillTags:[]}}),/validated tool lane/,'the shadow/delegation seam refuses the same way');
+    await assert.rejects(async()=>core.runAgent({...QUALIFY,task:'characterize',workspaceRoot:ws,labStoreRoot:store,driver:doneDriver,profile:{name:'Characterization',role:'test',personaPreamble:'test',skillTags:[]}}),/validated tool lane/,'runAgent refuses an unvalidated lane');
+    await assert.rejects(async()=>core.runAgentInShadow({...QUALIFY,task:'characterize shadow/delegation seam',labStoreRoot:store,driver:doneDriver,profile:{name:'Characterization',role:'test',personaPreamble:'test',skillTags:[]}}),/validated tool lane/,'the shadow/delegation seam refuses the same way');
     // REPAIRED by TRIO-001A convergence: handler construction no longer accepts an
     // anonymous caller, so "unrestricted mode also builds the full registry" can no longer
     // be reached. The enforcing assertion lives in tests/runtime/hostile-remediation.test.ts.

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { QUALIFICATION_AUTHORITY } from './operational-admission.js';
+
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,7 +58,14 @@ const allowAll = () => ({ approved: true as const });
 
 /** Tests still exercise explicit authority; derive it from each test's exact registry fixture. */
 const runAgent = (opts: Omit<RunAgentOptions, 'toolNames'> & { toolNames?: readonly string[] }) =>
-  governedRunAgent({ ...opts, toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()] });
+  governedRunAgent({
+    // The agent's own self-tests declare that purpose and carry the exact qualification
+    // authority; while PRE_PRODUCTION a run that declares neither is refused.
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+    toolNames: opts.toolNames ?? [...createToolRegistry(opts.extraTools).keys()],
+  });
 
 // A seam tool named like a known read-only tool (read_file ∈ READ_ONLY_TOOLS), so the default
 // library approval auto-approves it. Used to prove read-only tools still run with no callback.

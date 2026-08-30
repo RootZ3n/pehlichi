@@ -120,9 +120,33 @@ export {
   type UnattendedResult,
 } from "./agent-tools/unattended.js";
 
+/**
+ * The operational-work admission boundary. Exported so every surface that starts a run --
+ * the kernel chat session, the REPL, a test harness -- declares what the run is for through
+ * the same vocabulary rather than inventing its own.
+ */
+export {
+  admitOperation,
+  admitRun,
+  readOperationalStatus,
+  describeRefusal,
+  OperationalStatusUnreadable,
+  QUALIFICATION_AUTHORITY,
+  QUALIFICATION_PURPOSES,
+  GOVERNED_STATUS_PATH,
+  type OperationalStatus,
+  type OperationalState,
+  type OperationalAuthorization,
+  type AdmissionRequest,
+  type AdmissionDecision,
+  type AdmissionRefusal,
+  type RunPurpose,
+} from "./operational-admission.js";
+
 export {
   runAgent,
   runAgentInShadow,
+  OperationalWorkRefused,
   type RunAgentOptions,
   type RunAgentResult,
   type RunAgentInShadowOptions,

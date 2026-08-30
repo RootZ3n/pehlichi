@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { QUALIFICATION_AUTHORITY } from "./core/operational-admission.js";
 import { rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,11 +11,23 @@ import {
   ScriptedDriver,
   type DriverAction,
   type AgentEvent,
-  runAgent,
+  runAgent as governedRunAgent,
+  type RunAgentOptions,
   buildSystemPrompt,
 } from "./core/index.js";
 import { createLabStore } from "./core/scenario.js";
 import { agentProfile } from "./profile.js";
+
+/**
+ * The agent's own self-tests declare that purpose and carry the exact qualification
+ * authority; while PRE_PRODUCTION a run that declares neither is refused.
+ */
+const runAgent = (opts: RunAgentOptions): ReturnType<typeof governedRunAgent> =>
+  governedRunAgent({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
 
 function capture(): { events: AgentEvent[]; sink: (e: AgentEvent) => void } {
   const events: AgentEvent[] = [];

@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { ScriptedDriver, type DriverAction } from "./driver.js";
 import type { AgentEvent } from "./events.js";
 import { runAgentInShadow } from "./loop.js";
+import { QUALIFICATION_AUTHORITY } from "./operational-admission.js";
 import type { AgentProfile } from "./profile.js";
 import { createLabStore } from "./scenario.js";
 import { ShadowWorkspace } from "./shadow.js";
@@ -41,6 +42,9 @@ async function runShadow(
   const labStore = createLabStore();
   try {
     return await runAgentInShadow({
+      // A shadow run is still a run: while PRE_PRODUCTION it needs a declared purpose.
+      operationalPurpose: 'self-test',
+      operationalAuthority: QUALIFICATION_AUTHORITY,
       profile: testProfile,
       task: "t",
       labStoreRoot: labStore,

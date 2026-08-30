@@ -14,6 +14,14 @@ import {
   type ConfiguredServerOptions,
 } from '../../tui/src/server.js';
 import { createAgentServer } from '../../runtime/server/server.js';
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
+
+/**
+ * These are the agent's own Hermes-parity self-tests. Every turn they drive declares that
+ * purpose and carries the exact qualification authority; a deployed turn declares neither
+ * and is refused while the committed governed status is PRE_PRODUCTION.
+ */
+const QUALIFY = { operationalPurpose: 'self-test' as const, operationalAuthority: QUALIFICATION_AUTHORITY };
 import {
   CAPABILITY_PACK_TOOLS, authorizedToolNames, loadAgentRuntimeConfiguration,
   type AgentRuntimeConfiguration,
@@ -33,7 +41,8 @@ type ConfiguredServer = ReturnType<typeof createConfiguredServer>;
 const expectedToolNames = authorizedToolNames(configuredRuntime);
 
 async function withServer<T>(opts: ConfiguredServerOptions, fn: (base: string, runtime: ConfiguredServer) => Promise<T>, config: AgentRuntimeConfiguration = configuredRuntime): Promise<T> {
-  const runtime = config === configuredRuntime ? createConfiguredServer(opts) : createAgentServer(config, opts);
+  const qualified = { ...QUALIFY, ...opts };
+  const runtime = config === configuredRuntime ? createConfiguredServer(qualified) : createAgentServer(config, qualified);
   const { server } = runtime;
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

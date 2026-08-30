@@ -8,7 +8,18 @@ import { inspect } from 'node:util';
 import { afterEach, test } from 'node:test';
 
 import type { Driver, DriverAction, DriverContext } from '../../src/core/driver.js';
-import { runAgent } from '../../src/core/loop.js';
+import { runAgent as governedRunAgent } from '../../src/core/loop.js';
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
+
+/**
+ * These are the agent's own hostile-remediation self-tests. Every run and session they
+ * create declares that purpose and carries the exact qualification authority; while the
+ * committed governed status is PRE_PRODUCTION a run that declares neither is refused before
+ * the behaviour under test is reached.
+ */
+const QUALIFY = { operationalPurpose: 'self-test' as const, operationalAuthority: QUALIFICATION_AUTHORITY };
+const runAgent = ((opts: Parameters<typeof governedRunAgent>[0]) =>
+  governedRunAgent({ ...QUALIFY, ...opts })) as typeof governedRunAgent;
 import { ReceiptStore } from '../../src/core/receipt-store.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
 import { createToolRegistry, type ToolDef, type ToolResult } from '../../src/core/tools.js';
@@ -86,7 +97,7 @@ async function withServer<T>(result: unknown | (() => unknown), fn: (base: strin
   const config = fixtureConfig();
   const driver = new ToolThenDone('audit_failure');
   const definition = tool('audit_failure', async () => (typeof result === 'function' ? result() : result) as ToolResult);
-  const runtime = createAgentServer(config, { driver, workspaceRoot: workspace, labStoreRoot: store, extraTools: [definition], allowWrites: true });
+  const runtime = createAgentServer(config, { ...QUALIFY, driver, workspaceRoot: workspace, labStoreRoot: store, extraTools: [definition], allowWrites: true });
   await new Promise<void>((resolve) => runtime.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(runtime.server.address() as AddressInfo).port}`;
   try { return await fn(base); }
@@ -204,12 +215,12 @@ test('low-level authority is explicit, immutable, duplicate-free, and registry p
   const { workspace, store } = roots();
   const driver: Driver = { async next() { return done(); } };
   await assert.rejects(runAgent({ profile: configuredRuntime.profile, task: 'x', workspaceRoot: workspace, labStoreRoot: store, driver } as any), /explicit validated tool lane/);
-  assert.throws(() => new KernelChatSession({ profile: configuredRuntime.profile, workspaceRoot: workspace, labStoreRoot: store, driver } as any), /explicit tool lane/);
+  assert.throws(() => new KernelChatSession({ ...QUALIFY, profile: configuredRuntime.profile, workspaceRoot: workspace, labStoreRoot: store, driver } as any), /explicit tool lane/);
   assert.throws(() => createToolRegistry([tool('terminal', async () => ({ ok: true, output: 'rogue' }))]), /duplicate registered tool name/);
   assert.throws(() => createFullToolRegistry({ workspaceRoot: workspace, agentServerUrl: 'http://127.0.0.1:0' } as any), /explicit canonical agent identity/);
 
   const lane = ['audit_failure'];
-  const session = new KernelChatSession({ profile: configuredRuntime.profile, workspaceRoot: workspace, labStoreRoot: store, driver, toolNames: lane, extraTools: [tool('audit_failure', async () => ({ ok: true, output: 'ok' }))] });
+  const session = new KernelChatSession({ ...QUALIFY, profile: configuredRuntime.profile, workspaceRoot: workspace, labStoreRoot: store, driver, toolNames: lane, extraTools: [tool('audit_failure', async () => ({ ok: true, output: 'ok' }))] });
   lane.push('rogue');
   assert.deepEqual(session.getToolNames(), ['audit_failure']);
 
@@ -334,8 +345,8 @@ test('kernel process capability is isolated by session, room, task, caller, rese
     approvalCallback: () => ({ approved: true as const }),
     maxIterations: 5,
   };
-  const sessionA = new KernelChatSession({ ...options, driver: driverA, roomKey: 'room-a', taskId: 'session-a' });
-  const sessionB = new KernelChatSession({ ...options, driver: driverB, roomKey: 'room-b', taskId: 'session-b' });
+  const sessionA = new KernelChatSession({ ...QUALIFY, ...options, driver: driverA, roomKey: 'room-a', taskId: 'session-a' });
+  const sessionB = new KernelChatSession({ ...QUALIFY, ...options, driver: driverB, roomKey: 'room-b', taskId: 'session-b' });
   try {
     driverA.enqueue({ kind: 'tool', tool: 'terminal', args: { command: 'sleep 30', background: true } }, done('started A'));
     const startedA = await sessionA.send('start A', undefined, undefined, ownerA);
@@ -489,7 +500,7 @@ test('legacy AgentChatSession contract delegates to the governed kernel without 
   assert.equal(optionalConstructor, AgentChatSession);
   const { workspace } = roots();
   const driver: Driver = { async next() { return done('compatibility response'); } };
-  const session = new AgentChatSession({ repositoryRoot, workspaceRoot: workspace, driver });
+  const session = new AgentChatSession({ ...QUALIFY, repositoryRoot, workspaceRoot: workspace, driver });
   assert.equal(typeof session.ask, 'function');
   assert.ok(session.getPersonality().name);
   assert.ok(session.getSkin().name);

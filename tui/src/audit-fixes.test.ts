@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import {
   ScriptedDriver,
@@ -34,7 +35,11 @@ const doneDriver: Driver = {
 };
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer(opts);
+  const { server } = createPehServer({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -50,7 +55,12 @@ test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the
   const ws = createWorkspace();
   const store = createLabStore();
   const checkpointDir = mkdtempSync(join(tmpdir(), 'c4-cp-'));
-  const base = { profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir, toolNames: [] };
+  const base = {
+    // A self-test session, declared and authorized as one.
+    operationalPurpose: 'self-test' as const,
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir, toolNames: [],
+  };
   try {
     // Turn 1 writes a checkpoint.
     const s1 = new KernelChatSession(base);
@@ -138,6 +148,8 @@ test('H4. token usage from the driver is recorded in the session TokenMonitor (n
 
   try {
     const session = new KernelChatSession({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
       profile: agentProfile,
       driver: new UsageDriver(),
       workspaceRoot: ws,

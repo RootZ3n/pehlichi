@@ -1,20 +1,23 @@
 {
   "schemaVersion": 3,
   "sharedFileSources": [
-    { "manifest": "trio/runtime-closure.json", "pointer": "/governedCommon" }
+    {
+      "manifest": "trio/runtime-closure.json",
+      "pointer": "/governedCommon"
+    }
   ],
   "sharedFiles": [
     "pnpm-lock.yaml",
-    "tui/package.json",
     "runtime/manifest.json",
     "runtime/release-manifest.schema.json",
+    "scripts/trio/build-provenance.mjs",
     "src/core/agent-tools/agent-tools.test.ts",
     "src/core/agent-tools/budget-tier.test.ts",
     "src/core/agent-tools/git-ops-tools.test.ts",
     "src/core/agent-tools/ikbi-tools.test.ts",
     "src/core/agent-tools/lab-shell-tools.test.ts",
-    "src/core/agent-tools/luak-tools.test.ts",
     "src/core/agent-tools/labmem-tools.test.ts",
+    "src/core/agent-tools/luak-tools.test.ts",
     "src/core/agent-tools/phone-tools.test.ts",
     "src/core/evidence-gate.test.ts",
     "src/core/lab-transcript.test.ts",
@@ -23,20 +26,26 @@
     "src/core/shadow.test.ts",
     "src/core/truth-bridge.test.ts",
     "tests/parity/runtime-parity.test.ts",
+    "tests/runtime/current-behavior.characterization.test.mjs",
     "tests/runtime/hermes-parity.test.ts",
     "tests/runtime/hostile-remediation.test.ts",
     "trio/boundary-manifest.json",
     "trio/path-inventory.json",
     "trio/runtime-closure.json",
     "trio/runtime-manifest.characterization.json",
+    "tui/package.json",
     "tui/pnpm-lock.yaml",
-    "tui/src/model-switch.test.ts",
     "tui/src/lab-cohesion.test.ts",
+    "tui/src/model-switch.test.ts",
     "tui/src/workspace-override.test.ts",
     "tui/src/write-safety.test.ts",
     "tui/tsconfig.json"
   ],
-  "closedDirectories": ["runtime", "tests/parity", "tests/runtime"],
+  "closedDirectories": [
+    "runtime",
+    "tests/parity",
+    "tests/runtime"
+  ],
   "configurationData": [
     "capsule/agent.json",
     "deployment/agent.env.json",

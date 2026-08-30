@@ -106,6 +106,7 @@
     "src/core/lab-transcript.ts",
     "src/core/loop.ts",
     "src/core/occasio-bridge.ts",
+    "src/core/operational-admission.ts",
     "src/core/personality.ts",
     "src/core/process-registry.ts",
     "src/core/profile.ts",
@@ -184,36 +185,6 @@
   ],
   "runtimePolicyLoads": [
     {
-      "site": "src/core/runtime-config.ts",
-      "targets": [
-        "capsule/agent.json",
-        "deployment/agent.env.json"
-      ],
-      "effect": "validated-authority-data"
-    },
-    {
-      "site": "src/core/personality.ts",
-      "targets": [
-        "personality"
-      ],
-      "effect": "presentation-only"
-    },
-    {
-      "site": "runtime/server/skin.ts",
-      "targets": [
-        "tui/skin.yaml"
-      ],
-      "effect": "presentation-only"
-    },
-    {
-      "site": "src/core/external-runtime-integrity.ts",
-      "targets": [
-        "runtime/manifest.json",
-        "trio/runtime-closure.json"
-      ],
-      "effect": "integrity-policy"
-    },
-    {
       "site": "runtime/server/provenance.ts",
       "targets": [
         "runtime/manifest.json",
@@ -228,6 +199,20 @@
         "workspace/.cron-jobs.json"
       ],
       "effect": "validated-runtime-state"
+    },
+    {
+      "site": "runtime/server/skin.ts",
+      "targets": [
+        "tui/skin.yaml"
+      ],
+      "effect": "presentation-only"
+    },
+    {
+      "site": "runtime/server/truth-agent-adapter.ts",
+      "targets": [
+        "truth-firewall/package.json"
+      ],
+      "effect": "integrity-policy"
     },
     {
       "site": "src/core/agent-tools/coordination-tools.ts",
@@ -272,11 +257,41 @@
       "effect": "validated-runtime-state"
     },
     {
+      "site": "src/core/external-runtime-integrity.ts",
+      "targets": [
+        "runtime/manifest.json",
+        "trio/runtime-closure.json"
+      ],
+      "effect": "integrity-policy"
+    },
+    {
       "site": "src/core/lab-transcript.ts",
       "targets": [
         "transcript-state"
       ],
       "effect": "validated-runtime-state"
+    },
+    {
+      "site": "src/core/operational-admission.ts",
+      "targets": [
+        "trio/governance/boundary-manifest.json"
+      ],
+      "effect": "validated-authority-data"
+    },
+    {
+      "site": "src/core/personality.ts",
+      "targets": [
+        "personality"
+      ],
+      "effect": "presentation-only"
+    },
+    {
+      "site": "src/core/runtime-config.ts",
+      "targets": [
+        "capsule/agent.json",
+        "deployment/agent.env.json"
+      ],
+      "effect": "validated-authority-data"
     },
     {
       "site": "src/tools/bridge-tools.ts",
@@ -291,13 +306,6 @@
         "work-order-state"
       ],
       "effect": "validated-runtime-state"
-    },
-    {
-      "site": "runtime/server/truth-agent-adapter.ts",
-      "targets": [
-        "truth-firewall/package.json"
-      ],
-      "effect": "integrity-policy"
     }
   ],
   "identityReferences": [
@@ -448,56 +456,57 @@
   ],
   "generatedRuntime": {
     "entryPoints": [
-      "dist/index.js"
+      "src/index.ts"
     ],
     "governedCommon": [
-      "dist/core/agent-tools/circuit-breaker.js",
-      "dist/core/agent-tools/error-classifier.js",
-      "dist/core/agent-tools/infrastructure.js",
-      "dist/core/agent-tools/input-sanitization.js",
-      "dist/core/agent-tools/iteration-budget.js",
-      "dist/core/agent-tools/openrouter-driver.js",
-      "dist/core/agent-tools/prompt-injection.js",
-      "dist/core/agent-tools/provider-chain.js",
-      "dist/core/agent-tools/restricted-evidence.js",
-      "dist/core/agent-tools/retry.js",
-      "dist/core/agent-tools/schema-sanitizer.js",
-      "dist/core/agent-tools/token-monitor.js",
-      "dist/core/agent-tools/tool-arg-repair.js",
-      "dist/core/agent-tools/tool-governor.js",
-      "dist/core/agent-tools/tool-text-boundary.js",
-      "dist/core/agent-tools/unattended.js",
-      "dist/core/agent-tools/velum-scan.js",
-      "dist/core/approval-policy.js",
-      "dist/core/bridge-adapter.js",
-      "dist/core/bridges/host.js",
-      "dist/core/bridges/http-bridge.js",
-      "dist/core/bridges/registry.js",
-      "dist/core/checkpoint.js",
-      "dist/core/context-compressor.js",
-      "dist/core/driver.js",
-      "dist/core/drivers/llamacpp.js",
-      "dist/core/drivers/mimo.js",
-      "dist/core/drivers/ollama.js",
-      "dist/core/events.js",
-      "dist/core/external-runtime-integrity.js",
-      "dist/core/index.js",
-      "dist/core/loop.js",
-      "dist/core/personality.js",
-      "dist/core/process-registry.js",
-      "dist/core/profile.js",
-      "dist/core/prompt.js",
-      "dist/core/receipt-store.js",
-      "dist/core/runtime-capabilities.js",
-      "dist/core/runtime-config.js",
-      "dist/core/shadow.js",
-      "dist/core/sinks/stdout.js",
-      "dist/core/tools.js",
-      "dist/core/workspace.js",
-      "dist/index.js",
-      "dist/profile.js",
-      "dist/profiles/agent.js",
-      "dist/tools/bridge-tools.js"
+      "src/core/agent-tools/circuit-breaker.ts",
+      "src/core/agent-tools/error-classifier.ts",
+      "src/core/agent-tools/infrastructure.ts",
+      "src/core/agent-tools/input-sanitization.ts",
+      "src/core/agent-tools/iteration-budget.ts",
+      "src/core/agent-tools/openrouter-driver.ts",
+      "src/core/agent-tools/prompt-injection.ts",
+      "src/core/agent-tools/provider-chain.ts",
+      "src/core/agent-tools/restricted-evidence.ts",
+      "src/core/agent-tools/retry.ts",
+      "src/core/agent-tools/schema-sanitizer.ts",
+      "src/core/agent-tools/token-monitor.ts",
+      "src/core/agent-tools/tool-arg-repair.ts",
+      "src/core/agent-tools/tool-governor.ts",
+      "src/core/agent-tools/tool-text-boundary.ts",
+      "src/core/agent-tools/unattended.ts",
+      "src/core/agent-tools/velum-scan.ts",
+      "src/core/approval-policy.ts",
+      "src/core/bridge-adapter.ts",
+      "src/core/bridges/host.ts",
+      "src/core/bridges/http-bridge.ts",
+      "src/core/bridges/registry.ts",
+      "src/core/checkpoint.ts",
+      "src/core/context-compressor.ts",
+      "src/core/driver.ts",
+      "src/core/drivers/llamacpp.ts",
+      "src/core/drivers/mimo.ts",
+      "src/core/drivers/ollama.ts",
+      "src/core/events.ts",
+      "src/core/external-runtime-integrity.ts",
+      "src/core/index.ts",
+      "src/core/loop.ts",
+      "src/core/operational-admission.ts",
+      "src/core/personality.ts",
+      "src/core/process-registry.ts",
+      "src/core/profile.ts",
+      "src/core/prompt.ts",
+      "src/core/receipt-store.ts",
+      "src/core/runtime-capabilities.ts",
+      "src/core/runtime-config.ts",
+      "src/core/shadow.ts",
+      "src/core/sinks/stdout.ts",
+      "src/core/tools.ts",
+      "src/core/workspace.ts",
+      "src/index.ts",
+      "src/profile.ts",
+      "src/profiles/agent.ts",
+      "src/tools/bridge-tools.ts"
     ],
     "configurationData": []
   }

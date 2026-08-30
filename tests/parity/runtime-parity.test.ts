@@ -106,7 +106,7 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // Independent code-level trust anchor for the architecture-controlled shape.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;
 // doing so also requires an explicit, review-visible verifier change.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '7f59bb1d95aef112315bb4ee2f2a5f5eef01ec800d79baf5cd6d6990e32140f7';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '7e4b8872737e983dc0157c9e5d710320534d74e81da7e2e0a3c643d69cd7d14f';
 
 interface Inventory {
   schemaVersion: 3;
@@ -253,6 +253,15 @@ function deriveClosure(root: string, closure: Closure): { files: string[]; exter
   };
 }
 
+/**
+ * The closure of what `package.json` main actually executes.
+ *
+ * This walked `dist/index.js` and enumerated 47 build outputs under a directory that is
+ * git-ignored and has never been committed, so the "package runtime closure" described bytes
+ * no commit contains and no parity comparison could compare. The package is executed from
+ * source under a TypeScript loader, so the closure starts at the source entry and uses the
+ * same `.js` -> `.ts` specifier resolution the runtime does.
+ */
 function deriveGeneratedClosure(root: string, entryPoints: readonly string[]): string[] {
   const queue = exactUniqueSafe(entryPoints, 'generatedRuntime.entryPoints').map((path) => join(root, path));
   const seen = new Set<string>();
@@ -265,9 +274,10 @@ function deriveGeneratedClosure(root: string, entryPoints: readonly string[]): s
     const info = ts.preProcessFile(readFileSync(file, 'utf8'), true, true);
     for (const imported of info.importedFiles) {
       if (!imported.fileName.startsWith('.')) continue;
-      const resolved = resolve(dirname(file), imported.fileName);
-      assert.ok(relative(root, resolved).split(sep)[0] !== '..', `generated runtime import escapes repository: ${imported.fileName}`);
-      queue.push(resolved);
+      const resolved = resolveRelativeImport(file, imported.fileName);
+      assert.ok(resolved, `unresolved package runtime import: ${relative(root, file)} -> ${imported.fileName}`);
+      assert.ok(relative(root, resolved!).split(sep)[0] !== '..', `generated runtime import escapes repository: ${imported.fileName}`);
+      queue.push(resolved!);
     }
   }
   return [...seen].map((path) => relative(root, path).split(sep).join('/')).sort();
@@ -318,11 +328,15 @@ function loadTrustedManifests(root: string): { inventory: Inventory; closure: Cl
   assert.equal(inventory.schemaVersion, 3);
   assert.equal(boundaryShapeDigest(inventory, closure), TRUSTED_BOUNDARY_SHAPE_SHA256, 'architecture boundary cannot self-redefine through local manifests');
   assert.deepEqual(inventory.sharedFileSources, [{ manifest: 'trio/runtime-closure.json', pointer: '/governedCommon' }]);
-  const shared = exactUniqueSafe([
-    ...closure.governedCommon,
-    ...closure.generatedRuntime.governedCommon,
-    ...inventory.sharedFiles,
-  ], 'complete shared inventory').sort();
+  // Each declared list must still be free of duplicates -- that is what catches a sloppy
+  // manifest. Their union may legitimately overlap now that the package-execution closure is
+  // rooted in source: it is a subset of the full runtime closure rather than a disjoint set
+  // of build outputs, so the union is deduplicated instead of being required to be disjoint.
+  const shared = [...new Set([
+    ...exactUniqueSafe(closure.governedCommon, 'governedCommon'),
+    ...exactUniqueSafe(closure.generatedRuntime.governedCommon, 'generatedRuntime.governedCommon'),
+    ...exactUniqueSafe(inventory.sharedFiles, 'sharedFiles'),
+  ])].sort();
   return { inventory, closure, shared };
 }
 
@@ -372,15 +386,17 @@ test('transitive runtime closure is fully classified, dynamic loading is declare
   }
 });
 
-test('built package runtime closure is fixed, classified, and byte-identical when executable', () => {
+test('package runtime closure is fixed, classified, and byte-identical when executable', () => {
   const reference = loadTrustedManifests(roots[0]!);
   const generatedCommon = exactUniqueSafe(reference.closure.generatedRuntime.governedCommon, 'generated governedCommon').sort();
   const generatedConfig = exactUniqueSafe(reference.closure.generatedRuntime.configurationData, 'generated configurationData').sort();
   for (const root of roots) {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as any;
-    assert.equal(pkg.main, './dist/index.js');
-    assert.equal(pkg.types, './dist/index.d.ts');
-    assert.deepEqual(pkg.exports, { '.': { types: './dist/index.d.ts', default: './dist/index.js' } });
+    // Source execution, not a build product. Asserting the dist entry here kept a build
+    // directory in the governed closure that no commit contains.
+    assert.equal(pkg.main, './src/index.ts');
+    assert.equal(pkg.types, './src/index.ts');
+    assert.deepEqual(pkg.exports, { '.': { types: './src/index.ts', default: './src/index.ts' } });
     const actual = deriveGeneratedClosure(root, reference.closure.generatedRuntime.entryPoints);
     assert.deepEqual(generatedConfig, []);
     assert.deepEqual(actual, generatedCommon, `${root}: generated runtime has no unclassified dependency`);

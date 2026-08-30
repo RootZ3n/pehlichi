@@ -10,6 +10,7 @@ import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
+import { admitRun, describeRefusal, type RunPurpose } from "./operational-admission.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
@@ -185,6 +186,17 @@ export interface RunAgentOptions {
    */
   readonly approvalCallback?: ApprovalCallback;
   /**
+   * OPERATIONAL ADMISSION: what this run is for.
+   *
+   * Checked against the committed governed operational status before anything else happens.
+   * Unset means `ordinary-work`, because a run that does not say what it is for is asking to
+   * do real work, and while the Trio is PRE_PRODUCTION real work is refused. A qualification,
+   * audit or self-test run must also carry `operationalAuthority`.
+   */
+  readonly operationalPurpose?: RunPurpose;
+  /** The exact qualification authority. Nothing else admits a run while the status is locked. */
+  readonly operationalAuthority?: string;
+  /**
    * CONVERSATION SEEDING (opt-in): prior turns inserted between the system prompt and
    * this run's task, so an HTTP chat server can preserve context across requests by
    * threading the accumulated transcript through successive `runAgent` calls. Unset =>
@@ -297,7 +309,31 @@ export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<S
  * describing how it ended. On a budget-exhausted run it either returns a partial
  * result (when `partialOnExhaustion` is set) or throws (the default, unchanged).
  */
+/**
+ * Thrown when the governed operational status refuses a run.
+ *
+ * Deliberately not a `RunAgentResult` with `ok:false`: a refusal to admit the run is not a
+ * result of the run, and returning one would let a caller log it as an ordinary failure and
+ * retry. It carries the structured refusal and no secret material.
+ */
+export class OperationalWorkRefused extends Error {
+  constructor(public readonly refusal: ReturnType<typeof describeRefusal> extends string ? Parameters<typeof describeRefusal>[0] : never) {
+    super(describeRefusal(refusal));
+    this.name = 'OperationalWorkRefused';
+  }
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
+  // OPERATIONAL ADMISSION GATE. First, before the tool lane is validated, before a driver is
+  // touched, and before any tool is registered: an agent declared unavailable for operational
+  // work must not perform operational work. Role, model, route, service health and Matrix
+  // identity are not consulted, because none of them is an authorization.
+  const admission = admitRun({
+    operation: 'runAgent',
+    ...(opts.operationalPurpose !== undefined ? { purpose: opts.operationalPurpose } : {}),
+    ...(opts.operationalAuthority !== undefined ? { authority: opts.operationalAuthority } : {})
+  });
+  if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
   if (!Array.isArray(opts.toolNames)) throw new Error('explicit validated tool lane is required');
   const lane = Object.freeze([...opts.toolNames]);
   if (new Set(lane).size !== lane.length) throw new Error('tool lane contains duplicate names');

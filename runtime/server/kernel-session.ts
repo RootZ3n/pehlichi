@@ -23,6 +23,7 @@
  */
 import {
   runAgent,
+  type RunPurpose,
   isUsageReportingDriver,
   type Driver,
   type DriverAction,
@@ -174,6 +175,16 @@ export class ResilientDriver implements Driver {
 }
 
 export interface KernelChatSessionOptions {
+  /**
+   * OPERATIONAL ADMISSION: what turns driven through this session are for.
+   *
+   * Unset means `ordinary-work`, which is what a deployed chat turn is. While the committed
+   * governed status is PRE_PRODUCTION every such turn is refused at the kernel boundary --
+   * the service stays up and answers health and UI, but it does not do real work. The Trio's
+   * own self-tests set this explicitly and carry the qualification authority.
+   */
+  readonly operationalPurpose?: RunPurpose;
+  readonly operationalAuthority?: string;
   readonly profile: AgentProfile;
   readonly driver: Driver;
   readonly workspaceRoot: string;
@@ -433,6 +444,8 @@ export class KernelChatSession {
       : this.opts.profile;
 
     const result = await runAgent({
+      ...(this.opts.operationalPurpose !== undefined ? { operationalPurpose: this.opts.operationalPurpose } : {}),
+      ...(this.opts.operationalAuthority !== undefined ? { operationalAuthority: this.opts.operationalAuthority } : {}),
       profile,
       task,
       workspaceRoot: this.opts.workspaceRoot,

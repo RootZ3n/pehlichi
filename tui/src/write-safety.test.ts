@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import type { AddressInfo } from "node:net";
 
@@ -20,7 +21,14 @@ import { KernelChatSession } from "./lib/kernel-session.js";
 import { createPehServer, type PehServerOptions } from "./server.js";
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer(opts);
+  const { server } = createPehServer({
+    // These are the server's own self-tests, so every turn they drive declares that
+    // purpose and carries the exact qualification authority. A deployed turn declares
+    // neither and is refused while the governed status is PRE_PRODUCTION.
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -122,6 +130,8 @@ test("patch REFUSES an edit that would corrupt a JSON file", async () => {
 
 function writeSession(ws: string, store: string, actions: DriverAction[]): KernelChatSession {
   return new KernelChatSession({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
     profile: testProfile,
     driver: new ScriptedDriver(actions),
     workspaceRoot: ws,

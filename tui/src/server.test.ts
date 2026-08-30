@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { after, test } from 'node:test';
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import { ScriptedDriver, type Driver, type DriverAction } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
@@ -31,7 +32,14 @@ async function withServer<T>(
   opts: PehServerOptions,
   fn: (base: string) => Promise<T>,
 ): Promise<T> {
-  const { server } = createPehServer(opts);
+  // These are the server's own self-tests, so every turn they drive declares that purpose
+  // and carries the exact qualification authority. A deployed turn declares neither and is
+  // refused while the committed governed status is PRE_PRODUCTION.
+  const { server } = createPehServer({
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   const base = `http://127.0.0.1:${port}`;

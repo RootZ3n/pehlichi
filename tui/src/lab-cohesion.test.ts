@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
+import { QUALIFICATION_AUTHORITY } from '../../src/core/operational-admission.js';
 
 import type { Driver, DriverAction, DriverContext, Message } from '../../src/core/index.js';
 import { createWorkspace, createLabStore } from '../../src/core/scenario.js';
@@ -30,7 +31,14 @@ class RecordingDriver implements Driver {
 }
 
 async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promise<T>): Promise<T> {
-  const { server } = createPehServer(opts);
+  const { server } = createPehServer({
+    // These are the server's own self-tests, so every turn they drive declares that
+    // purpose and carries the exact qualification authority. A deployed turn declares
+    // neither and is refused while the governed status is PRE_PRODUCTION.
+    operationalPurpose: 'self-test',
+    operationalAuthority: QUALIFICATION_AUTHORITY,
+    ...opts,
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   try {
