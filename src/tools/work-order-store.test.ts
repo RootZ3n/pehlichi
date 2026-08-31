@@ -1,17 +1,16 @@
 /**
  * WorkOrderStore — typed CRUD + lifecycle validation.
  */
+import { governedMkdtemp } from "../core/temp-authority.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { after, test } from "node:test";
 
 import { WorkOrderStore, WorkOrderTransitionError, WorkOrderValidationError, assertTransition } from "./work-order-store.js";
 
 const dirs: string[] = [];
 function freshStore(): WorkOrderStore {
-  const dir = mkdtempSync(join(tmpdir(), "wo-store-"));
+  const dir = governedMkdtemp("wo-store-");
   dirs.push(dir);
   return new WorkOrderStore({ dir });
 }

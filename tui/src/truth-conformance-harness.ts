@@ -21,10 +21,10 @@
  *   tui/node_modules/.bin/tsx tui/src/truth-conformance-harness.ts --execution-identity pehlichi
  */
 
+import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,7 +75,7 @@ const TEMPORARY: string[] = [];
  * attestation, which is only safe to do to a key nothing else is using.
  */
 const HOST_KEY_PATH = (() => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'trio-conformance-trust.')));
+  const dir = realpathSync(governedMkdtemp('trio-conformance-trust.'));
   TEMPORARY.push(dir);
   const path = join(dir, 'host-key');
   process.env.TRUTH_HOST_KEY_PATH = path;
@@ -212,7 +212,7 @@ interface Fixture {
 
 /** A committed repository, the way the runtime would find one when a session starts. */
 function makeRepo(options: { scripts?: Record<string, string>; gitignore?: string } = {}): Fixture {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'trio-conformance-repo.')));
+  const root = realpathSync(governedMkdtemp('trio-conformance-repo.'));
   TEMPORARY.push(root);
   mkdirSync(join(root, 'src'), { recursive: true });
   writeFileSync(join(root, 'src', 'feature.js'), 'export const value = 1;\n');

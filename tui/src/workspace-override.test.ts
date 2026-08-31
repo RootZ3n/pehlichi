@@ -6,9 +6,10 @@
  * outside the allowlist, and symlink escapes are all rejected. With no allowlist configured,
  * overrides fail closed.
  */
+import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, afterEach } from 'node:test';
 
@@ -18,7 +19,7 @@ const workspaceRootsEnvironment = configuredRuntime.deployment.environment.works
 
 const created: string[] = [];
 function tmp(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = realpathSync(governedMkdtemp(prefix));
   created.push(d);
   return d;
 }

@@ -113,6 +113,7 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/scenario.ts': ['child-process', 'filesystem-mutation'],
   'src/core/shadow.ts': ['filesystem-mutation'],
   'src/core/subagent-entry.ts': ['filesystem-mutation'],
+  'src/core/temp-authority.ts': ['filesystem-mutation'],
   'src/core/tools.ts': ['child-process', 'tool-invocation'],
   'tui/src/harness.ts': ['dynamic-code'],
   'tui/src/truth-conformance-harness.ts': ['child-process', 'filesystem-mutation'],

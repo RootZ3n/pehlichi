@@ -1,9 +1,9 @@
 /**
  * ReportStore — persisted multi-model comparison ledger + trend query.
  */
+import { governedMkdtemp } from "./temp-authority.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
@@ -11,7 +11,7 @@ import { ReportStore } from "./report-store.js";
 
 const dirs: string[] = [];
 function freshStore(clock?: () => number): ReportStore {
-  const dir = mkdtempSync(join(tmpdir(), "report-store-"));
+  const dir = governedMkdtemp("report-store-");
   dirs.push(dir);
   return new ReportStore({ path: join(dir, "reports.jsonl"), ...(clock ? { clock } : {}) });
 }

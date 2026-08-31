@@ -10,10 +10,9 @@
  * Loop-level proof that per-tier budgets cap iterations (lab-trust sprint, Phase 7).
  * A converse tier caps a casual prompt at 4 tool/driver turns; a read-only tier at 12.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { ScriptedDriver, type DriverAction } from '../driver.js';
@@ -53,7 +52,7 @@ import type { AgentProfile } from '../profile.js';
 const profile: AgentProfile = { name: 'T', role: 'test', personaPreamble: 'test', skillTags: ['test'] };
 
 function tmp(p: string): string {
-  return mkdtempSync(join(tmpdir(), p));
+  return governedMkdtemp(p);
 }
 
 // A driver that never finishes — it just keeps narrating, so the only thing that

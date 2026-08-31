@@ -7,9 +7,9 @@
  * brain_put is routed through governance too. Risk cannot be understated by the
  * caller, and path-escape targets are rejected upstream by lab-memory's slug rule.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -26,7 +26,7 @@ import type { ToolContext } from '../tools.js';
 const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
 
 function tmp(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), prefix));
+  return governedMkdtemp(prefix);
 }
 
 let counter = 0;

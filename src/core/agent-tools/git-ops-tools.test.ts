@@ -3,11 +3,9 @@
  * tool would run and returns a scripted outcome, so we assert wiring, confinement, arg building,
  * auth-env injection, and result rendering.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   createGitOpsToolHandlers,
@@ -24,7 +22,7 @@ import { READ_ONLY_TOOLS } from '../approval-policy.js';
 import type { ToolContext } from '../tools.js';
 
 const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
-const workspace = (): string => mkdtempSync(join(tmpdir(), 'peh-git-'));
+const workspace = (): string => governedMkdtemp('peh-git-');
 
 function fakeRunner(outcome: Partial<GitRunResult> = {}): { run: GitRunner; calls: Array<{ args: readonly string[]; cwd: string; env: Record<string, string> | undefined }> } {
   const calls: Array<{ args: readonly string[]; cwd: string; env: Record<string, string> | undefined }> = [];

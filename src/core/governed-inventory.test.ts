@@ -19,11 +19,11 @@
  * The behavioural proof — that an unenumerated file becomes `UNCLASSIFIED_FILE` — belongs to
  * the external verifier and is not duplicated here.
  */
+import { governedMkdtemp } from './temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import cp from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,7 +62,7 @@ function classify(rel: string): Rule | undefined {
  * cost with no corresponding truth.
  */
 function trioFixture(): { roots: Record<string, string>; drop: () => void } {
-  const top = mkdtempSync(join(tmpdir(), 'trio-inventory-'));
+  const top = governedMkdtemp('trio-inventory-');
   const roots: Record<string, string> = {};
   for (const slot of SLOTS) {
     const source = join(root, '..', slot);

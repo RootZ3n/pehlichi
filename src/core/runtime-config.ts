@@ -34,6 +34,7 @@ export interface DeploymentCapsule {
     readonly workspace: string;
     readonly workspaceRoots: string;
     readonly releaseManifest: string;
+    readonly temporaryRoot: string;
   };
   readonly defaults: { readonly port: number; readonly host: string; readonly workspace: string };
   readonly namespaces: {
@@ -201,7 +202,7 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
     'schemaVersion', 'environment', 'defaults', 'namespaces', 'memoryAmbient', 'routingTargets',
     'baseToolCeiling', 'capabilityPackCeiling', 'secretEnvironmentReferences',
   ], 'deployment');
-  assertExactKeys(deploymentValue.environment, ['port', 'host', 'workspace', 'workspaceRoots', 'releaseManifest'], 'deployment.environment');
+  assertExactKeys(deploymentValue.environment, ['port', 'host', 'workspace', 'workspaceRoots', 'releaseManifest', 'temporaryRoot'], 'deployment.environment');
   assertExactKeys(deploymentValue.defaults, ['port', 'host', 'workspace'], 'deployment.defaults');
   assertExactKeys(deploymentValue.namespaces, ['checkpoint', 'task', 'correlation', 'memory'], 'deployment.namespaces');
   assertExactKeys(deploymentValue.memoryAmbient, ['includeNamespaces', 'maxTurns', 'maxCharsPerTurn'], 'deployment.memoryAmbient');
@@ -225,6 +226,7 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
       || !isString(deployment.environment?.workspace) || !ENVIRONMENT_NAME.test(deployment.environment.workspace)
       || !isString(deployment.environment?.workspaceRoots) || !ENVIRONMENT_NAME.test(deployment.environment.workspaceRoots)
       || !isString(deployment.environment?.releaseManifest) || !ENVIRONMENT_NAME.test(deployment.environment.releaseManifest)
+      || !isString(deployment.environment?.temporaryRoot) || !ENVIRONMENT_NAME.test(deployment.environment.temporaryRoot)
       || !isString(deployment.namespaces?.checkpoint) || !isString(deployment.namespaces?.task)
       || !isString(deployment.namespaces?.correlation) || !isString(deployment.namespaces?.memory)
       || !Number.isInteger(deployment.memoryAmbient?.maxTurns) || deployment.memoryAmbient.maxTurns < 0

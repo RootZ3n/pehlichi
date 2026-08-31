@@ -24,7 +24,7 @@ test('pure truth adapters render deterministic injected data without a runtime m
 
 test('environment-selected executable roots are ignored by production truth loading', async () => {
   const previous = process.env.TRUTH_FIREWALL_ROOT;
-  process.env.TRUTH_FIREWALL_ROOT = '/tmp/untrusted-executable-root';
+  process.env.TRUTH_FIREWALL_ROOT = '/nonexistent/untrusted-executable-root';
   try {
     assert.equal(typeof await truthCognition({ task: 'x' }), 'string');
     assert.equal(typeof await reviewProposals(['/x']), 'string');

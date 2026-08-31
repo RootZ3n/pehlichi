@@ -6,16 +6,17 @@
  * disposable, it starts empty, existing content is copied IN explicitly, and it
  * is discarded at run end. Nothing the agent does can reach a real repo.
  */
-import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+
+import { governedMkdtemp } from "./temp-authority.js";
 
 export class ShadowWorkspace {
   private constructor(public readonly root: string) {}
 
-  /** mkdtemp a fresh disposable workspace under the OS tmp dir. Empty by default. */
+  /** mkdtemp a fresh disposable workspace inside governed scratch — never /tmp. */
   static create(): ShadowWorkspace {
-    return new ShadowWorkspace(mkdtempSync(join(tmpdir(), "lab-shadow-")));
+    return new ShadowWorkspace(governedMkdtemp("lab-shadow-"));
   }
 
   /**

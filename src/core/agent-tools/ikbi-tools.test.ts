@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createIkbiToolHandlers, ikbiToolSpecs } from "./ikbi-tools.js";
+import { governedMkdtemp } from "../temp-authority.js";
 import { createFullToolRegistry } from "./index.js";
 import type { ToolContext } from "../tools.js";
 
-const ctx: ToolContext = { workspaceRoot: "/tmp", labStoreRoot: "/tmp", store: {} };
+const ctx: ToolContext = { workspaceRoot: governedMkdtemp("ikbi-ws-"), labStoreRoot: governedMkdtemp("ikbi-store-"), store: {} };
 
 /**
  * Install a fake global.fetch for the duration of `fn`, recording every request
@@ -41,7 +42,7 @@ function jsonResponse(status: number, body: unknown): Response {
 const handlers = createIkbiToolHandlers();
 
 test("ikbi tools are registered in the full tool registry", () => {
-  const tools = createFullToolRegistry({ workspaceRoot: "/tmp", agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
+  const tools = createFullToolRegistry({ workspaceRoot: governedMkdtemp("ikbi-reg-ws-"), agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
   const names = new Set(tools.map((t) => t.spec.name));
   for (const spec of ikbiToolSpecs) {
     assert.ok(names.has(spec.name), `${spec.name} registered`);

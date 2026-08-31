@@ -17,6 +17,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
+import { processScratchDir } from "./temp-authority.js";
 import type { ReceiptStore } from "./receipt-store.js";
 import {
   createIsolatedProcessScope,
@@ -299,8 +300,8 @@ const processTool = async (args: Record<string, unknown>, _ctx: ToolContext, pro
 /**
  * Build the terminal environment FROM EMPTY. process.env is never referenced
  * here, so no inherited secret/token/API key can reach the command — the
- * absence is structural, not a deny-list. HOME and TMPDIR point at the
- * (shadow) workspace so anything the command writes to $HOME stays contained.
+ * absence is structural, not a deny-list. HOME and TMPDIR/TMP/TEMP point at
+ * the (shadow) workspace so anything the command writes stays contained.
  */
 function buildTerminalEnv(workspaceRoot: string): Record<string, string> {
   // FULL-ACCESS MODE (operator opt-in): inherit the real service environment so the
@@ -316,13 +317,19 @@ function buildTerminalEnv(workspaceRoot: string): Record<string, string> {
     const basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
     real.PATH = real.PATH && real.PATH.length > 0 ? `${real.PATH}:${basePath}` : basePath;
     real.HOME = real.HOME && real.HOME.length > 0 ? real.HOME : "/home/zen";
-    delete real.TMPDIR; // use the system default (/tmp), not the workspace
+    // Even full-access mode never hands a command /tmp: temp stays governed lab storage.
+    const scratch = processScratchDir();
+    real.TMPDIR = scratch;
+    real.TMP = scratch;
+    real.TEMP = scratch;
     return real;
   }
   return {
     PATH: "/usr/bin:/bin",
     HOME: workspaceRoot,
     TMPDIR: workspaceRoot,
+    TMP: workspaceRoot,
+    TEMP: workspaceRoot,
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     SHELL: "/bin/sh",

@@ -1,3 +1,4 @@
+import { governedMkdtemp } from '../../src/core/temp-authority.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,7 +24,7 @@ const agentTools=await import(path.join(root,'src/core/agent-tools/index.ts'));
 const createServer=serverMod.createPehServer??serverMod.createLunaServer??serverMod.createPtahServer;
 const prefix=pkg.name==='pehlichi'?'PEHLICHI':pkg.name==='loony-luna'?'LUNA':'PTAH';
 const doneDriver={next:async()=>({kind:'done',summary:{rootCause:'characterized',changes:[],verification:[],noChangeRequired:true}})};
-function temp(prefixName){return fs.mkdtempSync(path.join(os.tmpdir(),prefixName));}
+function temp(prefixName){return governedMkdtemp(prefixName);}
 async function withServer(opts,fn){const made=createServer(opts);await new Promise((resolve)=>made.server.listen(0,'127.0.0.1',resolve));const addr=made.server.address();try{return await fn(`http://127.0.0.1:${addr.port}`);}finally{await new Promise((resolve)=>made.server.close(resolve));}}
 function env(name,value,fn){const old=process.env[name];if(value===undefined)delete process.env[name];else process.env[name]=value;try{return fn();}finally{if(old===undefined)delete process.env[name];else process.env[name]=old;}}
 

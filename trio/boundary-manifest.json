@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "trustedInventory": {
     "pathInventorySha256": "9b0532d44e30d41e192bc453d1e78fffa670fbd63d22e61745af3c88fec1aa92",
-    "runtimeClosureSha256": "4c00d4be318036e2eba3cd4e60416d7accea2b772c10143ce8a5f655c4aa1637"
+    "runtimeClosureSha256": "eea8eedd59ce362c16fddd44c595fc692feb0c4df44835b428d029720cd6bd29"
   },
   "sharedImplementation": [
     "runtime/**",

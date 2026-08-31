@@ -15,9 +15,9 @@
  * first successful load, so the cold import-failure path must be exercised before
  * any populated test succeeds.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +50,7 @@ async function labmem(): Promise<any> {
 
 /** A temp labmem root whose `dist` is the real built labmem (code) + own data dirs. */
 function freshRoot(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = governedMkdtemp(prefix);
   symlinkSync(join(REAL_LABMEM, 'dist'), join(root, 'dist'), 'dir');
   return root;
 }
@@ -68,7 +68,7 @@ async function seed(root: string): Promise<void> {
 // ── 1. LABMEM_ROOT selects data only; it cannot replace executable code ───────
 
 test('LABMEM_ROOT is a data root and cannot replace the digest-bound labmem implementation', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'labmem-missing-')); // no dist/, no core/
+  const root = governedMkdtemp('labmem-missing-'); // no dist/, no core/
   const prev = process.env['LABMEM_ROOT'];
   process.env['LABMEM_ROOT'] = root;
   try {

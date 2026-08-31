@@ -6,10 +6,10 @@
  * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
  * covered separately in `operational-admission.test.ts`.
  */
+import { governedMkdtemp } from "./core/temp-authority.js";
 import assert from "node:assert/strict";
 import type { RunAgentResult } from "./core/loop.js";
-import { rmSync, writeFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -63,7 +63,7 @@ function capture(): { events: AgentEvent[]; sink: (e: AgentEvent) => void } {
 
 /** A tmp read-only workspace holding a note. */
 function noteWorkspace(note: string): string {
-  const root = mkdtempSync(join(tmpdir(), "peh-ws-"));
+  const root = governedMkdtemp("peh-ws-");
   writeFileSync(join(root, "status-note.md"), note);
   return root;
 }

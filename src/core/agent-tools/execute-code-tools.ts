@@ -5,11 +5,11 @@
  * Runs Python or Node.js code in a sandboxed subprocess.
  */
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
+import { processScratchDir } from '../temp-authority.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -42,13 +42,13 @@ export function createExecuteCodeToolHandlers(): Map<string, ToolHandler> {
     const language = (args.language as string) ?? 'python';
     const timeout = (args.timeout_ms as number) ?? EXEC_TIMEOUT;
 
-    // Write code to temp file
+    // Write code to a governed scratch file — never /tmp
+    const scratch = processScratchDir();
     const id = randomBytes(8).toString('hex');
     const ext = language === 'python' ? '.py' : '.mjs';
-    const tmpFile = join(tmpdir(), `exec-${id}${ext}`);
+    const tmpFile = join(scratch, `exec-${id}${ext}`);
 
     try {
-      mkdirSync(join(tmpdir()), { recursive: true });
       writeFileSync(tmpFile, code, 'utf8');
 
       const command = language === 'python' ? 'python3' : 'node';
@@ -58,8 +58,10 @@ export function createExecuteCodeToolHandlers(): Map<string, ToolHandler> {
         maxBuffer: 8 * 1024 * 1024,
         env: {
           PATH: '/usr/local/bin:/usr/bin:/bin',
-          HOME: tmpdir(),
-          TMPDIR: tmpdir(),
+          HOME: scratch,
+          TMPDIR: scratch,
+          TMP: scratch,
+          TEMP: scratch,
           LANG: 'C.UTF-8',
         },
       });

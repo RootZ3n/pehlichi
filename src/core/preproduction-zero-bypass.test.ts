@@ -15,10 +15,10 @@
  * while it is locked. A gate that achieved zero bypass by refusing health checks and the UI
  * would have broken the service rather than governed it.
  */
+import { governedMkdtemp } from './temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   GOVERNED_STATUS_PATH, admitNonWorkSurface, admitRunWork, admitWork, readOperationalStatus,
@@ -68,8 +68,8 @@ const profile: AgentProfile = {
 
 /** A disposable workspace and lab store, so a bypass would have somewhere to leave evidence. */
 function disposable(): { workspace: string; labStore: string; drop: () => void } {
-  const workspace = mkdtempSync(join(tmpdir(), 'peh-zerobypass-ws-'));
-  const labStore = mkdtempSync(join(tmpdir(), 'peh-zerobypass-ls-'));
+  const workspace = governedMkdtemp('peh-zerobypass-ws-');
+  const labStore = governedMkdtemp('peh-zerobypass-ls-');
   return { workspace, labStore, drop: () => { for (const d of [workspace, labStore]) rmSync(d, { recursive: true, force: true }); } };
 }
 
@@ -191,7 +191,7 @@ test('the governance repository cannot be chosen by a caller on the production p
   // takes a category and nothing else, so a production caller has no way to point the decision
   // at a repository it prepared.
   assert.equal(admitRunWork.length, 1, 'admitRunWork takes more than a category');
-  const planted = mkdtempSync(join(tmpdir(), 'peh-zerobypass-gov-'));
+  const planted = governedMkdtemp('peh-zerobypass-gov-');
   try {
     const file = join(planted, GOVERNED_STATUS_PATH);
     mkdirSync(join(file, '..'), { recursive: true });
@@ -213,7 +213,7 @@ test('a missing, malformed or contradictory status fails closed', () => {
     'authorized but unreadable state': JSON.stringify({ authorization: 'AUTHORIZED_FOR_OPERATIONAL_WORK' })
   };
   for (const [label, body] of Object.entries(cases)) {
-    const root = mkdtempSync(join(tmpdir(), 'peh-zerobypass-status-'));
+    const root = governedMkdtemp('peh-zerobypass-status-');
     try {
       if (body !== null) {
         const file = join(root, GOVERNED_STATUS_PATH);

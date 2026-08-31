@@ -18,10 +18,18 @@ whether concurrent O_APPEND writes from many threads survive intact.
 """
 
 import os
+import sys
 import threading
 import time
 
-LOG_FILE = "/tmp/stress_test.log"
+# LAB TEMP POLICY: /tmp is forbidden. The log lands under the governed temporary root
+# (PEHVERSE_TEMP_ROOT, provided by deployment). Fail closed, never fall back.
+_TEMP_ROOT = os.environ.get("PEHVERSE_TEMP_ROOT", "").strip()
+if not _TEMP_ROOT or not os.path.isabs(_TEMP_ROOT) or _TEMP_ROOT == "/tmp" or _TEMP_ROOT.startswith("/tmp/"):
+    sys.exit("PEHVERSE_TEMP_ROOT must name the governed temporary root (absolute, never /tmp)")
+_SCRATCH = os.path.join(_TEMP_ROOT, "trio-agent")
+os.makedirs(_SCRATCH, mode=0o700, exist_ok=True)
+LOG_FILE = os.path.join(_SCRATCH, f"stress_test-{os.getpid()}.log")
 NUM_THREADS = 100
 
 

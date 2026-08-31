@@ -1,10 +1,9 @@
 /**
  * Occasio bridge — trio loop closure: file WO + route creative→Luna + announce→Pehlichi.
  */
+import { governedMkdtemp } from "./temp-authority.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { after, test } from "node:test";
 
 import { fileFinding, isCreativeFinding, type BridgeRequestFn } from "./occasio-bridge.js";
@@ -12,7 +11,7 @@ import { WorkOrderStore } from "../tools/work-order-store.js";
 
 const dirs: string[] = [];
 function freshStore(): WorkOrderStore {
-  const dir = mkdtempSync(join(tmpdir(), "occasio-"));
+  const dir = governedMkdtemp("occasio-");
   dirs.push(dir);
   return new WorkOrderStore({ dir });
 }

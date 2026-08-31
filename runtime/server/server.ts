@@ -64,6 +64,7 @@ import {
   type AgentRuntimeConfiguration,
 } from './config.js';
 import { createRestrictedEvidenceVault } from '../../src/core/agent-tools/restricted-evidence.js';
+import { TEMP_ROOT_ENV,assertGovernedTempSafety } from '../../src/core/temp-authority.js';
 import { loadReleaseProvenance } from './provenance.js';
 
 function resolveApiKey(): string | undefined {
@@ -820,11 +821,14 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
     if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/local/health')) {
       // Lab Agent Contract §1.1: include `service` and `ok` for contract probe compatibility.
       // /api/local/health is an alias for Howa adapter compatibility (public variant probes this path).
+      // LAB TEMP POLICY: a process that would use /tmp is a BLOCKING health failure.
+      const governedTemp = governedTempStatus(config);
       return json(res, 200, {
-        ok: true,
+        ok: governedTemp.ok,
         service: agentName,
         version: verifiedCommit ?? provenance.status,
-        status: 'ok',
+        status: governedTemp.ok ? 'ok' : 'blocked:ungoverned-temporary-storage',
+        governedTemp,
         uptimeMs: Math.round(process.uptime() * 1000),
         identity: { id: instanceId, role: 'agent', authorityTier: 'trusted' },
         // Legacy fields (backward compatible):
@@ -1598,8 +1602,23 @@ function detectProviderId(baseUrl: string): string {
 // of the public injection surface used by tests via createAgentServer(config, { driver }).
 export { ScriptedDriver, type DriverAction };
 
+/** Governed-temp health: never throws — health reporting must not take the server down. */
+function governedTempStatus(config: AgentRuntimeConfiguration): { readonly ok: boolean; readonly error?: string } {
+  try {
+    if (config.deployment.environment.temporaryRoot !== TEMP_ROOT_ENV) throw new Error('deployment temporary-root contract does not name the governed authority input');
+    assertGovernedTempSafety();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** Common production lifecycle. Agent wrappers supply only validated capsule/config data. */
 export function startAgentServer(config: AgentRuntimeConfiguration): Server {
+  // LAB TEMP POLICY: bind governed temporary storage BEFORE serving. A production agent
+  // process that would fall back to /tmp must refuse to start, not degrade quietly.
+  if (config.deployment.environment.temporaryRoot !== TEMP_ROOT_ENV) throw new Error('deployment temporary-root contract does not name the governed authority input');
+  assertGovernedTempSafety();
   const port = configuredPort(config);
   const host = configuredHost(config);
   const allowWrites = process.env.AGENT_ALLOW_WRITES === 'true';

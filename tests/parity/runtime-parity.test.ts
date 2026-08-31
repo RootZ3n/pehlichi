@@ -1,8 +1,8 @@
+import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, test } from 'node:test';
@@ -111,7 +111,7 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // `src/core/loop-mechanics.ts`, with `src/core/effect-sinks.ts` added as the governed effect
 // inventory. That is a change to the architecture-controlled shape, so it is recorded here by
 // hand rather than absorbed by regeneration -- which is exactly what this anchor is for.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'df13ecc1740971c97005478a6d18278caf8eeef4a34f9a915b42ea81cc5392a3';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'e44edb2c2ea82bdb10e94a7c8b9454d988923d8c2b97153b550fce7d091b28f3';
 
 interface Inventory {
   schemaVersion: 3;
@@ -508,7 +508,7 @@ test('governed runtime has no identity-conditioned enforcement branch', () => {
 test('path and trust-anchor helpers reject traversal, normalization, case collision, symlink, and self-redefinition attacks', () => {
   for (const path of ['/absolute', '../escape', 'runtime/../escape', './runtime/x', 'runtime//x', 'runtime\\x']) assert.throws(() => safePath(path));
   assert.throws(() => exactUniqueSafe(['runtime/A.ts', 'runtime/a.ts'], 'fixture'), /case-colliding/);
-  const root = mkdtempSync(join(tmpdir(), 'trio-parity-hostile-')); cleanup.push(root);
+  const root = governedMkdtemp('trio-parity-hostile-'); cleanup.push(root);
   writeFileSync(join(root, 'outside'), 'x'); symlinkSync(join(root, 'outside'), join(root, 'linked'));
   assert.equal(lstatSync(join(root, 'linked')).isSymbolicLink(), true);
   const original = readFileSync(join(currentRoot, 'trio/path-inventory.json'));
@@ -532,7 +532,7 @@ test('computed imports, createRequire, and executable configuration are visible 
 });
 
 test('local dependency identity covers exported leaf bytes and rejects symlinked runtime leaves', () => {
-  const root = mkdtempSync(join(tmpdir(), 'trio-local-dependency-')); cleanup.push(root);
+  const root = governedMkdtemp('trio-local-dependency-'); cleanup.push(root);
   const dist = join(root, 'dist');
   const nested = join(dist, 'nested');
   const declaration = { specifier: 'fixture', kind: 'local-runtime-tree', files: ['package.json'], trees: ['dist'] } as const;
@@ -555,7 +555,7 @@ test('a one-byte mutation of any governed shared byte is detected by the compari
   // green parity run is only evidence that the comparison ran, not that it can fail.
   const { shared } = loadTrustedManifests(currentRoot);
   assert.ok(shared.length > 0, 'no governed shared bytes to mutate');
-  const mirror = mkdtempSync(join(tmpdir(), 'trio-parity-mutation-'));
+  const mirror = governedMkdtemp('trio-parity-mutation-');
   cleanup.push(mirror);
   for (const path of shared) {
     const target = join(mirror, path);

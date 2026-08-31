@@ -15,10 +15,10 @@
  * These are ADMISSION tests. A pass here means ADMISSION_REFUSED_AS_REQUIRED. None of them is
  * qualification evidence, and none of them commissions anything.
  */
+import { governedMkdtemp } from './temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -55,7 +55,7 @@ const ALL_WORK: readonly WorkCategory[] = [
 
 /** A disposable repository whose only content is a governed boundary manifest. */
 function repositoryWith(operationalStatus: unknown, { omit = false, malformed = false } = {}): { root: string; drop: () => void } {
-  const root = mkdtempSync(join(tmpdir(), 'trio-admission-'));
+  const root = governedMkdtemp('trio-admission-');
   mkdirSync(join(root, 'trio', 'governance'), { recursive: true });
   const target = join(root, GOVERNED_STATUS_PATH);
   if (malformed) writeFileSync(target, '{ this is not json');

@@ -11,7 +11,8 @@
  */
 import type { ToolSpec, ToolHandler, ToolResult } from "../tools.js";
 import { writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { processScratchDir } from "../temp-authority.js";
 
 const obj = (
   properties: Record<string, unknown>,
@@ -25,8 +26,10 @@ function apiKey(): string | undefined {
   return process.env["MINIMAX_API_KEY"]?.trim() || undefined;
 }
 
-/** Default output directory for generated music. */
-const DEFAULT_OUTPUT_DIR = "/tmp/music-output";
+/** Default output directory for generated music — inside governed scratch, never /tmp. */
+function defaultOutputDir(): string {
+  return join(processScratchDir(), "music-output");
+}
 
 /** Music generation timeout — songs can take up to 2 minutes. */
 const MUSIC_TIMEOUT_MS = 600_000; // 10 minutes
@@ -62,7 +65,7 @@ export const musicToolSpecs: ToolSpec[] = [
         },
         output_path: {
           type: "string",
-          description: "Output file path (default: /tmp/music-output/<name>.mp3).",
+          description: "Output file path (default: the governed scratch music-output directory).",
         },
         free_tier: {
           type: "boolean",
@@ -114,7 +117,7 @@ export const musicToolSpecs: ToolSpec[] = [
         },
         output_path: {
           type: "string",
-          description: "Output file path (default: /tmp/music-output/cover.mp3).",
+          description: "Output file path (default: the governed scratch music-output directory).",
         },
         free_tier: {
           type: "boolean",
@@ -225,7 +228,7 @@ export function createMusicToolHandlers(): Map<string, ToolHandler> {
     }
 
     const outputPath = (args.output_path as string)?.trim() ||
-      `${DEFAULT_OUTPUT_DIR}/music_${Date.now()}.mp3`;
+      `${defaultOutputDir()}/music_${Date.now()}.mp3`;
 
     const res = await minimaxRequest("music_generate", "/music_generation", payload);
     if (!res.ok) return { ok: false, output: "", error: res.error };
@@ -327,7 +330,7 @@ export function createMusicToolHandlers(): Map<string, ToolHandler> {
     if (lyrics) payload.lyrics = lyrics;
 
     const outputPath = (args.output_path as string)?.trim() ||
-      `${DEFAULT_OUTPUT_DIR}/cover_${Date.now()}.mp3`;
+      `${defaultOutputDir()}/cover_${Date.now()}.mp3`;
 
     const res = await minimaxRequest("music_cover", "/music_generation", payload);
     if (!res.ok) return { ok: false, output: "", error: res.error };

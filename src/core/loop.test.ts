@@ -6,10 +6,10 @@
  * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
  * covered separately in `operational-admission.test.ts`.
  */
+import { governedMkdtemp } from "./temp-authority.js";
 import assert from "node:assert/strict";
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -313,7 +313,7 @@ test("6. extraTools seam: agent-supplied tools are registered alongside core", {
 // ── Item 2: CHECKPOINTING ─────────────────────────────────────────────────────
 
 test("7. checkpoint module: saves are pruned to the last N; loadLatest returns the newest", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cp-mod-"));
+  const dir = governedMkdtemp("cp-mod-");
   try {
     for (let it = 1; it <= 5; it++) {
       saveCheckpoint(dir, { iteration: it, timestamp: it * 10, messages: [{ role: "user", content: `m${it}` }], taskId: "T" });
@@ -560,10 +560,11 @@ test("14b. background process ownership rejects cross-session, room, task, calle
   const sameRoomOtherTask = processRegistry.scope({ ...ownerA, taskId: "task-forged" });
   const otherRoom = processRegistry.scope({ ...ownerA, roomKey: "room-forged" });
   const delegatedChild = processRegistry.scope({ sessionId: "delegated-child", roomKey: "room-a", taskId: "task-a", callerId: "caller-a" });
+  const spawnCwd = governedMkdtemp("spawn-cwd-");
   try {
     const [processA, processB] = await Promise.all([
-      Promise.resolve(a.spawn("sleep 30", { cwd: "/tmp", env: { PATH: "/usr/bin:/bin" } }, Date.now())),
-      Promise.resolve(b.spawn("sleep 30", { cwd: "/tmp", env: { PATH: "/usr/bin:/bin" } }, Date.now())),
+      Promise.resolve(a.spawn("sleep 30", { cwd: spawnCwd, env: { PATH: "/usr/bin:/bin" } }, Date.now())),
+      Promise.resolve(b.spawn("sleep 30", { cwd: spawnCwd, env: { PATH: "/usr/bin:/bin" } }, Date.now())),
     ]);
     assert.deepEqual(a.list().map((process) => process.processId), [processA], "creator lists only its process");
     assert.deepEqual(b.list().map((process) => process.processId), [processB], "concurrent session lists only its process");
@@ -605,7 +606,7 @@ test("14c. process registry has no unrestricted singleton action API and validat
 // ── Item 6: REAL SUBAGENT SPAWNING ────────────────────────────────────────────
 
 test("15. delegate_task spawns a REAL separate process and returns its JSON result", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "subagent-fixture-"));
+  const dir = governedMkdtemp("subagent-fixture-");
   const runner = join(dir, "echo-runner.cjs");
   // A real, standalone runner: reads the JSON job on stdin, prints a JSON result.
   writeFileSync(
@@ -772,7 +773,7 @@ test("19. priorMessages seeds prior conversation between the system prompt and t
 });
 
 test("16. delegate_task enforces a timeout: a hung sub-agent is killed and reported", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "subagent-hang-"));
+  const dir = governedMkdtemp("subagent-hang-");
   const runner = join(dir, "hang-runner.cjs");
   // Never reads stdin, never exits — the parent must time it out and kill it.
   writeFileSync(runner, "setInterval(()=>{}, 1000);\n");

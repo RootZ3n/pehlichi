@@ -9,9 +9,9 @@
  *   H8 — delegation depth limit
  *   H10 — approval-callback rejection of write/destructive tools
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -29,7 +29,7 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 // ── C2: search_files must NOT execute shell metacharacters in the pattern ──────
 
 test('C2. search_files does not execute an injected shell command in the pattern', async () => {
-  const ws = mkdtempSync(join(tmpdir(), 'c2-rce-'));
+  const ws = governedMkdtemp('c2-rce-');
   try {
     writeFileSync(join(ws, 'sample.txt'), 'nothing interesting here\n');
     const search = createEnhancedFileToolHandlers(ws).get('search_files')!;
@@ -49,7 +49,7 @@ test('C2. search_files does not execute an injected shell command in the pattern
 // ── H5: skill_view file_path is confined to the skill directory ────────────────
 
 test('H5. skill_view rejects a file_path that escapes the skill directory', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'h5-skill-'));
+  const root = governedMkdtemp('h5-skill-');
   try {
     const skillDir = join(root, 'demo');
     mkdirSync(skillDir, { recursive: true });
@@ -74,8 +74,8 @@ test('H5. skill_view rejects a file_path that escapes the skill directory', asyn
 // ── H6: a symlink whose target is outside the workspace is rejected ────────────
 
 test('H6. resolveInWorkspace rejects a path that escapes via a symlink', () => {
-  const ws = mkdtempSync(join(tmpdir(), 'h6-ws-'));
-  const outside = mkdtempSync(join(tmpdir(), 'h6-outside-'));
+  const ws = governedMkdtemp('h6-ws-');
+  const outside = governedMkdtemp('h6-outside-');
   try {
     writeFileSync(join(outside, 'secret.txt'), 'top secret');
     // A symlink LOGICALLY inside the workspace but pointing OUT of it.
@@ -95,7 +95,7 @@ test('H6. resolveInWorkspace rejects a path that escapes via a symlink', () => {
 // ── H7: a one-shot (ISO timestamp) cron job fires once and is not rescheduled ───
 
 test('H7. a one-shot cron job fires exactly once, then completes (no infinite refire)', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'h7-cron-'));
+  const dir = governedMkdtemp('h7-cron-');
   const fixed = 1_000_000_000;
   let runs = 0;
   const exec = async (): Promise<string> => { runs++; return 'ran'; };
@@ -121,7 +121,7 @@ test('H7. a one-shot cron job fires exactly once, then completes (no infinite re
 // ── H8: delegation depth is bounded ────────────────────────────────────────────
 
 test('H8. delegation is refused once the chain reaches the max depth (no spawn)', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'h8-depth-'));
+  const dir = governedMkdtemp('h8-depth-');
   try {
     assert.equal(DEFAULT_MAX_DELEGATION_DEPTH, 2);
     // A chain already at depth 2 (top → child → grandchild): a further delegate would be

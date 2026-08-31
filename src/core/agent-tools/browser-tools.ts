@@ -14,7 +14,7 @@ import {
 } from './browser-manager.js';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
+import { processScratchDir } from '../temp-authority.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -195,7 +195,7 @@ export function createBrowserToolHandlers(): Map<string, ToolHandler> {
     const question = args.question as string;
     try {
       const page = await ensureBrowser();
-      const screenshotPath = join(tmpdir(), `browser-screenshot-${Date.now()}.png`);
+      const screenshotPath = join(processScratchDir(), `browser-screenshot-${Date.now()}.png`);
       await page.screenshot({ path: screenshotPath, fullPage: false });
       mkdirSync(dirname(screenshotPath), { recursive: true });
       return {

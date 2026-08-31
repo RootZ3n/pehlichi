@@ -2,6 +2,7 @@
  * LUAK TOOLS tests — stub global.fetch to record the (url, method, body) each tool sends and return a
  * scripted response, so we assert endpoint + payload construction without a live Luak.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -45,7 +46,7 @@ test('all 8 luak specs registered + on allowlist; only reads are auto-approved',
     assert.ok(agentToolNames.includes(spec.name), `${spec.name} allowlisted`);
     assert.ok(luakToolNames.has(spec.name));
   }
-  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
+  const names = new Set(createFullToolRegistry({ workspaceRoot: governedMkdtemp('luak-ws-'), agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
   for (const spec of luakToolSpecs) assert.ok(names.has(spec.name), `${spec.name} in registry`);
   assert.ok(READ_ONLY_TOOLS.has('luak_registry') && READ_ONLY_TOOLS.has('luak_leaderboard'));
   for (const t of ['luak_add_model', 'luak_update_model', 'luak_remove_model', 'luak_run']) assert.ok(!READ_ONLY_TOOLS.has(t), `${t} gated`);

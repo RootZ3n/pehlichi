@@ -12,9 +12,7 @@
  * (delegate-tools.ts) parses the last JSON object on stdout. The sub-agent shares no
  * state with its parent beyond this stdin→stdout channel.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 
 import { MimoDriver, runAgentInShadow, type AgentEvent, type AgentProfile, type ToolDef } from './index.js';
 import {
@@ -23,6 +21,7 @@ import {
 } from './agent-tools/delegate-tools.js';
 import { resolveSubagentRunner } from './agent-tools/index.js';
 import { defaultApprovalPolicy } from './approval-policy.js';
+import { governedMkdtemp } from './temp-authority.js';
 
 interface Job {
   readonly goal: string;
@@ -127,7 +126,7 @@ async function main(): Promise<void> {
     if (handler) extraTools.push({ spec, handler });
   }
 
-  const labStore = mkdtempSync(join(tmpdir(), 'subagent-store-'));
+  const labStore = governedMkdtemp('subagent-store-');
   const events: AgentEvent[] = [];
   try {
     // A REAL, independent loop in its own disposable shadow workspace.

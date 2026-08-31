@@ -6,9 +6,9 @@
  *   H4  — TokenMonitor receives real usage from the driver
  *   H1  — endpoint auth on /chat
  */
+import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
-import { rmSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
@@ -67,7 +67,7 @@ async function withServer<T>(opts: PehServerOptions, fn: (base: string) => Promi
 test('C4. a session checkpoints + resumes, and reset() clears checkpoints so the transcript cannot resurrect', requiresAdmission, async () => {
   const ws = createWorkspace();
   const store = createLabStore();
-  const checkpointDir = mkdtempSync(join(tmpdir(), 'c4-cp-'));
+  const checkpointDir = governedMkdtemp('c4-cp-');
   const base = {
     profile: agentProfile, driver: doneDriver, workspaceRoot: ws, labStoreRoot: store, checkpointDir, toolNames: [],
   };

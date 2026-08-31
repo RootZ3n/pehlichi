@@ -1,6 +1,6 @@
+import { governedMkdtemp } from "../temp-authority.js";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -28,7 +28,7 @@ test("B4. resolveSubagentRunner picks the runtime-correct runner path and node a
 });
 
 test("B4. delegate_task spawns the REAL resolved runner (it starts — not a spawn failure)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "b4-spawn-"));
+  const dir = governedMkdtemp("b4-spawn-");
   try {
     const tools = createFullToolRegistry({ workspaceRoot: dir, agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
     const delegate = tools.find((t) => t.spec.name === "delegate_task");
@@ -56,7 +56,7 @@ test("B7. the default delegate timeout is the 5-minute DELEGATE_TIMEOUT, not 30s
 });
 
 test("B7. circular delegation (A→B→A) is detected and refused before spawning", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "b7-cycle-"));
+  const dir = governedMkdtemp("b7-cycle-");
   // The chain that led here already ran goal "task-A" then "task-B"; re-delegating
   // "task-A" closes a cycle and must be refused without ever spawning a process.
   const handlers = createDelegateToolHandlers({
@@ -75,7 +75,7 @@ test("B7. circular delegation (A→B→A) is detected and refused before spawnin
 });
 
 test("B7. delegatedFrom chain is propagated to the spawned job (parent goal appended)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "b7-chain-"));
+  const dir = governedMkdtemp("b7-chain-");
   const runner = join(dir, "echo-chain.cjs");
   // A fixture runner that echoes back the delegatedFrom it received on the job.
   writeFileSync(
@@ -101,7 +101,7 @@ test("B7. delegatedFrom chain is propagated to the spawned job (parent goal appe
 });
 
 test("B7. agent_sync shares a value durably across separate handler instances", async () => {
-  const syncDir = mkdtempSync(join(tmpdir(), "b7-sync-"));
+  const syncDir = governedMkdtemp("b7-sync-");
   try {
     // Agent "ptah" writes; a fresh handler instance (simulating another agent /
     // restart) reads the same key back from the shared directory.
@@ -125,7 +125,7 @@ test("B7. agent_sync shares a value durably across separate handler instances", 
 // ── Blocker 3: CRON PERSISTENCE + REAL EXECUTION ──────────────────────────────
 
 test("B3. a created cron job is persisted to disk and reloaded after a simulated restart", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "b3-cron-"));
+  const dir = governedMkdtemp("b3-cron-");
   const persistPath = join(dir, "cron-jobs.json");
   let executed = 0;
   const exec = async (_prompt: string): Promise<string> => { executed++; return "done"; };
@@ -150,7 +150,7 @@ test("B3. a created cron job is persisted to disk and reloaded after a simulated
 });
 
 test("B3. cron 'run' invokes the execute callback (a real agent loop in production)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "b3-run-"));
+  const dir = governedMkdtemp("b3-run-");
   const persistPath = join(dir, "cron-jobs.json");
   const prompts: string[] = [];
   const exec = async (prompt: string): Promise<string> => { prompts.push(prompt); return `ran: ${prompt}`; };

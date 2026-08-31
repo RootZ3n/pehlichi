@@ -6,11 +6,11 @@
  * committed governed status is PRE_PRODUCTION, `runAgent` executes nothing. Admission is
  * covered separately in `operational-admission.test.ts`.
  */
+import { governedMkdtemp, processScratchDir } from "./temp-authority.js";
 import assert from "node:assert/strict";
 import type { ShadowRunResult } from "./loop.js";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -101,7 +101,7 @@ test("1. a run gets a fresh shadow workspace under tmpdir, not the real repo", {
   const start = events.find((e) => e.kind === "session-start");
   assert.ok(start && start.kind === "session-start");
   assert.equal(start.workspaceRoot, result.shadowRoot);
-  assert.ok(result.shadowRoot.startsWith(tmpdir()), "shadow is under the OS tmp dir");
+  assert.ok(result.shadowRoot.startsWith(processScratchDir()), "shadow is inside governed scratch");
   assert.notEqual(result.shadowRoot, REAL_REPO);
   assert.ok(result.shadowRoot.includes("lab-shadow-"));
 });
@@ -213,7 +213,7 @@ test("8. no automatic promotion — agent/loop has no copy-back path", { skip: P
 
   // (b) a run that writes files leaves an unrelated "real repo" dir untouched —
   //     nothing is ever copied out of the shadow.
-  const realRepo = mkdtempSync(join(tmpdir(), "lab-fake-real-"));
+  const realRepo = governedMkdtemp("lab-fake-real-");
   const { sink } = capture();
   try {
     const result = await runShadow(

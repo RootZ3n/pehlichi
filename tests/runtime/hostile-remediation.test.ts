@@ -502,7 +502,7 @@ test('provenance distinguishes syntax, content verification, local Git verificat
   assert.equal(loadReleaseProvenance(root, 'agent-a', '.release/release.json').status, 'manifest-invalid');
   writeFileSync(path, JSON.stringify({ ...manifest, unknown: true }));
   assert.equal(loadReleaseProvenance(root, 'agent-a', '.release/release.json').status, 'manifest-invalid');
-  assert.equal(loadReleaseProvenance(root, 'agent-a', '/tmp/external.json').status, 'manifest-invalid');
+  assert.equal(loadReleaseProvenance(root, 'agent-a', '/nonexistent/external.json').status, 'manifest-invalid');
   rmSync(path); symlinkSync(join(root, 'runtime/manifest.json'), path);
   assert.equal(loadReleaseProvenance(root, 'agent-a', '.release/release.json').status, 'manifest-invalid');
 

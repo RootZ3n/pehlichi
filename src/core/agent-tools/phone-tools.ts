@@ -28,6 +28,7 @@
  * only PRODUCES result strings; it never builds a message and never throws past the loop.
  */
 import { spawnSync } from 'node:child_process';
+import { processScratchDir } from '../temp-authority.js';
 import { mkdirSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 
@@ -95,7 +96,11 @@ export function buildPhoneEnv(src: NodeJS.ProcessEnv = process.env): Record<stri
     HOME: src.HOME ?? '/data/data/com.termux/files/home',
     LANG: src.LANG ?? 'C.UTF-8',
   };
-  if (src.TMPDIR !== undefined) env.TMPDIR = src.TMPDIR;
+  // Temp dirs are never inherited: a lab-owned child always gets governed scratch.
+  const scratch = processScratchDir();
+  env.TMPDIR = scratch;
+  env.TMP = scratch;
+  env.TEMP = scratch;
   const extra = (src.AGENT_PHONE_ENV_ALLOWLIST ?? '')
     .split(',').map((s) => s.trim()).filter((s) => s.length > 0);
   for (const [k, v] of Object.entries(src)) {

@@ -16,8 +16,16 @@
 set -euo pipefail
 
 TASK="${1:?Usage: model-test.sh \"<task description>\"}"
-RESULTS_DIR="/tmp/model-test-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$RESULTS_DIR"
+# LAB TEMP POLICY: /tmp is forbidden. Results go under the governed temporary root,
+# which deployment must provide via PEHVERSE_TEMP_ROOT. Fail closed, never fall back.
+TEMP_ROOT="${PEHVERSE_TEMP_ROOT:?PEHVERSE_TEMP_ROOT must name the governed temporary root (never /tmp)}"
+case "$TEMP_ROOT" in
+  /tmp|/tmp/*) echo "PEHVERSE_TEMP_ROOT may not be /tmp or beneath it" >&2; exit 1 ;;
+  /*) : ;;
+  *) echo "PEHVERSE_TEMP_ROOT must be absolute" >&2; exit 1 ;;
+esac
+RESULTS_DIR="$TEMP_ROOT/trio-agent/model-test-$(date +%Y%m%d-%H%M%S)-$$"
+mkdir -p -m 0700 "$RESULTS_DIR"
 
 PEHLICHI_URL="http://127.0.0.1:18830"
 MECHANIC_URL="http://127.0.0.1:18810"

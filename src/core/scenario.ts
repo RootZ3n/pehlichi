@@ -9,11 +9,11 @@
  * Uses only the `terminal` core tool (the only built-in tool after cleanup).
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { DriverAction } from "./driver.js";
+import { governedMkdtemp } from "./temp-authority.js";
 
 /** The sibling lab-store repo (single source of truth for skillpack content). */
 const REAL_LAB_STORE = process.env.LAB_STORE_ROOT ?? "/pehverse/repos/lab-utilities/lab-store";
@@ -60,7 +60,7 @@ ${WRONG_VALUE}
 
 /** Create a tmp workspace with the two fake scripts. Returns its root. */
 export function createWorkspace(): string {
-  const root = mkdtempSync(join(tmpdir(), "lab-ws-"));
+  const root = governedMkdtemp("lab-ws-");
   writeFileSync(join(root, "app.sh"), APP_BEFORE);
   writeFileSync(join(root, "lib.sh"), LIB_CONTENT);
   return root;
@@ -68,7 +68,7 @@ export function createWorkspace(): string {
 
 /** Create a tmp lab-store: a real git repo with an empty skills/ dir. Returns its root. */
 export function createLabStore(): string {
-  const root = mkdtempSync(join(tmpdir(), "lab-store-"));
+  const root = governedMkdtemp("lab-store-");
   mkdirSync(join(root, "skills"), { recursive: true });
   mkdirSync(join(root, "conventions"), { recursive: true });
   writeFileSync(join(root, "skills", ".gitkeep"), "");

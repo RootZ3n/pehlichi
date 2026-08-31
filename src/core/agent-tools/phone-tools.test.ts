@@ -3,11 +3,9 @@
  * captures the exact (binary, args) each tool would run and returns a scripted
  * outcome, so we assert wiring, confinement, arg coercion, and result rendering.
  */
+import { governedMkdtemp } from '../temp-authority.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   createPhoneToolHandlers,
@@ -23,7 +21,7 @@ import { agentToolNames } from '../../profile.js';
 import type { ToolContext } from '../tools.js';
 
 const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
-const workspace = (): string => mkdtempSync(join(tmpdir(), 'peh-phone-'));
+const workspace = (): string => governedMkdtemp('peh-phone-');
 
 /** A runner that records calls and replays a fixed outcome. */
 function fakeRunner(outcome: Partial<PhoneRunResult> = {}): { run: PhoneRunner; calls: Array<{ binary: string; args: readonly string[] }> } {

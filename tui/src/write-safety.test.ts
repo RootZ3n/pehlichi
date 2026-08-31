@@ -3,9 +3,9 @@
  * report a before/after diff; the KernelChatSession journals every edit and can undo it,
  * so a mutation the agent makes on the real workspace is never unrecoverable.
  */
+import { governedMkdtemp } from "../../src/core/temp-authority.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -38,7 +38,7 @@ const testProfile: AgentProfile = {
 };
 
 function tmp(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), prefix));
+  return governedMkdtemp(prefix);
 }
 
 // ── tool-level: write_file / patch report a reversible diff ────────────────────

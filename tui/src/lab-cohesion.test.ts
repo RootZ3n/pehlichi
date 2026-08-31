@@ -8,9 +8,9 @@
  *
  * Gated on LAB_TRANSCRIPT_DIR: set here → memory ON; unset elsewhere → inert.
  */
+import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
-import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
@@ -81,7 +81,7 @@ test('an environment-selected truth module cannot enable or inject advisory beha
   const ws = createWorkspace();
   const store = createLabStore();
   // A fake truth-firewall facade carrying an unmistakable executable advisory.
-  const tfRoot = mkdtempSync(join(tmpdir(), 'fake-tf-'));
+  const tfRoot = governedMkdtemp('fake-tf-');
   const tfDir = join(tfRoot, 'dist', 'src');
   mkdirSync(tfDir, { recursive: true });
   writeFileSync(join(tfRoot, 'package.json'), JSON.stringify({ type: 'module' }));
@@ -113,7 +113,7 @@ test('an environment-selected truth module cannot enable or inject advisory beha
 test('LAB_TRUTH runs only the verified canonical dependency and ignores a fake root', async () => {
   const ws = createWorkspace();
   const store = createLabStore();
-  const tfRoot = mkdtempSync(join(tmpdir(), 'fake-tf-enabled-'));
+  const tfRoot = governedMkdtemp('fake-tf-enabled-');
   mkdirSync(join(tfRoot, 'dist', 'src'), { recursive: true });
   writeFileSync(join(tfRoot, 'package.json'), JSON.stringify({ type: 'module' }));
   writeFileSync(join(tfRoot, 'dist', 'src', 'lab-cognition.js'),

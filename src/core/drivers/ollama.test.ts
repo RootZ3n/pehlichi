@@ -121,12 +121,12 @@ test("completionToAction: tool call with object arguments (Ollama native)", () =
     ollamaResponse({
       role: "assistant",
       content: "",
-      tool_calls: [{ function: { name: "read", arguments: { path: "/tmp/test" } } }],
+      tool_calls: [{ function: { name: "read", arguments: { path: "/fixture/test" } } }],
     }, true),
   );
   const action = completionToAction(parsed);
   assert.equal(action.kind, "tool");
-  assert.ok(action.kind === "tool" && action.args.path === "/tmp/test");
+  assert.ok(action.kind === "tool" && action.args.path === "/fixture/test");
 });
 
 test("completionToAction: root-cause JSON becomes root-cause action", () => {

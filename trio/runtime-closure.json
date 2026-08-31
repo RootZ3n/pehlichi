@@ -118,6 +118,7 @@
     "src/core/shadow.ts",
     "src/core/sinks/stdout.ts",
     "src/core/subagent-entry.ts",
+    "src/core/temp-authority.ts",
     "src/core/tools.ts",
     "src/core/truth-bridge.ts",
     "src/core/workspace.ts",
@@ -293,6 +294,14 @@
         "deployment/agent.env.json"
       ],
       "effect": "validated-authority-data"
+    },
+    {
+      "site": "src/core/temp-authority.ts",
+      "targets": [
+        "governed-temp-root/.pehverse-temp-root.json",
+        "governed-temp-root/component/.runs/*.json"
+      ],
+      "effect": "validated-runtime-state"
     },
     {
       "site": "src/tools/bridge-tools.ts",
@@ -503,6 +512,7 @@
       "src/core/runtime-config.ts",
       "src/core/shadow.ts",
       "src/core/sinks/stdout.ts",
+      "src/core/temp-authority.ts",
       "src/core/tools.ts",
       "src/core/workspace.ts",
       "src/index.ts",

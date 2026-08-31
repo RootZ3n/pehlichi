@@ -1,7 +1,7 @@
+import { governedMkdtemp } from './temp-authority.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -15,7 +15,7 @@ import {
 const CANONICAL_ROOMS = { peh: 'lab:peh', ptah: 'lab:ptah', luna: 'lab:luna' } as const;
 
 function freshDir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'lab-transcript-'));
+  const d = governedMkdtemp('lab-transcript-');
   process.env.LAB_TRANSCRIPT_DIR = d;
   return d;
 }

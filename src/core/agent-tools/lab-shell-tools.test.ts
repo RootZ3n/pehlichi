@@ -19,8 +19,9 @@ import {
 import { createFullToolRegistry } from './index.js';
 import { agentToolNames } from '../../profile.js';
 import type { ToolContext } from '../tools.js';
+import { governedMkdtemp } from '../temp-authority.js';
 
-const ctx: ToolContext = { workspaceRoot: '/tmp', labStoreRoot: '/tmp', store: {} };
+const ctx: ToolContext = { workspaceRoot: governedMkdtemp('shell-ws-'), labStoreRoot: governedMkdtemp('shell-store-'), store: {} };
 const ROOT = '/pehverse/repos';
 
 function fakeRunner(outcome: Partial<LabRunResult> = {}): { run: LabRunner; calls: Array<{ host: string; cmd: string }> } {
@@ -37,7 +38,7 @@ test('spec registered + on the allowlist', () => {
   assert.equal(labShellToolSpecs.length, 1);
   assert.ok(labShellToolNames.has('lab_shell'));
   assert.ok(agentToolNames.includes('lab_shell'));
-  const names = new Set(createFullToolRegistry({ workspaceRoot: '/tmp', agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
+  const names = new Set(createFullToolRegistry({ workspaceRoot: governedMkdtemp('shell-reg-ws-'), agentServerUrl: 'http://127.0.0.1:0', agentId: 'test-agent' }).map((t) => t.spec.name));
   assert.ok(names.has('lab_shell'));
 });
 
