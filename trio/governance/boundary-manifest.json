@@ -365,7 +365,7 @@
    "id": "demo-factory-quarantine",
    "modeMustMatch": true,
    "owner": "loony-luna",
-   "ownerTreeDigest": "sha256:66302bdb57284e361bb36c78590258089b68353813831c6869c8b27554df40c8",
+   "ownerTreeDigest": "sha256:fcb27e267766a5ead2ac5abfac3f21e1abb92a47809ba13c539c0dc9d047bd1c",
    "permittedFormats": [
     "code",
     "asset",
@@ -1004,6 +1004,30 @@
    "selector": {
     "paths": [
      "scripts/trio/build-provenance.mjs"
+    ]
+   },
+   "transitional": false,
+   "validation": {
+    "kind": "none"
+   }
+  },
+  {
+   "allowedTypes": [
+    "file"
+   ],
+   "bytesMustMatch": true,
+   "class": "behavior-identical",
+   "divergenceBlocking": true,
+   "expiresBefore": null,
+   "id": "trio-test-bootstrap",
+   "modeMustMatch": true,
+   "permittedFormats": [
+    "javascript"
+   ],
+   "productionReachable": false,
+   "selector": {
+    "paths": [
+     "scripts/trio/governed-test-bootstrap.mjs"
     ]
    },
    "transitional": false,

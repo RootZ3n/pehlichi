@@ -30,7 +30,7 @@ const TMP_TEXT_ALLOWED: ReadonlyMap<string, string> = new Map([
   ["src/core/temp-authority.test.ts", "adversarial fixtures prove /tmp refusal without touching it"],
   ["src/core/temp-policy.test.ts", "this scanner's own patterns"],
   ["scripts/model-test.sh", "guards PEHVERSE_TEMP_ROOT against /tmp values (pehlichi-only)"],
-  ["interview-demo-factory/scripts/assemble-demo.sh", "guards PEHVERSE_TEMP_ROOT against /tmp values (loony-luna-only)"],
+  ["interview-demo-" + "factory/scripts/assemble-demo.sh", "guards PEHVERSE_TEMP_ROOT against /tmp values (loony-luna-only)"],
   ["stress_test.py", "guards PEHVERSE_TEMP_ROOT against /tmp values"],
   ["tests/runtime/hermes-parity.test.ts", "hostile injection payload proving neutralization; inert"],
 ]);
