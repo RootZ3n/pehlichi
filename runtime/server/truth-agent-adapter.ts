@@ -38,6 +38,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { processScratchDir, childTempEnv } from '../../src/core/temp-authority.js';
 
 export const ENFORCEMENT_PROTOCOL = 'truth-agent-enforcement/v1' as const;
 export const ADAPTER_VERSION = '1.0.0' as const;
@@ -291,20 +292,28 @@ function policyPathDirectories(): string[] {
  * The verifier's environment. NODE_OPTIONS, loader and preload flags execute arbitrary
  * code inside the process that is supposed to be the trust anchor, so they are not
  * inherited — and the verifier independently refuses if it finds them anyway.
+ *
+ * Governed temporary variables (TMPDIR, TMP, TEMP, PEHVERSE_TEMP_ROOT) are always
+ * included so the Truth Firewall child receives the same validated private governed
+ * temporary authority as the host. Without them the child falls back to /tmp and its
+ * untrusted-executable guard misses the governed root.
  */
 function verifierEnv(): NodeJS.ProcessEnv {
-  const path = [
+  const pathDirs = [
     ...policyPathDirectories(),
     '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'
   ];
+  const scratch = processScratchDir();
   return {
-    PATH: [...new Set(path)].join(':'),
+    PATH: [...new Set(pathDirs)].join(':'),
     HOME: process.env.HOME,
     LANG: process.env.LANG ?? 'C.UTF-8',
     NODE_OPTIONS: '',
     NODE_PATH: '',
     NO_COLOR: '1',
     CI: 'true',
+    ...childTempEnv(scratch),
+    PEHVERSE_TEMP_ROOT: process.env.PEHVERSE_TEMP_ROOT ?? '',
     ...(process.env.TRUTH_HOST_KEY_PATH ? { TRUTH_HOST_KEY_PATH: process.env.TRUTH_HOST_KEY_PATH } : {})
   };
 }

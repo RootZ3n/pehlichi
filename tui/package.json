@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx --watch src/entry.tsx",
-    "start": "tsx src/entry.tsx",
+    "dev": "node ../scripts/trio/governed-launch.mjs trio-agent -- tsx --watch src/entry.tsx",
+    "start": "node ../scripts/trio/governed-launch.mjs trio-agent -- tsx src/entry.tsx",
     "build": "node scripts/build.mjs",
     "type-check": "tsc --noEmit -p tsconfig.json"
   },
