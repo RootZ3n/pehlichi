@@ -43,6 +43,15 @@ interface DeclaredException {
 }
 
 const TMP_TEXT_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
+  // Split deliberately: this path names an owner-scoped tree that exists only in one Trio
+  // member, and a governed shared file may not carry a literal reference to it.
+  ["interview-demo-" + "factory/scripts/assemble-demo.sh", {
+    reason: "guards PEHVERSE_TEMP_ROOT against forbidden values (loony-luna-only)",
+    lineDigests: [
+      "607d1fbd9910a436c66b1eef9ed87b5bbe21d4b854c524a77aab0f53c97d41b7",
+      "bdf12bd625922089ac131e60134c9c2d264da626075c5d2f0d523da231ea5b31",
+    ],
+  }],
   ["runtime/server/truth-agent-adapter.ts", {
     reason: "names the untrusted roots solely to refuse handing them to a child",
     lineDigests: [
@@ -66,37 +75,56 @@ const TMP_TEXT_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]>
   ["src/core/governed-launch-regression.test.ts", {
     reason: "adversarial fixtures and positive controls proving refusal",
     lineDigests: [
-      "0f216268d965e826386b0a865099a8f66ef0d98f5b08fa304f9f837bc8fc9f0f",
-      "11e0d8f2a7642245a31373b046dd286d425d5c057073c573c3b2a56d75ec0842",
+      "068881a4dd8b62bead8be3184e64ecbb005069118b7e2f7de47bdbf66edb5744",
+      "135cc39d16e92dc97751fdeda2d12eed79b7e7a937620318493d66d70d747339",
+      "1618cb80cd17dc626099d08d1cb55e6b067176e5c56005f31d08832a000ee3ce",
+      "1649be840ba73e0d8fcf46af0a3ef482090d71b78bd814fe8c2220366d984e89",
+      "183b1baafd2b49158325c4d71ec8fef73a3088a6f85d9631110f08d808a9bdbb",
       "1a8dbed6d43e046ae4fefa68a7fbd4af627e029559e8c2b085dbdcac5bd64db2",
+      "2540866490d3ad3c3c4af5bf118fb979dfe47465d1fd419b749f093a3ef318e6",
       "275b6b6a95117482a94264413ce23156ad0e57d1b116e46845cf7bf3af160e9d",
       "2c92a80a97d18768d6961f3c9ea7418fe814b8f4467ea3116ac6f1e355c439fd",
-      "3add46e38b81d3214ff538303bdd45d651520cf7cf8a78c0d2d0aea076b29e6a",
-      "419f12b00e11f7d86a3a8f50cb70ae3c1722acdb7bed1b4d51d4956e7a695c4e",
+      "3958d2b7eb0c36b19b979f08908c30bde443e1b24e71d7d566c14f68ab954e8d",
+      "3a047f92d6ccaec182c8685ccc954667ce1f6262b97fd033efa066e2d9a6f7ff",
+      "3a32bb1a651679d11bb40280d8655ee4a535cf2287f79f1156ebbfeefc7e0499",
+      "3a8bca0311ca3db14507e3af64873629c0b06b75bb4bba21905554aeb2cd6fef",
+      "3b8e65db96e2247a480ba727c5853f77c943d1a8042f20efaa8ee635d4837f96",
+      "4294b78ba3eaa6d6d07065eaf4d53eb7a0828743b38e53b4b1da249aed3b4989",
       "450d99fad621e4e26865782058880c204aaec2aae9c59bf513d52be6a10e7854",
-      "452cd5e1289c5714c54637ff02f1dd10a4566c706ab27d60e58842f2cf262607",
+      "451b5fd032a684ccc0b11d5cec32ae721e5e26f0da181641ab8a39a2f01dd053",
+      "468924909b7be2e77d0ebd30300cf20692c190400cc8ef78fcbcd87506a92347",
       "49a768f945ea4f4fb8642f02eb87e98e4f6e5a8c84a927371aaa4624a0aabfdb",
       "4b06a6d25c951f14d5d4037f701a459cd527c72043b52ab8ad8fa78dd26c5848",
-      "65357be2bb7948d551106e212bc6ae0f676bb448b56806d051fdceb87a38c9ca",
-      "678aa7956ddd5f00c7416a697cc7f1de0ca26cd811e3c9d92145e6eb41775405",
-      "6db2d9c5528b5e00c21ca9462b7e6ec792b07f29222f5e0ad83ed62e1d3fbc0f",
+      "5083bc4c2ee0712cee4cb65b1bfdee29446bb4616d5ac7a180d6707c4f19ee5e",
+      "51915a27d4d5a9aeaeaa6964731ded6a0443cb92b1e66d23444dcdb54b138f5d",
+      "52161e651b091b1c73ec9be6a69da3186bb3ed2d870d1af4c6bc3a885d044a24",
+      "65247f3e9f07abe60d283acb401b07bc024cad5abf1031f745f6afabb8bafeba",
       "6e17d3a1d35c32d832fbd8c2ab81ec603f858449dbd9f381bb8b14cac5dd6d1a",
-      "6f917cb185be8b20f01a8759c258d515399e1460aaf2a32062d4d26709e868d7",
-      "835fe59c425ab26d72b604d48c4852df6b0a328a63a9b09f56796cd821e2d3fc",
-      "83d752b54e3d64ca88af2d70007e179d3a7125aea13a77a457d397cdbc6e3a05",
-      "8b26a57c93f5fbc470d60e04ad92026537d387a40ec82af6a5083cfa9064866a",
+      "8484711815225d8d1353ea9e72189ef888a4fcbdd5111eaec9795fe0731c1ca0",
+      "88f6604a6d7316b6d109bd6881578eff6678fd67c1489f4c79551f5cbeb96cb9",
+      "89e46fb44c5d6a6f3ef2eb9c61bd8db814b0c5061cf98a2b9f5ad24b0e8c726a",
+      "8f6e721cf9a835791d867da8abff5ea6d0a964365ab3e19d4662daefe1b72d97",
       "9b685a1fcc4096a97a7d928406d38943f843c2d9281c3f164dd6e6500f19bbdd",
+      "a4d677f5d6790267782f996ad6ebf9d718374d6231b04b2045e02727eb9361d0",
+      "a838414b1f4839d3d08848a30e78c87e4396aac1dfb4ac3f954595e65974ce39",
+      "a8fd660827ef8b47d8badbe7bddcbb929fc3b8739e5fc20873915ed51eedd644",
+      "af01f0eff7fba6315804984d4b8dca8411d468d817ff578937e1aafb4d9db727",
       "af47c40f0efefe63743f554e7b37e2839da2771d5727196a5bdde8f050501fa6",
-      "be118a6a69b8772d33df4be786698a643301e3d5735ad87292c4e8419df55ce3",
-      "c8c1461447a090ffe0ea45eb73c6f525c111c7b87adaf1cdad127b1724dd4326",
+      "af92e36b3e109838f692ee78948fdadc1cbc42de9dc55d948082a26965549774",
+      "b4e57441c1ca286cfa7c46cb9aabf2208ab75908e41fe0f40d9e9cdb1746413d",
+      "bd5905030d6052098e8aaeea51077f5f725ac5c75523f8ae6d3ea8fd29eae78d",
+      "c4ec31134ab88195d8af2f0b3f41abbfb095e0894695af66a1fd19972ed7efed",
+      "c50546c5a07125799d688c844ee2f4f61e7da0e615004def19dd878ebfe21af3",
       "c93eb99b3bcb378bae85d871c0720a44e53cb5fc201270382ad050794ae85aa8",
+      "cb7b02b5e0275f57fec56c575131690832c451bffa1e24e22a4db8e4f0528bd4",
+      "d1f9f684bbe9a192c7656eb56bd7e8a8c11fb266f6f4db88acd8981efa4cb66e",
       "d488f8830206ef69cbcbf238e268c7e94be7e68952b2a5c8b77a10ad6b7fe399",
-      "d932539f0a899159df6bfd3ea55f218cd5e9cade48ab6f7d494cbe001373e8ef",
-      "d950a52a5b65e086f917e4aafd9776c90f2195ede9661f58a56df8b4a3a4b011",
-      "ead8fb1a9a6b4debfbaca0e493318bdb06c05905dc624338f71a2d8fe3b11e91",
+      "dc6ac7c6b0488096fbd89e211dc0ffaf5205f0063cbde1cea1d0e1cb46273955",
+      "e7cb72de3ed21b97b9b2fdce0749f2e29f1683bd7a6fd6b5d8eb09ca1a4940c0",
       "ed2547b74857c77f5acc80cc4b1f5644811707a572f0aefe2cebafff07146c0f",
-      "f31c49ddd83830d857ef0cf62f0b27d61f54b9953923c708cdd690682c68b809",
+      "ee9ea55a38573b2e4a4c410e693637ac1b0ee4ec8d043482b6cf6939886f8a32",
       "f6fcb7b06b19e404a927da8de2809782b5342b7e5110a7c3350e6148dcea4d19",
+      "f78d113d8381cf747c22211e5c1ef2ffce84dcef4b3c2f9b5b18edbd3466c290",
       "fff2c1fbc04eb4ef2f2039759c80275f05e84cd7e00d31bf0caaf9a0fdadc596",
     ],
   }],
@@ -149,15 +177,6 @@ const TMP_TEXT_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]>
       "de5dc021a8f0f67481e6f22a661eab38f5338007de7cca2af9e0bd1d33dec309",
     ],
   }],
-  // Split deliberately: this path names an owner-scoped tree that exists only in one Trio
-  // member, and a governed shared file may not carry a literal reference to it.
-  ["interview-demo-" + "factory/scripts/assemble-demo.sh", {
-    reason: "guards PEHVERSE_TEMP_ROOT against forbidden values (loony-luna-only)",
-    lineDigests: [
-      "607d1fbd9910a436c66b1eef9ed87b5bbe21d4b854c524a77aab0f53c97d41b7",
-      "bdf12bd625922089ac131e60134c9c2d264da626075c5d2f0d523da231ea5b31",
-    ],
-  }],
 ];
 
 const TMPDIR_CALL_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
@@ -166,7 +185,14 @@ const TMPDIR_CALL_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredExceptio
     lineDigests: [
       "162ff3eb49ceabffaffa18d351198ee3122f768fcd6983c925a3521d3424b14a",
       "3a8f78f4494c55de42a40d505e594f7a9947caeba47cfa25bd2c739434b3ed1f",
+      "40ff140f7240a4bfe07913da1f9c48a08cda2ed1856133131eb35cc2f041ecb3",
+      "5c7e5db164d3b318131cbab0717f708d2a6c010bfa59dad7bd83be31f48c166a",
+      "8ffc7ab52b9c184ad8e19c0f4aecf440053cc051e089f8e4b9fa828365f2a7ff",
+      "9a3c6e3c68ff28cf5e3107ae61a1dda2ff1037445286428dc04a2a5f548563a9",
+      "d8daddf6c8c73a98c40fbec1456a105503c6573d0b37dde54c8ac81d8b2c9c7c",
+      "e0e5bb8a9e6de5773e6e99b92f01e952619739b4f93f4bd533bc45a955cf4f5e",
       "e5b55ed76087a5d02991f654fd6101f6c76fce476a7a566f2234a21d7151e5df",
+      "f104df5f18a9669adfc26e8b0fe8fb5b633b2b2eed42a44cb504dbb302041a5d",
     ],
   }],
   ["src/core/temp-authority.test.ts", {
@@ -196,9 +222,57 @@ const MKDTEMP_CALL_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredExcepti
 ];
 
 
+/**
+ * Raw package-manager invocations. `npm`/`pnpm` initialise their compile cache against
+ * os.tmpdir() before they read any manifest, so a raw invocation has already written to
+ * ungoverned storage by the time any guard could run. The supported interface is therefore an
+ * entry point AHEAD of the manager — scripts/trio/governed-npm.mjs and governed-pnpm.mjs — and
+ * this scan is what keeps every project-owned call path on it. Declared occurrences are the
+ * canonical entries themselves and the controls that prove the refusal.
+ */
+const RAW_PACKAGE_MANAGER_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
+  ["scripts/trio/governed-npm.mjs", {
+    reason: "THE canonical npm entry; naming npm is what it exists to do",
+    lineDigests: [
+      "c648852f9381231b06dacd70d6e0dcceb2efdef65e0a6e69417c50ed58dc7d4e",
+    ],
+  }],
+  ["scripts/trio/governed-pnpm.mjs", {
+    reason: "THE canonical pnpm entry; pnpm is the Trio’s own package manager",
+    lineDigests: [
+      "10cac1b9ec100c53eed15da6276a8ed67c6c7e686304ef2a243e4e94cfb713d0",
+    ],
+  }],
+  ["src/core/agent-tools/ikbi-tools.test.ts", {
+    reason: "inert fixture data describing a remote check command; never executed here",
+    lineDigests: [
+      "1d8aa54498fb160a1a0e801314e2554893fe7fffac309c73f0f0304f4d29018e",
+      "6f188f44a0b90d43e64814b5849d6baa8b552225a2a3e3f52cff9e23d69a5991",
+    ],
+  }],
+  ["src/core/governed-launch-regression.test.ts", {
+    reason: "positive controls that prove an ungoverned manager allocates, and the refusal matrix",
+    lineDigests: [
+      "2d94f3e8c7e583319449f35fa005b4a4555990a193df633fa7b519b8b174997e",
+      "3a0ba3a0d4f3b880f70250bfaf77cab5063596829adf2c09bec597460befc65e",
+      "5e3385e53bf2ab65bc4a51918dadb1871ab38e0465f3e4c24021ccc467e97bf3",
+      "ef76789795cdd65c0cdea3d3939bfa4ae820c414f35eabdc2c300442db034e45",
+    ],
+  }],
+  ["src/data/lesson-cards.ts", {
+    reason: "lesson prose about a separate teaching project; inert text, never executed",
+    lineDigests: [
+      "469f04e102fe107a7d1da8d233f749b2fcaf6678cd9fd6723538f6b74d4d57c8",
+      "783f8da51a3a6f32705f4f914b7ee449a680d2b5c049c5cc2f7d938ad00e269f",
+      "98b28700139e5ca439f3758e3b20ce33b6e3529c05a5e328db13d03170fb1f0e",
+    ],
+  }],
+];
+
 const TMP_TEXT_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(TMP_TEXT_DECLARATIONS);
 const TMPDIR_CALL_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(TMPDIR_CALL_DECLARATIONS);
 const MKDTEMP_CALL_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(MKDTEMP_CALL_DECLARATIONS);
+const RAW_PACKAGE_MANAGER_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(RAW_PACKAGE_MANAGER_DECLARATIONS);
 
 const EXECUTABLE = /\.(ts|mts|cts|mjs|cjs|js|sh|py)$/;
 
@@ -219,6 +293,20 @@ function trackedExecutableFiles(): readonly string[] {
     .filter((f) => !f.startsWith("ui/") && !f.startsWith("dist/") && !f.startsWith("node_modules/"));
 }
 
+/**
+ * The files a package-manager bypass could hide in: every executable, plus the manifests,
+ * deployment descriptors and service definitions that name commands without being code.
+ */
+const PACKAGE_MANAGER_SCANNED = /(?:^|\/)(?:package\.json)$|\.(ts|mts|cts|mjs|cjs|js|sh|py|service|conf|yaml|yml)$/;
+
+function trackedPackageManagerFiles(): readonly string[] {
+  return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+    .split("\0")
+    .filter((f) => f.length > 0 && PACKAGE_MANAGER_SCANNED.test(f))
+    .filter((f) => !f.startsWith("ui/") && !f.startsWith("dist/") && !f.startsWith("node_modules/"))
+    .filter((f) => !f.includes("/node_modules/") && f !== "pnpm-lock.yaml");
+}
+
 function matchingLines(file: string, pattern: RegExp): readonly string[] {
   const source = withoutComments(file, readFileSync(file, "utf8"));
   return source.split("\n").map((l) => l.trim()).filter((l) => pattern.test(l));
@@ -234,12 +322,11 @@ function assertDeclared(
   pattern: RegExp,
   allowed: ReadonlyMap<string, DeclaredException>,
   label: string,
-  onlyFiles?: (file: string) => boolean,
+  files: readonly string[] = trackedExecutableFiles(),
 ): void {
   const offenders: string[] = [];
   const drifted: string[] = [];
-  for (const file of trackedExecutableFiles()) {
-    if (onlyFiles && !onlyFiles(file)) continue;
+  for (const file of files) {
     const hits = matchingLines(file, pattern);
     if (hits.length === 0) continue;
     const declared = allowed.get(file);
@@ -280,6 +367,15 @@ test("shell mktemp and Python tempfile are used only under the governed root", (
   assert.deepEqual(offenders, [], `ungoverned shell/python temp use: ${offenders.join(", ")}`);
 });
 
+test("no raw package-manager invocation survives in committed scripts, tests, deployment files or service definitions", () => {
+  assertDeclared(
+    /(?:^|[\s"'`;&|(])(?:npm|pnpm|npx|yarn)\s+(?:run\b|exec\b|test\b|start\b|install\b|ci\b|dlx\b|add\b|-)|(?:spawn|spawnSync|execFile|execFileSync|execSync)\s*\(\s*["'`](?:npm|pnpm|npx|yarn)["'`]|\bcommand:\s*["'`](?:npm|pnpm|npx|yarn)["'`]|\brunPackageManager\s*\(\s*["'`](?:npm|pnpm|npx|yarn)["'`]/,
+    RAW_PACKAGE_MANAGER_ALLOWED,
+    "committed files invoking a package manager outside the governed entry",
+    trackedPackageManagerFiles(),
+  );
+});
+
 test("the refusal fixtures declared above still exist and still justify themselves", () => {
   // The allowlist is a Trio-wide union, so existence is checked across this repo AND its
   // sibling checkouts (the same sibling resolution the provenance generator uses).
@@ -292,7 +388,7 @@ test("the refusal fixtures declared above still exist and still justify themselv
       /* an absent sibling checkout proves nothing about this repo's entries */
     }
   }
-  for (const map of [TMP_TEXT_ALLOWED, TMPDIR_CALL_ALLOWED, MKDTEMP_CALL_ALLOWED]) {
+  for (const map of [TMP_TEXT_ALLOWED, TMPDIR_CALL_ALLOWED, MKDTEMP_CALL_ALLOWED, RAW_PACKAGE_MANAGER_ALLOWED]) {
     for (const [file, declared] of map) {
       assert.ok(
         trackedAnywhere.has(file),

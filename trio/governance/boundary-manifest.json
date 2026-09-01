@@ -1091,6 +1091,30 @@
       "class": "behavior-identical",
       "divergenceBlocking": true,
       "expiresBefore": null,
+      "id": "trio-governed-pnpm",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "javascript"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "paths": [
+          "scripts/trio/governed-pnpm.mjs"
+        ]
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "none"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
+      "bytesMustMatch": true,
+      "class": "behavior-identical",
+      "divergenceBlocking": true,
+      "expiresBefore": null,
       "id": "trio-governed-temp-authority",
       "modeMustMatch": true,
       "permittedFormats": [

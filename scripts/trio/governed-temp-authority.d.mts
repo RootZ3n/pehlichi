@@ -43,3 +43,25 @@ export function cleanupRun(run: RunDirectoryHandle): void;
 export function buildChildEnv(run: RunDirectoryHandle, component: string, env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 
 export function assertGovernedTempSafety(env?: NodeJS.ProcessEnv): { readonly root: string; readonly scratch: string };
+
+export const TEMP_RUN_CHAIN_ENV: string;
+
+export const ENTRY_CLASSES: readonly string[];
+
+export function canonicalizePath(candidate: string, depth?: number): string;
+
+export function runChainOf(env?: NodeJS.ProcessEnv): string[];
+
+export function assertCanonicalEntryEnvironment(env?: NodeJS.ProcessEnv): string;
+
+export interface GovernedChildEnvironment {
+  readonly root: string;
+  readonly runDir: string;
+  readonly runId: string;
+  readonly component: string;
+  readonly chain: readonly string[];
+}
+
+export function assertGovernedChildEnvironment(env?: NodeJS.ProcessEnv): GovernedChildEnvironment;
+
+export function reapDisprovenRuns(env?: NodeJS.ProcessEnv): string[];

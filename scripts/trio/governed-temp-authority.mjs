@@ -21,12 +21,22 @@ import path from 'node:path';
 export const TEMP_ROOT_ENV = 'PEHVERSE_TEMP_ROOT';
 export const TEMP_RUN_ID_ENV = 'PEHVERSE_TEMP_RUN_ID';
 export const TEMP_COMPONENT_ENV = 'PEHVERSE_TEMP_COMPONENT';
+export const TEMP_RUN_CHAIN_ENV = 'PEHVERSE_TEMP_RUN_CHAIN';
 export const ROOT_MARKER_NAME = '.pehverse-temp-root.json';
 export const ROOT_MARKER = 'pehverse-governed-temp-root';
 export const CHILD_MARKER = 'pehverse-governed-temp-child';
 export const MARKER_VERSION = 1;
 export const RECORDS_DIRNAME = '.runs';
 export const ALLOWED_COMPONENTS = Object.freeze(['trio-agent', 'trio-test']);
+
+/** The declared top-of-chain entry classes. A governed entry says which it is; it is never inferred. */
+export const ENTRY_CLASSES = Object.freeze(['service', 'operator']);
+
+/** The shape a governed run id must have before it is used to build a record path. */
+const RUN_ID_SHAPE = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+/** Bound on symlink resolution while canonicalizing, so a link cycle terminates. */
+const MAX_LINK_DEPTH = 40;
 
 /** The forbidden system temp directories, named ONLY so they can be refused. */
 export const FORBIDDEN_ROOTS = Object.freeze(['/tmp', '/var/tmp']);
@@ -62,15 +72,37 @@ function symlinkComponentOf(candidate) {
   return undefined;
 }
 
-function realCandidateOf(candidate) {
-  try {
-    if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
-    return path.join(fs.realpathSync(path.dirname(candidate)), candidate.slice(path.dirname(candidate).length + 1));
-  } catch { return candidate; }
+/**
+ * Canonicalize a path the way the kernel would resolve it, so that every containment
+ * comparison in this module is made against the REAL location and never against a string.
+ *
+ * Components are resolved left to right: a symlink is expanded before the rest of the path
+ * is applied, and `..` is applied to the already-resolved prefix. That ordering is what makes
+ * `<root>/link/../escape` and `<root>/../../../../tmp/x` both resolve truthfully, which a
+ * lexical `path.resolve` followed by one `realpathSync` does not. Components that do not
+ * exist are kept verbatim, so a not-yet-created path still canonicalizes to where it WOULD be.
+ */
+export function canonicalizePath(candidate, depth = 0) {
+  if (depth > MAX_LINK_DEPTH)
+    throw new GovernedTempError('path_not_canonicalizable', `${candidate} exceeds the symlink resolution limit`);
+  const absolute = path.isAbsolute(candidate) ? candidate : path.join(process.cwd(), candidate);
+  let current = path.sep;
+  for (const part of absolute.split(path.sep)) {
+    if (part.length === 0 || part === '.') continue;
+    if (part === '..') { current = path.dirname(current); continue; }
+    const next = current === path.sep ? path.sep + part : current + path.sep + part;
+    let target;
+    try { target = fs.lstatSync(next).isSymbolicLink() ? fs.readlinkSync(next) : undefined; }
+    catch { target = undefined; }
+    current = target === undefined
+      ? next
+      : canonicalizePath(path.isAbsolute(target) ? target : current + path.sep + target, depth + 1);
+  }
+  return current;
 }
 
 function refuseForbiddenRoots(code, candidate) {
-  const real = realCandidateOf(candidate);
+  const real = canonicalizePath(candidate);
   for (const forbidden of FORBIDDEN_ROOTS) {
     if (candidate === forbidden || real === forbidden)
       throw new GovernedTempError(code, `${candidate} is ${forbidden}`);
@@ -259,7 +291,16 @@ export function buildChildEnv(run, component, env = process.env) {
   childEnv[TEMP_ROOT_ENV] = run.root;
   childEnv[TEMP_COMPONENT_ENV] = component;
   childEnv[TEMP_RUN_ID_ENV] = run.runId;
+  // The chain names every governed run that is an ANCESTOR of the child, outermost first.
+  // A residue detector needs it: an ancestor's run directory is alive by construction while
+  // its descendant scans, and is therefore not residue. Only the chain can tell them apart.
+  childEnv[TEMP_RUN_CHAIN_ENV] = [...runChainOf(env), run.runId].join(':');
   return childEnv;
+}
+
+/** The governed run ids this process inherited, outermost first. Empty at the top of a chain. */
+export function runChainOf(env = process.env) {
+  return (env[TEMP_RUN_CHAIN_ENV] ?? '').split(':').filter((id) => id.length > 0);
 }
 
 /**
@@ -280,4 +321,193 @@ export function assertGovernedTempSafety(env = process.env) {
       throw new GovernedTempError('run_unsafe', `${key} does not match TMPDIR`);
   }
   return { root, scratch };
+}
+
+// ─── Entry contracts — what replaces the lifecycle-marker heuristic ──────────
+//
+// The Order 15 guard asked "did a package manager run ahead of me?" and answered it by
+// looking for npm_lifecycle_event / npm_execpath. That question cannot be answered from
+// those variables: `pnpm exec` sets neither, blank values read as absent, and any of them
+// can be forged. An absent marker was read as "a direct service start", so the whole guard
+// could be skipped by removing information.
+//
+// The replacement never infers. There are exactly two ways to be a governed process, and a
+// process must PROVE it is one of them:
+//
+//   1. Top of chain — the caller DECLARES the entry class (`--entry=service` or
+//      `--entry=operator`, and the package-manager entries by construction). Nothing is
+//      inferred from what is missing; the declaration is explicit and visible in the unit
+//      file or the command line.
+//   2. Governed child — the process proves a governed ancestor by exhibiting a complete,
+//      canonically consistent governed environment whose ownership record exists beneath the
+//      validated root and is bound to this boot. Forging it requires already holding write
+//      access inside the governed root, which is the trust boundary itself.
+//
+// Everything else is refused. Absence of evidence is refusal, not permission.
+
+function refuseGoverned(code, detail) {
+  throw new GovernedTempError(code, detail);
+}
+
+/** Canonicalize a governed path and refuse every shape that must never reach a comparison. */
+function canonicalGovernedPath(label, raw, code) {
+  const value = (raw ?? '').trim();
+  if (value.length === 0) refuseGoverned(code, `${label} is missing or blank`);
+  if (!path.isAbsolute(value)) refuseGoverned(code, `${label} ${value} is not an absolute path`);
+  const link = symlinkComponentOf(value);
+  if (link !== undefined) refuseGoverned(code, `${label} traverses the symlink ${link}`);
+  const real = canonicalizePath(value);
+  for (const forbidden of FORBIDDEN_ROOTS) {
+    if (real === forbidden || isUnder(real, forbidden))
+      refuseGoverned(code, `${label} ${value} canonicalizes to ${real}, beneath ${forbidden}`);
+  }
+  if (real !== path.resolve(value))
+    refuseGoverned(code, `${label} ${value} canonicalizes elsewhere (${real}) — traversal or substitution`);
+  return real;
+}
+
+/**
+ * Validate the environment a TOP-OF-CHAIN governed entry inherited.
+ *
+ * A top-of-chain entry allocates nothing before it decides (verified claim 1: a plain-node
+ * builtin-only module touches no temporary storage), so the only inherited value that can
+ * already have caused an ungoverned write is NODE_COMPILE_CACHE, which this process's own
+ * Node honoured at startup, before a single line here ran. It cannot be undone — so it is
+ * detected and refused, loudly, rather than silently tolerated.
+ *
+ * @returns {string} the validated governed root
+ */
+export function assertCanonicalEntryEnvironment(env = process.env) {
+  const root = resolveGovernedTempRoot(env);
+  const inherited = env.NODE_COMPILE_CACHE;
+  // ABSENT is the only safe reading of "nothing was cached ahead of us". A variable that is
+  // PRESENT but blank is not absent: Node resolves it as a relative path and has already
+  // written a cache directory into the current working directory — which is how a repository
+  // acquired three compile-cache files under a directory named with three spaces.
+  if (inherited === undefined) return root;
+  const cache = canonicalGovernedPath('NODE_COMPILE_CACHE', inherited, 'ungoverned_inherited_cache');
+  if (!isUnder(cache, root))
+    refuseGoverned('ungoverned_inherited_cache',
+      `NODE_COMPILE_CACHE ${inherited} is outside the governed root ${root}; this process had already ` +
+      'written there before it could refuse. Start from `node scripts/trio/governed-npm.mjs` or ' +
+      '`node scripts/trio/governed-pnpm.mjs`, or declare the entry class in the service unit');
+  return root;
+}
+
+/**
+ * Prove that this process is a GOVERNED CHILD, i.e. that a governed ancestor established
+ * private storage before any package manager or loader in between could allocate.
+ *
+ * Every value is canonicalized before it is compared, and the ownership record beneath the
+ * validated root must independently agree with the environment. Missing, blank, relative,
+ * traversing, symlinked, forbidden, inconsistent and forged values are all refused.
+ *
+ * @returns {{root: string, runDir: string, runId: string, component: string, chain: string[]}}
+ */
+export function assertGovernedChildEnvironment(env = process.env) {
+  const CODE = 'ungoverned_parent_environment';
+  const root = resolveGovernedTempRoot(env);
+
+  const runDirRaw = (env.TMPDIR ?? '').trim();
+  const runDir = canonicalGovernedPath('TMPDIR', runDirRaw, CODE);
+  for (const key of ['TMP', 'TEMP']) {
+    const value = (env[key] ?? '').trim();
+    if (value.length === 0) refuseGoverned(CODE, `${key} is missing or blank`);
+    if (value !== runDirRaw) refuseGoverned(CODE, `${key} disagrees with TMPDIR`);
+  }
+  if (!isUnder(runDir, root))
+    refuseGoverned(CODE, `TMPDIR ${runDirRaw} canonicalizes to ${runDir}, outside the validated root ${root}`);
+  if (runDir === root)
+    refuseGoverned(CODE, 'TMPDIR is the governed root itself, not a private run directory');
+
+  let runStat;
+  try { runStat = fs.lstatSync(runDir); }
+  catch { return refuseGoverned(CODE, `TMPDIR ${runDirRaw} does not exist`); }
+  if (runStat.isSymbolicLink() || !runStat.isDirectory())
+    refuseGoverned(CODE, `TMPDIR ${runDirRaw} is not a directory`);
+  const uid = process.getuid?.();
+  if (uid !== undefined && runStat.uid !== uid)
+    refuseGoverned(CODE, `TMPDIR ${runDirRaw} is owned by uid ${runStat.uid}, not ${uid}`);
+  if ((runStat.mode & 0o077) !== 0)
+    refuseGoverned(CODE, `TMPDIR ${runDirRaw} is group or world accessible`);
+
+  const cache = canonicalGovernedPath('NODE_COMPILE_CACHE', env.NODE_COMPILE_CACHE, CODE);
+  if (!isUnder(cache, runDir))
+    refuseGoverned(CODE,
+      `NODE_COMPILE_CACHE canonicalizes to ${cache}, outside the private run directory ${runDir}`);
+
+  const component = (env[TEMP_COMPONENT_ENV] ?? '').trim();
+  const runId = (env[TEMP_RUN_ID_ENV] ?? '').trim();
+  if (component.length === 0 || runId.length === 0)
+    refuseGoverned(CODE, 'the governed run identity is missing');
+  if (!ALLOWED_COMPONENTS.includes(component))
+    refuseGoverned(CODE, `${component} is not an allow-listed component`);
+  if (!RUN_ID_SHAPE.test(runId))
+    refuseGoverned(CODE, 'the governed run id is malformed');
+
+  const recordPath = path.join(root, component, RECORDS_DIRNAME, `${runId}.json`);
+  let record;
+  try { record = JSON.parse(fs.readFileSync(recordPath, 'utf8')); }
+  catch { return refuseGoverned(CODE, 'this run has no ownership record beneath the governed root'); }
+  if (record === null || typeof record !== 'object' || Array.isArray(record))
+    refuseGoverned(CODE, 'the ownership record is malformed');
+  if (record.marker !== CHILD_MARKER || record.version !== MARKER_VERSION)
+    refuseGoverned(CODE, 'the ownership record is not a governed child record');
+  if (record.runId !== runId || record.component !== component)
+    refuseGoverned(CODE, 'the ownership record does not match the declared run identity');
+  if (typeof record.childPath !== 'string' || canonicalizePath(record.childPath) !== runDir)
+    refuseGoverned(CODE, 'the ownership record names a different run directory');
+  if (typeof record.root !== 'string' || canonicalizePath(record.root) !== root)
+    refuseGoverned(CODE, 'the ownership record names a different governed root');
+  const bootId = readBootId();
+  if (bootId !== undefined && record.bootId !== bootId)
+    refuseGoverned(CODE, 'the ownership record was written before this boot');
+
+  return { root, runDir, runId, component, chain: runChainOf(env) };
+}
+
+// ─── Identity-bound reaping ─────────────────────────────────────────────────
+
+function pidIsLive(pid) {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return err?.code === 'EPERM'; }
+}
+
+/**
+ * Collect run directories whose owner is provably gone.
+ *
+ * Identity binding: a record is collectable only when it was written on a DIFFERENT boot
+ * (after which a recycled pid proves nothing) or when its pid is not live on THIS boot.
+ * A directory is never removed unless its record's childPath canonicalizes beneath the
+ * component directory it was found in.
+ *
+ * @returns {string[]} the run ids collected
+ */
+export function reapDisprovenRuns(env = process.env) {
+  const root = resolveGovernedTempRoot(env);
+  const bootId = readBootId();
+  const reaped = [];
+  for (const component of ALLOWED_COMPONENTS) {
+    const componentDir = path.join(root, component);
+    const recordsDir = path.join(componentDir, RECORDS_DIRNAME);
+    let names;
+    try { names = fs.readdirSync(recordsDir); } catch { continue; }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const recordPath = path.join(recordsDir, name);
+      let record;
+      try { record = JSON.parse(fs.readFileSync(recordPath, 'utf8')); } catch { continue; }
+      if (record === null || typeof record !== 'object') continue;
+      if (record.marker !== CHILD_MARKER || record.version !== MARKER_VERSION) continue;
+      const sameBoot = bootId !== undefined && record.bootId === bootId;
+      if (sameBoot && pidIsLive(record.pid)) continue;
+      if (typeof record.childPath !== 'string') continue;
+      const real = canonicalizePath(record.childPath);
+      if (!isUnder(real, componentDir) || real === componentDir) continue;
+      try { fs.rmSync(real, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }); } catch { /* best effort */ }
+      try { fs.rmSync(recordPath, { force: true }); } catch { /* best effort */ }
+      reaped.push(typeof record.runId === 'string' ? record.runId : name);
+    }
+  }
+  return reaped;
 }

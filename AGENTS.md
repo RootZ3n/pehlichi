@@ -18,7 +18,7 @@ governed separately and must stay byte-identical.
 * Routing preferences:
   * repair → `ptah`
   * creative → `luna`
-* Sanity check: `pnpm test` (governed; identical across the Trio)
+* Sanity check: `node scripts/trio/governed-pnpm.mjs run test` (governed; identical across the Trio)
 
 ## Shared runtime — do not diverge
 
@@ -49,13 +49,19 @@ land identically in all three, or parity fails.
 
 Package manager is **pnpm**; this is also a pnpm workspace.
 
-- `pnpm build` — `tsc -p tsconfig.json`, emits to `dist/`. The build is reproducible:
+**The supported entry is `node scripts/trio/governed-pnpm.mjs <script>`** (or `governed-npm.mjs`).
+A package manager initialises its compile cache from `os.tmpdir()` before it reads any manifest,
+so it can never be governed from inside `package.json`; the wrapper runs first, in a plain
+builtin-only `node` process, and establishes private storage before pnpm or npm starts. A raw
+`pnpm test` is refused with `ungoverned_parent_environment`, not silently accepted.
+
+- `node scripts/trio/governed-pnpm.mjs run build` — `tsc -p tsconfig.json`, emits to `dist/`. The build is reproducible:
   rebuilding produces no diff against the committed `dist/`.
-- `pnpm typecheck` — `tsc -p tsconfig.json --noEmit`.
-- `pnpm test` — `node --import tsx --test <explicit file list>`. Tests use `node:test`
+- `node scripts/trio/governed-pnpm.mjs run typecheck` — `tsc -p tsconfig.json --noEmit`.
+- `node scripts/trio/governed-pnpm.mjs run test` — `node --import tsx --test <explicit file list>`. Tests use `node:test`
   and `node:assert/strict`, never vitest or jest.
-- `pnpm run test:runtime` — shared runtime and hostile-remediation suites.
-- `pnpm run test:parity` — cross-repository runtime parity (System A). It reads all three
+- `node scripts/trio/governed-pnpm.mjs run test:runtime` — shared runtime and hostile-remediation suites.
+- `node scripts/trio/governed-pnpm.mjs run test:parity` — cross-repository runtime parity (System A). It reads all three
   distributions; override the roots with `TRIO_REPOSITORIES`.
 - Governance parity (System B):
   `node /pehverse/repos/lab-utilities/trio-verify-launcher/launch.mjs`

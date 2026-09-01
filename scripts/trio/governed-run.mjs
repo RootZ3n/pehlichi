@@ -8,7 +8,15 @@
  * Part of the byte-identical Trio shared core.
  */
 import { spawn } from 'node:child_process';
-import { resolveGovernedTempRoot, createRunDirectory, cleanupRun, buildChildEnv } from './governed-temp-authority.mjs';
+import {
+  assertCanonicalEntryEnvironment,
+  buildChildEnv,
+  cleanupRun,
+  createRunDirectory,
+  reapDisprovenRuns,
+  resolveGovernedTempRoot,
+  runChainOf,
+} from './governed-temp-authority.mjs';
 
 /**
  * Run a command under governed temporary storage. Never returns — terminates this
@@ -22,8 +30,16 @@ import { resolveGovernedTempRoot, createRunDirectory, cleanupRun, buildChildEnv 
  * @param {NodeJS.ProcessEnv} [opts.env] - base environment (default: process.env)
  */
 export async function runGoverned({ component, command, args, extraEnv = {}, env = process.env }) {
-  // 1. Validate root
-  const root = resolveGovernedTempRoot(env);
+  // 1. Validate root through the single canonical authority
+  resolveGovernedTempRoot(env);
+
+  // 1a. At the TOP of a chain, collect run directories whose owner is provably gone. Only the
+  //     top reaps: a nested run's ancestors are alive by construction, and reaping from every
+  //     level would be pure churn. Identity binding (bootId + live pid) is enforced by the
+  //     reaper itself, so a live sibling is never collected.
+  if (runChainOf(env).length === 0) {
+    try { reapDisprovenRuns(env); } catch { /* reaping is maintenance, never a launch blocker */ }
+  }
 
   // 2-4. Create run directory with sidecar
   const run = createRunDirectory(component, env);
@@ -91,4 +107,29 @@ export async function runGoverned({ component, command, args, extraEnv = {}, env
     cleanup();
     process.exit(127);
   });
+}
+
+/**
+ * THE canonical package-manager entry.
+ *
+ * Requirement: every supported package-manager invocation begins here, in a plain-node,
+ * builtin-only process, BEFORE npm or pnpm starts. This process validates the root, creates a
+ * private run directory, and only then spawns the manager with TMPDIR, TMP, TEMP,
+ * PEHVERSE_TEMP_ROOT and NODE_COMPILE_CACHE already pointing inside it — so the manager's own
+ * compile cache, and every cache of every tool it goes on to run, lands under governed storage
+ * and is removed with the run.
+ *
+ * Exit status, signals, cleanup and identity-bound run records are all handled by runGoverned.
+ *
+ * @param {'npm'|'pnpm'} manager
+ * @param {string[]} args
+ */
+export async function runPackageManager(manager, args) {
+  if (args.length === 0) {
+    process.stderr.write(`Usage: node scripts/trio/governed-${manager}.mjs <${manager}-command> [args...]\n`);
+    process.exit(1);
+  }
+  // Top of chain: nothing may have cached to ungoverned storage ahead of this process.
+  assertCanonicalEntryEnvironment(process.env);
+  await runGoverned({ component: 'trio-agent', command: manager, args });
 }

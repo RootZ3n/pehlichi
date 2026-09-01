@@ -38,13 +38,19 @@ A brilliant scientist's consciousness, trapped in a squirrel's brain, with all h
 
 ### Install
 
+**The supported entry is `node scripts/trio/governed-pnpm.mjs <script>`** (or `governed-npm.mjs`).
+A package manager initialises its compile cache from `os.tmpdir()` before it reads any manifest,
+so it can never be governed from inside `package.json`; the wrapper runs first, in a plain
+builtin-only `node` process, and establishes private storage before pnpm or npm starts. A raw
+`pnpm test` is refused with `ungoverned_parent_environment`, not silently accepted.
+
 ```bash
 git clone <repo-url> pehlichi
 cd pehlichi
-pnpm install
+node scripts/trio/governed-pnpm.mjs install
 
 # Also install the TUI (web server) dependencies
-cd tui && pnpm install && cd ..
+cd tui && node ../scripts/trio/governed-pnpm.mjs install && cd ..
 ```
 
 ### Configure
@@ -77,13 +83,13 @@ cp .env.example .env   # or create .env with the vars below
 
 ```bash
 # Typecheck
-pnpm build
+node scripts/trio/governed-pnpm.mjs run build
 
 # Run the server
-node --import tsx tui/src/server.ts
+node scripts/trio/governed-pnpm.mjs run start
 
 # Run tests
-pnpm test
+node scripts/trio/governed-pnpm.mjs run test
 ```
 
 The server starts at `http://127.0.0.1:18830`.

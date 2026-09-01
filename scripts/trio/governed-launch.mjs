@@ -1,64 +1,83 @@
 #!/usr/bin/env node
 /**
- * GOVERNED LAUNCH — argument parser and caller for governed-run.mjs.
+ * GOVERNED LAUNCH — argument parser, entry-contract guard, and caller for governed-run.mjs.
  *
- * Validates the component name, parses the -- separator, and delegates to
- * runGoverned() for all lifecycle management.
- *
- * Usage: node scripts/trio/governed-launch.mjs <component> -- <command> [args...]
+ * Usage:
+ *   node scripts/trio/governed-launch.mjs <component> -- <command> [args...]
+ *   node scripts/trio/governed-launch.mjs --entry=service  <component> -- <command> [args...]
+ *   node scripts/trio/governed-launch.mjs --entry=operator <component> -- <command> [args...]
  *
  * Components: trio-agent, trio-test
  *
+ * THE ENTRY CONTRACT
+ *
+ * This wrapper refuses to run unless it can establish, positively, which governed entry class
+ * it belongs to. There are exactly two, and neither is inferred:
+ *
+ *   --entry=service | --entry=operator   The caller DECLARES that this process is the top of a
+ *       governed chain — a systemd unit, or a human/CI at a terminal. The declaration is
+ *       explicit and visible in `systemctl show -p ExecStart` or in the shell history. Nothing
+ *       about a service is deduced from a missing package-manager variable.
+ *
+ *   (no flag)   The process must PROVE it is a governed child: a complete, canonically
+ *       consistent governed environment whose ownership record exists beneath the validated
+ *       root and is bound to this boot. This is how the package.json scripts reach the wrapper —
+ *       through `governed-npm.mjs` / `governed-pnpm.mjs`, which establish that environment
+ *       before the package manager starts.
+ *
+ * Everything else is refused, including `pnpm exec node scripts/trio/governed-launch.mjs …`,
+ * which publishes no lifecycle variables and therefore used to slip past the old guard entirely.
+ *
+ * WHAT THIS BOUNDARY DOES AND DOES NOT DO. A child cannot retroactively prevent the parent that
+ * launched it: if somebody runs /usr/bin/pnpm by hand, pnpm has already allocated its cache in
+ * os.tmpdir() before this file exists as a process. What the contract does guarantee is that no
+ * project-owned call path can do that — every committed script, test, service definition and
+ * deployment file is mechanically scanned for a raw package-manager invocation — and that when
+ * it happens anyway, this wrapper detects it and fails closed instead of proceeding quietly.
+ *
  * Part of the byte-identical Trio shared core.
  */
-import { ALLOWED_COMPONENTS, GovernedTempError, isUnder, resolveGovernedTempRoot } from './governed-temp-authority.mjs';
+import {
+  ALLOWED_COMPONENTS,
+  ENTRY_CLASSES,
+  assertCanonicalEntryEnvironment,
+  assertGovernedChildEnvironment,
+} from './governed-temp-authority.mjs';
 import { runGoverned } from './governed-run.mjs';
 
-/**
- * Refuse a process reached through an UNGOVERNED package manager.
- *
- * `npm run` cannot be governed from inside package.json: npm has already initialised — and
- * already called module.enableCompileCache() against os.tmpdir() — before it reads the
- * manifest. The only cure is a wrapper outside npm, so raw `npm test` must fail closed
- * rather than silently succeed after npm has written to /tmp.
- *
- * The signal is a package-manager lifecycle (`npm_lifecycle_event` / `npm_execpath`, set by
- * npm and pnpm alike) WITHOUT a governed NODE_COMPILE_CACHE. A direct invocation — the
- * service unit, or a developer running this wrapper straight — has no lifecycle marker and
- * is left alone, because no package manager ran ahead of it to cache anything.
- */
-function refuseUngovernedPackageManager(env) {
-  const viaPackageManager =
-    (env.npm_lifecycle_event ?? '').length > 0 || (env.npm_execpath ?? '').length > 0;
-  if (!viaPackageManager) return;
-  const cache = (env.NODE_COMPILE_CACHE ?? '').trim();
-  const root = resolveGovernedTempRoot(env);
-  if (cache.length === 0 || !isUnder(cache, root)) {
-    throw new GovernedTempError(
-      'ungoverned_package_manager',
-      'this process was reached through an ungoverned package manager, which has already ' +
-      'cached to unmanaged storage. Use `node scripts/trio/governed-npm.mjs <args>` ' +
-      '(operator and test entry) or set the governed environment in the service unit'
-    );
+const ENTRY_PREFIX = '--entry=';
+
+const argv = process.argv.slice(2);
+let declaredEntry;
+if (argv[0] !== undefined && argv[0].startsWith(ENTRY_PREFIX)) {
+  declaredEntry = argv[0].slice(ENTRY_PREFIX.length);
+  if (!ENTRY_CLASSES.includes(declaredEntry)) {
+    process.stderr.write(`Entry class ${JSON.stringify(declaredEntry)} is not allowed. Must be one of: ${ENTRY_CLASSES.join(', ')}\n`);
+    process.exit(1);
   }
+  argv.shift();
 }
 
-const args = process.argv.slice(2);
-const separatorIndex = args.indexOf('--');
-if (separatorIndex < 1 || separatorIndex >= args.length - 1) {
-  process.stderr.write('Usage: node governed-launch.mjs <component> -- <command> [args...]\n');
+const separatorIndex = argv.indexOf('--');
+if (separatorIndex < 1 || separatorIndex >= argv.length - 1) {
+  process.stderr.write('Usage: node governed-launch.mjs [--entry=service|--entry=operator] <component> -- <command> [args...]\n');
   process.exit(1);
 }
 
-const component = args[0];
+const component = argv[0];
 if (!ALLOWED_COMPONENTS.includes(component)) {
   process.stderr.write(`Component ${JSON.stringify(component)} is not allowed. Must be one of: ${ALLOWED_COMPONENTS.join(', ')}\n`);
   process.exit(1);
 }
 
-const command = args[separatorIndex + 1];
-const commandArgs = args.slice(separatorIndex + 2);
+const command = argv[separatorIndex + 1];
+const commandArgs = argv.slice(separatorIndex + 2);
 
-refuseUngovernedPackageManager(process.env);
+// The guard. Independently canonicalizing, never marker-driven, fail-closed by default.
+if (declaredEntry === undefined) {
+  assertGovernedChildEnvironment(process.env);
+} else {
+  assertCanonicalEntryEnvironment(process.env);
+}
 
 await runGoverned({ component, command, args: commandArgs });
