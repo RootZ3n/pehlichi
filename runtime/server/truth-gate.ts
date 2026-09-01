@@ -30,6 +30,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { assertGovernedTempSafety } from '../../src/core/temp-authority.js';
+
 import {
   containmentPlaceholder,
   finalizeTurn,
@@ -37,6 +39,7 @@ import {
   resolveTruthRuntime,
   type AdapterConfig,
   type Decision,
+  type GovernedTemp,
   type HostEvent,
   type HostEventKind,
   type LifecycleSituation,
@@ -187,7 +190,22 @@ export class TruthSessionGate {
   constructor(identity: TruthGateIdentity, workspace: string = process.cwd()) {
     this.identity = identity;
     this.workspace = resolve(workspace);
-    this.config = { agent: identity.agent, runtime: 'ts-trio-tui' };
+    // The host owns root SELECTION and does it with the canonical authority; the adapter is
+    // handed the already-validated result so it can stay builtin-only and vendorable. If the
+    // authority is unavailable the field is simply absent, and the adapter turns that into a
+    // trusted refusal — constructing this gate must never throw.
+    let governedTemp: GovernedTemp | undefined;
+    try {
+      const { root: tempRoot, scratch } = assertGovernedTempSafety();
+      governedTemp = { root: tempRoot, dir: scratch };
+    } catch {
+      governedTemp = undefined;
+    }
+    this.config = {
+      agent: identity.agent,
+      runtime: 'ts-trio-tui',
+      ...(governedTemp ? { governedTemp } : {})
+    };
     this.runtime = resolveTruthRuntime(this.config);
 
     const root = gitRootOf(this.workspace);

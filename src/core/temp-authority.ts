@@ -35,27 +35,23 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  accessSync,
   chmodSync,
-  closeSync,
-  constants as FS,
   existsSync,
-  fsyncSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  renameSync,
   rmSync,
-  statSync,
-  statfsSync,
   writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import {
+  resolveGovernedTempRoot as resolveCanonical,
+  GovernedTempError,
+} from "../../scripts/trio/governed-temp-authority.mjs";
 
 // ─── Contract names ──────────────────────────────────────────────────────────
 
@@ -74,14 +70,13 @@ export type TempComponent = (typeof TEMP_COMPONENTS)[number];
 
 /** The forbidden system temp directory, named ONLY so it can be refused. */
 const FORBIDDEN_TMP = "/tmp";
-/** Linux TMPFS_MAGIC — a root on tmpfs is not persistent disk and is refused. */
-const TMPFS_MAGIC = 0x01021994;
 export const MIN_FREE_BYTES = 512 * 1024 * 1024;
 export const MIN_FREE_INODES = 50_000;
 
 export type TempAuthorityErrorCode =
   | "root_not_configured"
   | "root_not_absolute"
+  | "root_is_forbidden"
   | "root_is_tmp"
   | "root_under_tmp"
   | "root_symlink"
@@ -121,23 +116,6 @@ function isUnder(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
-/**
- * Walk the path component by component with `lstat` — a root that does not exist yet still has
- * ancestors, and the ancestors are what a symlink substitution would use.
- */
-function symlinkComponentOf(path: string): string | undefined {
-  const parts = path.split(sep).filter((p) => p.length > 0);
-  let current: string = sep;
-  for (const part of parts) {
-    current = join(current, part);
-    try {
-      if (lstatSync(current).isSymbolicLink()) return current;
-    } catch {
-      return undefined; // does not exist yet — nothing left to traverse
-    }
-  }
-  return undefined;
-}
 
 /**
  * Is `path` inside a git working tree? Walked upward looking for `.git` on the filesystem —
@@ -146,16 +124,6 @@ function symlinkComponentOf(path: string): string | undefined {
  * own `.git` still resolves up to the enclosing repository: suites asserting "this is NOT a
  * git repository" fail for reasons having nothing to do with the code under test.
  */
-function gitWorktreeAncestor(candidate: string): string | undefined {
-  let current = existsSync(candidate) ? candidate : dirname(candidate);
-  for (;;) {
-    if (existsSync(join(current, ".git"))) return current;
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
-}
-
 /** The candidate judged on its OWN real path, so a symlink to /tmp is refused as /tmp. */
 function realCandidateOf(candidate: string): string {
   try {
@@ -176,11 +144,6 @@ function refuseTmp(code: "root_is_tmp" | "root_under_tmp" | "path_escapes_root",
   }
 }
 
-interface RootMarker {
-  readonly marker: typeof ROOT_MARKER;
-  readonly version: number;
-}
-
 function readJson(path: string): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -196,111 +159,36 @@ function markerValid(root: string): boolean {
 }
 
 /**
- * Prove the root supports what callers rely on — atomic exclusive creation, fsync, rename,
- * deletion — by doing them once, at marker-stamp time. The marker itself lands by rename.
+ * Resolve, validate, and (deliberately) create THE governed temporary root. Every lab rule is
+ * checked here in one place; no caller can accept a root by a different route.
+ *
+ * Delegates to the canonical plain-ESM implementation in governed-temp-authority.mjs.
+ * Wraps GovernedTempError into TempAuthorityError for backward compatibility.
  */
-function stampMarker(root: string): void {
-  const marker: RootMarker = { marker: ROOT_MARKER, version: MARKER_VERSION };
-  const staging = join(root, `${ROOT_MARKER_NAME}.${process.pid}.${randomUUID().slice(0, 8)}`);
+export function resolveGovernedTempRoot(env: NodeJS.ProcessEnv = process.env): string {
   try {
-    const fd = openSync(staging, FS.O_WRONLY | FS.O_CREAT | FS.O_EXCL, 0o600);
-    try {
-      writeFileSync(fd, `${JSON.stringify(marker, null, 2)}\n`);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    renameSync(staging, join(root, ROOT_MARKER_NAME));
+    return resolveCanonical(env);
   } catch (err) {
-    try {
-      rmSync(staging, { force: true });
-    } catch {
-      /* staging may never have been created */
+    if (err instanceof GovernedTempError) {
+      throw new TempAuthorityError(canonicalCodeToAuthorityCode(err.code, err.message), err.message);
     }
-    throw new TempAuthorityError("root_not_atomic", `cannot stamp ${root}: ${err instanceof Error ? err.message : String(err)}`);
+    throw err;
   }
 }
 
 /**
- * Resolve, validate, and (deliberately) create THE governed temporary root. Every lab rule is
- * checked here in one place; no caller can accept a root by a different route.
+ * Map the canonical module's codes onto this module's published contract.
+ *
+ * The canonical authority refuses every forbidden root — `/tmp` and `/var/tmp` alike — under
+ * one code. This module has published `root_is_tmp` and `root_under_tmp` since Order 11 and
+ * its callers and suites branch on them, so the distinction is restored here rather than
+ * changing an API that ~40 importers depend on.
  */
-export function resolveGovernedTempRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env[TEMP_ROOT_ENV]?.trim();
-  if (raw === undefined || raw.length === 0) {
-    throw new TempAuthorityError("root_not_configured", `${TEMP_ROOT_ENV} is not set`);
+function canonicalCodeToAuthorityCode(code: string, message: string): TempAuthorityErrorCode {
+  if (code === "root_is_forbidden") {
+    return message.includes("resolves beneath") ? "root_under_tmp" : "root_is_tmp";
   }
-  if (!isAbsolute(raw)) throw new TempAuthorityError("root_not_absolute", `${raw} is not absolute`);
-  const candidate = resolve(raw);
-  refuseTmp("root_is_tmp", candidate);
-
-  const link = symlinkComponentOf(candidate);
-  if (link !== undefined) throw new TempAuthorityError("root_symlink", `${link} is a symlink`);
-
-  const worktree = gitWorktreeAncestor(candidate);
-  if (worktree !== undefined) {
-    throw new TempAuthorityError("root_inside_git_worktree", `${candidate} is inside the git working tree at ${worktree}`);
-  }
-
-  if (!existsSync(candidate)) {
-    // Deliberate creation: the nearest existing ancestor must be writable by us.
-    let probe = dirname(candidate);
-    while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
-    try {
-      accessSync(probe, FS.W_OK);
-    } catch {
-      throw new TempAuthorityError("root_not_creatable", `${candidate} does not exist and ${probe} is not writable`);
-    }
-    mkdirSync(candidate, { recursive: true, mode: 0o700 });
-  }
-
-  const stat = statSync(candidate);
-  if (!stat.isDirectory()) throw new TempAuthorityError("root_not_directory", `${candidate} is not a directory`);
-  const uid = process.getuid?.();
-  if (uid !== undefined && stat.uid !== uid) {
-    throw new TempAuthorityError("root_not_owned", `${candidate} is owned by uid ${stat.uid}, not ${uid}`);
-  }
-  if ((stat.mode & 0o022) !== 0) {
-    throw new TempAuthorityError("root_permissive", `${candidate} is group/world writable (mode ${(stat.mode & 0o777).toString(8)})`);
-  }
-  try {
-    accessSync(candidate, FS.W_OK);
-  } catch {
-    throw new TempAuthorityError("root_not_owned", `${candidate} is not writable`);
-  }
-
-  try {
-    const fsInfo = statfsSync(candidate);
-    if (Number(fsInfo.type) === TMPFS_MAGIC) {
-      throw new TempAuthorityError("root_on_tmpfs", `${candidate} is on tmpfs, not persistent disk`);
-    }
-    const freeBytes = Number(fsInfo.bavail) * Number(fsInfo.bsize);
-    if (freeBytes < MIN_FREE_BYTES) {
-      throw new TempAuthorityError("root_insufficient_space", `${candidate} has ${freeBytes} free bytes, below the ${MIN_FREE_BYTES} floor`);
-    }
-    const files = Number(fsInfo.files);
-    if (files > 0 && Number(fsInfo.ffree) < MIN_FREE_INODES) {
-      throw new TempAuthorityError("root_insufficient_space", `${candidate} has ${Number(fsInfo.ffree)} free inodes, below the ${MIN_FREE_INODES} floor`);
-    }
-  } catch (err) {
-    if (err instanceof TempAuthorityError) throw err;
-    /* statfs unavailable — ownership, mode, and path rules above still hold */
-  }
-
-  if (!markerValid(candidate)) {
-    // Stamp only a root that is demonstrably not somebody else's directory: empty, or already
-    // holding nothing but this module's own layout. Anything else is refused, not adopted.
-    const entries = readdirSync(candidate).filter((name) => name !== ROOT_MARKER_NAME);
-    const foreign = entries.filter((name) => !(TEMP_COMPONENTS as readonly string[]).includes(name));
-    if (existsSync(join(candidate, ROOT_MARKER_NAME)) || foreign.length > 0) {
-      throw new TempAuthorityError("root_marker_invalid", `${candidate} exists without a valid ${ROOT_MARKER_NAME} marker`);
-    }
-    stampMarker(candidate);
-  }
-
-  const real = realpathSync(candidate);
-  refuseTmp("root_is_tmp", real);
-  return real;
+  return code as TempAuthorityErrorCode;
 }
 
 // ─── Run directories ─────────────────────────────────────────────────────────

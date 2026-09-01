@@ -36,7 +36,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 export const ENFORCEMENT_PROTOCOL = 'truth-agent-enforcement/v1' as const;
@@ -108,6 +108,21 @@ export interface Decision {
   blocked(): boolean;
 }
 
+/**
+ * Governed temporary authority the HOST has already validated with its own canonical
+ * implementation. This is the boundary at which validated authority is handed to a file
+ * that must stay dependency-free: the host does root *selection* (markers, filesystem,
+ * worktree containment, free space); this file only *refuses* values it is about to hand
+ * to a child. Absent, the adapter falls back to reading the environment and applies the
+ * same refusal predicate itself.
+ */
+export interface GovernedTemp {
+  /** The validated governed root. */
+  readonly root: string;
+  /** The private run directory beneath that root. */
+  readonly dir: string;
+}
+
 export interface AdapterConfig {
   /** Stable agent name: `pehlichi`, `loony-luna`, `mad-ptah`, ... */
   readonly agent: string;
@@ -117,6 +132,8 @@ export interface AdapterConfig {
   readonly cliPath?: string;
   readonly nodePath?: string;
   readonly timeoutMs?: number;
+  /** Governed temporary authority already validated by the host. */
+  readonly governedTemp?: GovernedTemp;
 }
 
 export interface FinalizeInput {
@@ -297,35 +314,89 @@ function policyPathDirectories(): string[] {
  * temporary authority as the host. Without them the child falls back to /tmp and its
  * untrusted-executable guard misses the governed root.
  *
- * This function never throws. Every failure path produces a usable (if degraded)
- * environment rather than propagating an exception into the caller's error handling.
- * The child's own authority will fail closed if the variables are absent or unsafe.
+ * This function never throws and never guesses. It either returns a complete governed
+ * environment or a refusal reason the caller turns into a trusted refusal.
  */
-function verifierEnv(): NodeJS.ProcessEnv {
+type EnvOutcome = { readonly ok: true; readonly env: NodeJS.ProcessEnv } | { readonly ok: false; readonly reason: string };
+
+/** The system temporary directories, named ONLY so they can be refused. */
+const UNTRUSTED_TEMP_ROOTS = ['/tmp', '/var/tmp'] as const;
+
+/**
+ * Refuse governed temporary values that must not be handed to a child.
+ *
+ * This is deliberately NOT a copy of the host's canonical authority. It never selects a
+ * root, so it carries no marker, tmpfs, worktree-containment or free-space logic. It
+ * answers one narrower question — "are these four values safe to give a child?" — which is
+ * the most a vendorable, builtin-only file can answer on its own. Never throws.
+ */
+function governedTempFrom(config: AdapterConfig): GovernedTemp | string {
+  const supplied = config.governedTemp;
+  const root = (supplied ? supplied.root : process.env.PEHVERSE_TEMP_ROOT ?? '').trim();
+  const dir = (supplied ? supplied.dir : process.env.TMPDIR ?? '').trim();
+  if (root.length === 0 || dir.length === 0) return 'the governed temporary authority is not configured';
+  if (!root.startsWith('/') || !dir.startsWith('/')) return 'the governed temporary paths are not absolute';
+  if (supplied === undefined) {
+    // Reading the environment directly: the three variables must agree with one another,
+    // or the child would resolve a different directory from the one that was checked.
+    if (process.env.TMP !== dir || process.env.TEMP !== dir) {
+      return 'the governed temporary variables disagree with one another';
+    }
+  }
+  let realRoot: string;
+  let realDir: string;
+  try {
+    realRoot = realpathSync(root);
+    realDir = realpathSync(dir);
+  } catch {
+    return 'the governed temporary directory does not exist';
+  }
+  for (const untrusted of UNTRUSTED_TEMP_ROOTS) {
+    for (const candidate of [realRoot, realDir]) {
+      if (candidate === untrusted || candidate.startsWith(`${untrusted}/`)) {
+        return 'the governed temporary authority resolves beneath an untrusted location';
+      }
+    }
+  }
+  if (realDir !== realRoot && !realDir.startsWith(`${realRoot}/`)) {
+    return 'the governed temporary directory is outside its declared root';
+  }
+  const stat = statSync(realDir);
+  if (!stat.isDirectory()) return 'the governed temporary directory is not a directory';
+  const uid = process.getuid?.();
+  if (uid !== undefined && stat.uid !== uid) return 'the governed temporary directory is not owned by this process';
+  if ((stat.mode & 0o077) !== 0) return 'the governed temporary directory is group or world accessible';
+  return { root: realRoot, dir: realDir };
+}
+
+function verifierEnv(config: AdapterConfig): EnvOutcome {
+  const governed = governedTempFrom(config);
+  if (typeof governed === 'string') return { ok: false, reason: governed };
   const pathDirs = [
     ...policyPathDirectories(),
     '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'
   ];
-  // Read governed temp variables from the environment. The governed-launch wrapper
-  // (or deployment Environment) sets these before this process starts. We pass them
-  // through without validation — the child's own authority fails closed on bad values.
-  const tmpdir = process.env.TMPDIR ?? '';
-  const tmp = process.env.TMP ?? '';
-  const temp = process.env.TEMP ?? '';
-  const tempRoot = process.env.PEHVERSE_TEMP_ROOT ?? '';
   return {
-    PATH: [...new Set(pathDirs)].join(':'),
-    HOME: process.env.HOME,
-    LANG: process.env.LANG ?? 'C.UTF-8',
-    NODE_OPTIONS: '',
-    NODE_PATH: '',
-    NO_COLOR: '1',
-    CI: 'true',
-    TMPDIR: tmpdir,
-    TMP: tmp,
-    TEMP: temp,
-    PEHVERSE_TEMP_ROOT: tempRoot,
-    ...(process.env.TRUTH_HOST_KEY_PATH ? { TRUTH_HOST_KEY_PATH: process.env.TRUTH_HOST_KEY_PATH } : {})
+    ok: true,
+    env: {
+      PATH: [...new Set(pathDirs)].join(':'),
+      HOME: process.env.HOME,
+      LANG: process.env.LANG ?? 'C.UTF-8',
+      NODE_OPTIONS: '',
+      NODE_PATH: '',
+      NO_COLOR: '1',
+      CI: 'true',
+      // Governed keys last: nothing after this can overwrite them, and the only later
+      // spread carries a single unrelated key.
+      TMPDIR: governed.dir,
+      TMP: governed.dir,
+      TEMP: governed.dir,
+      // The Truth Firewall runs the repository's policy scripts through a package manager
+      // (pnpm for the Trio). Without this the manager caches to os.tmpdir()/node-compile-cache.
+      NODE_COMPILE_CACHE: join(governed.dir, 'node-compile-cache'),
+      PEHVERSE_TEMP_ROOT: governed.root,
+      ...(process.env.TRUTH_HOST_KEY_PATH ? { TRUTH_HOST_KEY_PATH: process.env.TRUTH_HOST_KEY_PATH } : {})
+    }
   };
 }
 
@@ -381,12 +452,16 @@ export function mintTrustedBase(
 ): string | null {
   const resolved = runtime === undefined ? resolveTruthRuntime(config) : runtime;
   if (!resolved) return null;
+  // No governed temporary authority means no attestation. Returning null is this
+  // function's documented "cannot attest" answer; it never throws.
+  const envOutcome = verifierEnv(config);
+  if (!envOutcome.ok) return null;
   const result = spawnSync(resolved.node, [resolved.module, 'trusted-base', 'mint', '--json'], {
     input: JSON.stringify({ context }),
     encoding: 'utf8',
     timeout: 30_000,
     shell: false,
-    env: verifierEnv()
+    env: envOutcome.env
   });
   if (result.status !== 0 || !(result.stdout ?? '').trim()) return null;
   try {
@@ -441,13 +516,26 @@ export function finalizeTurn(
     timeoutMs: config.timeoutMs ?? 360_000
   };
 
+  // A governed temporary authority is a precondition for crossing the boundary. Without
+  // one the child would resolve /tmp and its untrusted-executable guard would miss the
+  // lab's real scratch. That is a refusal, not an exception: this function must never
+  // return raw model text and must never throw into the caller's error handling.
+  const envOutcome = verifierEnv(config);
+  if (!envOutcome.ok) {
+    return wrap(localRefusal(
+      input,
+      `the Truth Firewall could not be given a governed temporary authority: ${envOutcome.reason}`,
+      nonce
+    ));
+  }
+
   const result = spawnSync(resolved.node, [resolved.module, 'finalize', '--json'], {
     input: JSON.stringify(request),
     encoding: 'utf8',
     timeout: config.timeoutMs ?? 360_000,
     maxBuffer: 64 * 1024 * 1024,
     shell: false,
-    env: verifierEnv()
+    env: envOutcome.env
   });
 
   if (result.error || typeof result.stdout !== 'string' || result.stdout.trim().length === 0) {

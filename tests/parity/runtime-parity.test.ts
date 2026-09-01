@@ -111,7 +111,7 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // `src/core/loop-mechanics.ts`, with `src/core/effect-sinks.ts` added as the governed effect
 // inventory. That is a change to the architecture-controlled shape, so it is recorded here by
 // hand rather than absorbed by regeneration -- which is exactly what this anchor is for.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'e44edb2c2ea82bdb10e94a7c8b9454d988923d8c2b97153b550fce7d091b28f3';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '5e9e4a90594bbf300ddafed02491a965b613aaa262670f18764304146470afe0';
 
 interface Inventory {
   schemaVersion: 3;
@@ -182,7 +182,12 @@ function filesUnder(root: string, directory: string): string[] {
 
 function resolveRelativeImport(from: string, specifier: string): string | undefined {
   const base = resolve(dirname(from), specifier);
-  const candidates = base.endsWith('.js') ? [base.slice(0, -3) + '.ts']
+  // `.mjs`/`.cjs` specifiers name a real JavaScript module — the canonical governed-temp
+  // authority is plain ESM by design, so it resolves as itself rather than being rewritten to
+  // a TypeScript source that does not exist. A `.js` specifier still prefers its `.ts` source
+  // and falls back to the literal file when there is none.
+  const candidates = base.endsWith('.mjs') || base.endsWith('.cjs') ? [base]
+    : base.endsWith('.js') ? [base.slice(0, -3) + '.ts', base]
     : base.endsWith('.ts') ? [base] : [base + '.ts', join(base, 'index.ts')];
   return candidates.find((path) => { try { return lstatSync(path).isFile(); } catch { return false; } });
 }

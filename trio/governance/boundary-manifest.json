@@ -1070,12 +1070,84 @@
       "id": "trio-governed-npm",
       "modeMustMatch": true,
       "permittedFormats": [
-        "shell"
+        "javascript"
       ],
       "productionReachable": false,
       "selector": {
         "paths": [
-          "scripts/trio/governed-npm.sh"
+          "scripts/trio/governed-npm.mjs"
+        ]
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "none"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
+      "bytesMustMatch": true,
+      "class": "behavior-identical",
+      "divergenceBlocking": true,
+      "expiresBefore": null,
+      "id": "trio-governed-temp-authority",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "javascript"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "paths": [
+          "scripts/trio/governed-temp-authority.mjs"
+        ]
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "none"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
+      "bytesMustMatch": true,
+      "class": "behavior-identical",
+      "divergenceBlocking": true,
+      "expiresBefore": null,
+      "id": "trio-governed-temp-authority-types",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "typescript"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "paths": [
+          "scripts/trio/governed-temp-authority.d.mts"
+        ]
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "none"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
+      "bytesMustMatch": true,
+      "class": "behavior-identical",
+      "divergenceBlocking": true,
+      "expiresBefore": null,
+      "id": "trio-governed-run",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "javascript"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "paths": [
+          "scripts/trio/governed-run.mjs"
         ]
       },
       "transitional": false,

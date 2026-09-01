@@ -44,6 +44,7 @@
     "runtime/server/skin.ts",
     "runtime/server/truth-agent-adapter.ts",
     "runtime/server/truth-gate.ts",
+    "scripts/trio/governed-temp-authority.mjs",
     "src/core/agent-tools/brain-tools.ts",
     "src/core/agent-tools/browser-manager.ts",
     "src/core/agent-tools/browser-tools.ts",
@@ -215,6 +216,14 @@
         "truth-firewall/package.json"
       ],
       "effect": "integrity-policy"
+    },
+    {
+      "site": "scripts/trio/governed-temp-authority.mjs",
+      "targets": [
+        "governed-temp-root/.pehverse-temp-root.json",
+        "governed-temp-root/component/.runs/*.json"
+      ],
+      "effect": "validated-runtime-state"
     },
     {
       "site": "src/core/agent-tools/coordination-tools.ts",
@@ -469,6 +478,7 @@
       "src/index.ts"
     ],
     "governedCommon": [
+      "scripts/trio/governed-temp-authority.mjs",
       "src/core/agent-tools/circuit-breaker.ts",
       "src/core/agent-tools/error-classifier.ts",
       "src/core/agent-tools/infrastructure.ts",

@@ -102,7 +102,12 @@ function requireTracked(rel, why) {
  */
 function resolveRelativeImport(from, specifier) {
   const base = path.resolve(path.dirname(from), specifier);
-  const candidates = base.endsWith('.js') ? [base.slice(0, -3) + '.ts']
+  // `.mjs`/`.cjs` specifiers name a real JavaScript module — the canonical governed-temp
+  // authority is plain ESM by design, so it must resolve as itself rather than be rewritten
+  // to a TypeScript file that does not exist. A `.js` specifier still prefers its `.ts`
+  // source and falls back to the literal file when there is none.
+  const candidates = base.endsWith('.mjs') || base.endsWith('.cjs') ? [base]
+    : base.endsWith('.js') ? [base.slice(0, -3) + '.ts', base]
     : base.endsWith('.ts') ? [base] : [base + '.ts', path.join(base, 'index.ts')];
   return candidates.find((candidate) => { try { return fs.lstatSync(candidate).isFile(); } catch { return false; } });
 }
