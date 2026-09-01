@@ -1,12 +1,16 @@
-#!/usr/bin/env tsx
 /**
  * Chat Harness — test the agent's personality and runtime from the CLI.
  * No TTY needed. Sends a message, prints the response.
  *
- * Usage:
- *   npx tsx src/harness.ts "Hello, who are you?"
- *   npx tsx src/harness.ts --interactive
- *   MIMO_API_KEY=xxx npx tsx src/harness.ts "What can you help with?"
+ * Run it through the governed boundary, from the repository root. A raw `npx tsx` would let npx
+ * and the loader allocate against os.tmpdir() before anything could refuse; the wrapper sets
+ * TMPDIR/TMP/TEMP/PEHVERSE_TEMP_ROOT/NODE_COMPILE_CACHE first. There is no shebang for the same
+ * reason: an executable bit here would be an ungoverned entry point.
+ *
+ * Usage (from the repository root):
+ *   node scripts/trio/governed-launch.mjs --entry=operator trio-agent -- \
+ *     node --import tsx tui/src/harness.ts "Hello, who are you?"
+ *   ... --interactive
  */
 import { ChatSession } from './lib/chat.js';
 import { loadSkin } from './lib/skin.js';
@@ -91,9 +95,10 @@ async function main() {
     }
   } else {
     // Info mode — just show agent details
-    console.log('  No message provided. Usage:');
-    console.log('    npx tsx src/harness.ts "Hello, who are you?"');
-    console.log('    npx tsx src/harness.ts --interactive');
+    console.log('  No message provided. Usage, from the repository root:');
+    console.log('    node scripts/trio/governed-launch.mjs --entry=operator trio-agent --');
+    console.log('      node --import tsx tui/src/harness.ts "Hello, who are you?"');
+    console.log('    (add --interactive for a session)');
     console.log('');
     console.log('  Environment:');
     console.log(`    MIMO_API_KEY: ${process.env.MIMO_API_KEY ? '(set)' : '(not set)'}`);

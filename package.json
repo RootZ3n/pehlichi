@@ -16,8 +16,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json",
+    "typecheck": "node scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json --noEmit",
     "governed": "node scripts/trio/governed-npm.mjs",
     "governed:pnpm": "node scripts/trio/governed-pnpm.mjs",
     "start": "node scripts/trio/governed-launch.mjs trio-agent -- node --import tsx tui/src/server.ts",

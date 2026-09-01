@@ -19,8 +19,8 @@ so it can never be governed from inside `package.json`; the wrapper runs first, 
 builtin-only `node` process, and establishes private storage before pnpm or npm starts. A raw
 `pnpm test` is refused with `ungoverned_parent_environment`, not silently accepted.
 
-- `node scripts/trio/governed-pnpm.mjs run build` — `tsc -p tsconfig.json` (emits to `dist/`).
-- `node scripts/trio/governed-pnpm.mjs run typecheck` — `tsc -p tsconfig.json --noEmit` (type-check only, no emit).
+- `node scripts/trio/governed-pnpm.mjs run build` — the compiler through `governed-launch.mjs` (emits to `dist/`). A bare `tsc` is refused: it caches against `os.tmpdir()` before reading a config.
+- `node scripts/trio/governed-pnpm.mjs run typecheck` — the same compiler, `--noEmit`, through the same boundary (type-check only).
 - `node scripts/trio/governed-pnpm.mjs run test` — runs the Node built-in test runner under tsx against an explicit list of
   `*.test.ts` files: `node --import tsx --test <files>`. Tests are **not** vitest/jest —
   they use `node:test` (`test(...)`) with `node:assert/strict`.
@@ -35,7 +35,7 @@ removed when package behaviour was converged across the Trio: an entry point tha
 only one agent cannot be part of a shared contract, and agent-specific capability belongs in
 a portable role/capability pack rather than a unique package script.
 
-To run a single test file directly: `node --import tsx --test src/core/loop.test.ts`.
+To run a single test file, still through the boundary: `node scripts/trio/governed-launch.mjs --entry=operator trio-test -- node --import tsx --test src/core/loop.test.ts`.
 
 There is no lint or dev script defined in `package.json`.
 

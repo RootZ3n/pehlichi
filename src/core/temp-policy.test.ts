@@ -98,9 +98,11 @@ const TMP_TEXT_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]>
       "5083bc4c2ee0712cee4cb65b1bfdee29446bb4616d5ac7a180d6707c4f19ee5e",
       "51915a27d4d5a9aeaeaa6964731ded6a0443cb92b1e66d23444dcdb54b138f5d",
       "52161e651b091b1c73ec9be6a69da3186bb3ed2d870d1af4c6bc3a885d044a24",
+      "5b46a89962b7c75e61ab83ff7ad5810f8db63b83ead33b391f43acc8b800ad7d",
       "65247f3e9f07abe60d283acb401b07bc024cad5abf1031f745f6afabb8bafeba",
       "6e17d3a1d35c32d832fbd8c2ab81ec603f858449dbd9f381bb8b14cac5dd6d1a",
       "8484711815225d8d1353ea9e72189ef888a4fcbdd5111eaec9795fe0731c1ca0",
+      "870ee05d330ca588c5a717fa5891a66beb5e4d08c158d92c77164eead1636fcd",
       "88f6604a6d7316b6d109bd6881578eff6678fd67c1489f4c79551f5cbeb96cb9",
       "89e46fb44c5d6a6f3ef2eb9c61bd8db814b0c5061cf98a2b9f5ad24b0e8c726a",
       "8f6e721cf9a835791d867da8abff5ea6d0a964365ab3e19d4662daefe1b72d97",
@@ -223,48 +225,473 @@ const MKDTEMP_CALL_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredExcepti
 
 
 /**
- * Raw package-manager invocations. `npm`/`pnpm` initialise their compile cache against
- * os.tmpdir() before they read any manifest, so a raw invocation has already written to
- * ungoverned storage by the time any guard could run. The supported interface is therefore an
- * entry point AHEAD of the manager — scripts/trio/governed-npm.mjs and governed-pnpm.mjs — and
- * this scan is what keeps every project-owned call path on it. Declared occurrences are the
- * canonical entries themselves and the controls that prove the refusal.
+ * UNGOVERNED EXECUTION ANALYSIS — command content, not pattern matching.
+ *
+ * `npm`, `pnpm`, `npx`, `yarn` and `corepack` initialise a compile cache against `os.tmpdir()`
+ * before they read any manifest, and `tsc`/`tsx` do the same at loader init. A raw invocation
+ * has therefore already written to ungoverned storage by the time any guard could run, so the
+ * supported interface is an entry point AHEAD of them — `scripts/trio/governed-npm.mjs`,
+ * `governed-pnpm.mjs` and `governed-launch.mjs` — and this analysis is what keeps every
+ * project-owned call path on it.
+ *
+ * A regex over source lines cannot do that job: `PM=pnpm; $PM run test`, `alias pm=pnpm`,
+ * `corepack pnpm run build`, `npx tsc`, `sh -c "…"`, `spawnSync("pn" + "pm", …)` and
+ * `["p","n","p","m"].join("")` all defeat it. So each governed file type is analysed as what it
+ * actually is — a manifest, a shell script, a program, a unit file, a document — and a command
+ * whose identity cannot be resolved statically is a finding, not a pass. Absence of evidence is
+ * refusal.
  */
-const RAW_PACKAGE_MANAGER_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
-  ["scripts/trio/governed-npm.mjs", {
-    reason: "THE canonical npm entry; naming npm is what it exists to do",
+
+/** Package managers: they own a compile cache before they own a manifest. */
+const PACKAGE_MANAGERS = ["npm", "pnpm", "npx", "yarn", "corepack"] as const;
+/** Compilers and loaders that allocate against os.tmpdir() at start-up. */
+const BUILD_TOOLS = ["tsc", "tsx"] as const;
+const UNGOVERNED_COMMANDS: readonly string[] = [...PACKAGE_MANAGERS, ...BUILD_TOOLS];
+
+/** The canonical entries. A command that begins with one of these IS the boundary. */
+const GOVERNED_ENTRY = /(?:^|\/)governed-(?:launch|npm|pnpm)\.mjs$/;
+
+interface Finding {
+  /** `ungoverned-command:<tool>`, `literal-ungoverned-command:<tool>` or `unresolved-command`. */
+  readonly kind: string;
+  /** The command text the finding was made on, normalised to single spaces. */
+  readonly text: string;
+}
+
+const baseOf = (word: string): string => word.replace(/^.*\//, "");
+const isUngoverned = (word: string): boolean => UNGOVERNED_COMMANDS.includes(baseOf(word));
+const normalise = (text: string): string => text.replace(/\s+/g, " ").trim().slice(0, 200);
+const finding = (kind: string, text: string): Finding => ({ kind, text: normalise(text) });
+
+function unquote(value: string): string {
+  const t = value.trim();
+  if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) return t.slice(1, -1);
+  return t;
+}
+
+/** Tokenise one command, keeping quoted runs together. */
+function tokenise(command: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (const c of command) {
+    if (quote !== null) { if (c === quote) quote = null; else cur += c; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (/\s/.test(c)) { if (cur) { out.push(cur); cur = ""; } continue; }
+    cur += c;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Split a shell fragment into individual commands on operators, respecting quotes. */
+function splitCommands(text: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (const c of text) {
+    if (quote !== null) { cur += c; if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; cur += c; continue; }
+    if (c === "\n" || c === ";" || c === "|" || c === "&" || "(){}".includes(c)) { out.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** Words that pass a command through unchanged: what follows is still a command. */
+const NEUTRAL_PREFIX = new Set(["exec", "command", "nohup", "time", "sudo", "builtin", "eval",
+  "if", "elif", "while", "until", "then", "else", "do", "done", "fi", "!"]);
+/** Words after which the rest is operands, not a command: a test expression or a word list. */
+const TERMINAL_WORD = new Set(["[[", "[", "test", "for", "in", "case", "esac", "select", "local",
+  "declare", "readonly", "export", "unset", "shift", "return", "trap", "echo", "printf", "read", "set"]);
+const SHELLS = ["sh", "bash", "zsh", "dash", "ksh"];
+/** A command-position VARIABLE — the shape `$PM run test` has. A fragment that merely contains
+ *  `$` is a path or a substitution remnant, not a command name, and judging it is noise. */
+const COMMAND_VARIABLE = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/;
+
+/**
+ * Analyse a shell fragment IN ORDER, accumulating the symbols it defines as it goes, so that a
+ * variable, an alias and a function body are each resolved to the command they actually run.
+ */
+function analyseShell(fragment: string, inherited: ReadonlyMap<string, string> = new Map(), depth = 0): Finding[] {
+  if (depth > 6) return [finding("unresolved-command", fragment)];
+  const findings: Finding[] = [];
+  const symbols = new Map(inherited);
+  for (const raw of splitCommands(fragment)) {
+    let tokens = tokenise(raw);
+    if (tokens[0] === "alias" && tokens[1]?.includes("=")) {
+      const eq = tokens[1].indexOf("=");
+      symbols.set(tokens[1].slice(0, eq), unquote([tokens[1].slice(eq + 1), ...tokens.slice(2)].join(" ")).split(/\s+/)[0] ?? "");
+      continue;
+    }
+    while (tokens[0] !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
+      const eq = tokens[0].indexOf("=");
+      symbols.set(tokens[0].slice(0, eq), unquote(tokens[0].slice(eq + 1)));
+      tokens = tokens.slice(1);
+    }
+    // `env` additionally carries its own assignments and flags; the neutral words do not, so a
+    // flag after one of them is an operand of the NEXT command, not something to skip past.
+    for (;;) {
+      const word = tokens[0];
+      if (word === undefined) break;
+      if (baseOf(word) === "env") {
+        tokens = tokens.slice(1);
+        while (tokens[0] !== undefined && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]) || tokens[0].startsWith("-"))) tokens = tokens.slice(1);
+        continue;
+      }
+      if (NEUTRAL_PREFIX.has(word)) { tokens = tokens.slice(1); continue; }
+      break;
+    }
+    let head = tokens[0];
+    if (head === undefined) continue;
+    if (TERMINAL_WORD.has(head)) continue;
+    if (SHELLS.includes(baseOf(head))) {
+      const dashC = tokens.indexOf("-c");
+      const inner = dashC >= 0 ? tokens[dashC + 1] : undefined;
+      if (inner !== undefined) { findings.push(...analyseShell(unquote(inner), symbols, depth + 1)); continue; }
+    }
+    if (baseOf(head) === "xargs") {
+      tokens = tokens.slice(1).filter((t) => !t.startsWith("-"));
+      head = tokens[0];
+      if (head === undefined) continue;
+    }
+    if (baseOf(head) === "node" && tokens[1] !== undefined && GOVERNED_ENTRY.test(tokens[1])) continue;
+    if (GOVERNED_ENTRY.test(head)) continue;
+    let resolved: string = head;
+    const seen = new Set<string>();
+    for (;;) {
+      const name = resolved.replace(/^\$\{?/, "").replace(/\}$/, "");
+      const next = symbols.get(name);
+      if (next === undefined || seen.has(name)) break;
+      seen.add(name);
+      resolved = next;
+    }
+    if (COMMAND_VARIABLE.test(resolved)) { findings.push(finding("unresolved-command", raw)); continue; }
+    if (/[$`]/.test(resolved)) continue;
+    if (isUngoverned(resolved)) findings.push(finding(`ungoverned-command:${baseOf(resolved)}`, raw));
+  }
+  return findings;
+}
+
+/** npm-family sub-commands that make the following word an invocation rather than prose. */
+const MANAGER_VERBS = new Set(["run", "test", "start", "install", "ci", "exec", "add", "remove", "build",
+  "dlx", "create", "init", "publish", "pack", "why", "link", "enable", "prepare", "up", "update"]);
+
+/**
+ * Does this text read as a command INVOCATION rather than prose that happens to open with a tool
+ * name? Used only for free-standing string literals and documents; the manifest, descriptor and
+ * spawn channels are unconditional.
+ */
+function looksLikeInvocation(text: string): boolean {
+  const parts = text.trim().split(/\s+/);
+  const head = baseOf(parts[0] ?? "");
+  const next = parts[1];
+  if (next === undefined) return false;
+  if (["npm", "pnpm", "yarn"].includes(head)) return MANAGER_VERBS.has(next) || next.startsWith("-");
+  if (["npx", "corepack"].includes(head)) return /^[\w@.-]+$/.test(next);
+  if (["tsc", "tsx"].includes(head)) return next.startsWith("-") || next.includes("/") || /\.[cm]?[jt]sx?$/.test(next);
+  return true;
+}
+
+// ─── Program analysis: constant folding, so construction cannot hide a name ───
+
+const STRING_LITERAL = /^(?:'([^'\\]*(?:\\.[^'\\]*)*)'|"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`$\\]*(?:\\.[^`$\\]*)*)`)$/;
+
+function matchingIndex(source: string, start: number): number {
+  const open = source[start] ?? "";
+  const close = { "(": ")", "[": "]", "{": "}" }[open] ?? "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = start; i < source.length; i++) {
+    const c = source[i] ?? "";
+    if (quote !== null) { if (c === quote && source[i - 1] !== "\\") quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === open) depth++;
+    else if (c === close) { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+/** Split on a top-level operator, ignoring brackets and strings. */
+function splitTop(text: string, op: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i] ?? "";
+    if (quote !== null) { cur += c; if (c === quote && text[i - 1] !== "\\") quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; cur += c; continue; }
+    if ("([{".includes(c)) { depth++; cur += c; continue; }
+    if (")]}".includes(c)) { depth--; cur += c; continue; }
+    if (depth === 0 && c === op) { out.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** Fold an expression to a literal string when that is statically decidable, else undefined. */
+function fold(expression: string, consts: ReadonlyMap<string, string>, depth = 0): string | undefined {
+  const text = expression.trim();
+  if (depth > 8 || text.length === 0) return undefined;
+  const literal = STRING_LITERAL.exec(text);
+  if (literal) return (literal[1] ?? literal[2] ?? literal[3] ?? "").replace(/\\(.)/g, "$1");
+  const join = /^\[([\s\S]*)\]\s*\.join\(([^)]*)\)$/.exec(text);
+  if (join) {
+    const separator = (join[2] ?? "").trim().length > 0 ? fold(join[2] ?? "", consts, depth + 1) : ",";
+    if (separator === undefined) return undefined;
+    const parts = splitTop(join[1] ?? "", ",").map((p) => fold(p, consts, depth + 1));
+    return parts.some((p) => p === undefined) ? undefined : parts.join(separator);
+  }
+  const summands = splitTop(text, "+");
+  if (summands.length > 1) {
+    const parts = summands.map((p) => fold(p, consts, depth + 1));
+    return parts.some((p) => p === undefined) ? undefined : parts.join("");
+  }
+  if (text.startsWith("(") && matchingIndex(text, 0) === text.length - 1) return fold(text.slice(1, -1), consts, depth + 1);
+  const bound = /^[A-Za-z_$][\w$]*$/.test(text) ? consts.get(text) : undefined;
+  return bound === undefined ? undefined : fold(bound, consts, depth + 1);
+}
+
+/** Command expressions that are statically known not to be a package manager. */
+const SAFE_DYNAMIC_COMMAND = [/^process\.execPath$/, /^process\.argv\[0\]$/, /^execPath$/, /^resolved\.node$/, /^runtime\.node$/];
+/** A first argument that is a parameter declaration is a signature, not a call. */
+const PARAMETER_DECLARATION = /^[A-Za-z_$][\w$]*\s*\??:/;
+
+const SPAWN_APIS = ["spawn", "spawnSync", "execFile", "execFileSync", "fork"];
+const SHELL_APIS = ["exec", "execSync"];
+
+function analyseProgram(source: string): Finding[] {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  const findings: Finding[] = [];
+  const consts = new Map<string, string>();
+  for (const m of code.matchAll(/(?:^|\n)\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)[;\n]/g)) {
+    if (m[1] !== undefined && m[2] !== undefined) consts.set(m[1], m[2].trim());
+  }
+  const callsTo = (name: string): { first: string }[] => {
+    const out: { first: string }[] = [];
+    const re = new RegExp(`(?:^|[^\\w$.])${name}\\s*\\(`, "g");
+    for (let m = re.exec(code); m !== null; m = re.exec(code)) {
+      const open = code.indexOf("(", m.index + m[0].length - 1);
+      const close = matchingIndex(code, open);
+      if (close < 0) continue;
+      const first = splitTop(code.slice(open + 1, close), ",")[0];
+      if (first !== undefined) out.push({ first });
+      re.lastIndex = close;
+    }
+    return out;
+  };
+  for (const api of SPAWN_APIS) {
+    for (const call of callsTo(api)) {
+      if (PARAMETER_DECLARATION.test(call.first)) continue;
+      const folded = fold(call.first, consts);
+      if (folded !== undefined) {
+        if (GOVERNED_ENTRY.test(folded)) continue;
+        if (isUngoverned(folded)) findings.push(finding(`ungoverned-command:${baseOf(folded)}`, call.first));
+        continue;
+      }
+      if (SAFE_DYNAMIC_COMMAND.some((re) => re.test(call.first))) continue;
+      findings.push(finding("unresolved-command", call.first));
+    }
+  }
+  for (const api of SHELL_APIS) {
+    for (const call of callsTo(api)) {
+      if (PARAMETER_DECLARATION.test(call.first)) continue;
+      const folded = fold(call.first, consts);
+      if (folded === undefined) { findings.push(finding("unresolved-command", call.first)); continue; }
+      findings.push(...analyseShell(folded));
+    }
+  }
+  // Construction: a name assembled from pieces is the same name.
+  for (const m of code.matchAll(/\[[^[\]\n]*\]\s*\.join\([^)]*\)/g)) {
+    const folded = fold(m[0], consts);
+    if (folded !== undefined && isUngoverned(folded)) findings.push(finding(`ungoverned-command:${baseOf(folded)}`, m[0]));
+  }
+  for (const m of code.matchAll(/(["'`][^"'`\n]*["'`](?:\s*\+\s*(?:["'`][^"'`\n]*["'`]|[A-Za-z_$][\w$]*))+)/g)) {
+    const folded = fold(m[0], consts);
+    if (folded !== undefined && isUngoverned(folded)) findings.push(finding(`ungoverned-command:${baseOf(folded)}`, m[0]));
+  }
+  // A command spelled out inside a literal is a call path too — help text teaches it to a human.
+  for (const m of code.matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)) {
+    const literal = m[2] ?? "";
+    if (literal.length < 4 || literal.length > 400) continue;
+    for (const f of analyseShell(literal)) {
+      if (f.kind.startsWith("ungoverned-command:") && looksLikeInvocation(f.text)) {
+        findings.push(finding(`literal-${f.kind}`, f.text));
+      }
+    }
+  }
+  return findings;
+}
+
+function analyseManifest(source: string): Finding[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(source); } catch { return [finding("unresolved-command", "unparsable manifest")]; }
+  const scripts = (parsed as { scripts?: Record<string, unknown> } | null)?.scripts;
+  if (scripts === undefined || scripts === null || typeof scripts !== "object") return [];
+  const findings: Finding[] = [];
+  for (const [name, value] of Object.entries(scripts)) {
+    if (typeof value !== "string") { findings.push(finding("unresolved-command", `scripts.${name}`)); continue; }
+    for (const f of analyseShell(value)) findings.push(finding(f.kind, `scripts.${name}: ${value}`));
+  }
+  return findings;
+}
+
+const UNIT_DIRECTIVE = /^\s*(?:ExecStart|ExecStartPre|ExecStartPost|ExecStop|ExecReload|ExecCondition)\s*=\s*[-@+!]*(.*)$/;
+const DESCRIPTOR_COMMAND = /^\s*-?\s*(?:run|command|cmd|entrypoint|args)\s*:\s*(.*)$/;
+
+function analyseDescriptor(source: string): Finding[] {
+  const findings: Finding[] = [];
+  for (const line of source.split("\n")) {
+    const matched = UNIT_DIRECTIVE.exec(line) ?? DESCRIPTOR_COMMAND.exec(line);
+    const command = (matched?.[1] ?? "").trim().replace(/^["'[]|["'\]]$/g, "");
+    if (command.length === 0) continue;
+    for (const f of analyseShell(command)) findings.push(finding(f.kind, line));
+  }
+  return findings;
+}
+
+/** Documents teach commands. Only fenced blocks and shell prompts are commands. */
+function analyseDocument(source: string): Finding[] {
+  const findings: Finding[] = [];
+  const consider = (fragment: string): void => {
+    for (const f of analyseShell(fragment)) {
+      if (f.kind.startsWith("ungoverned-command:") && looksLikeInvocation(f.text)) findings.push(f);
+    }
+  };
+  for (const m of source.matchAll(/```(?:[a-zA-Z]*)\n([\s\S]*?)```/g)) consider(m[1] ?? "");
+  for (const m of source.matchAll(/^\s*>?\s*\$\s+(\S.*)$/gm)) consider(m[1] ?? "");
+  return findings;
+}
+
+/** Every governed file type, and the analysis that is appropriate to it. */
+const EXECUTION_ANALYSES: readonly (readonly [RegExp, (source: string) => Finding[]])[] = [
+  [/(?:^|\/)package\.json$/, analyseManifest],
+  [/\.(sh|bash)$/, (s) => analyseShell(s.replace(/(^|\s)#[^\n]*/g, "$1"))],
+  [/\.(ts|tsx|mts|cts|mjs|cjs|js|py)$/, analyseProgram],
+  [/\.(service|conf|ya?ml)$/, analyseDescriptor],
+  [/\.md$/, analyseDocument],
+];
+
+function analyseExecution(file: string, source: string): Finding[] {
+  const chosen = EXECUTION_ANALYSES.find(([pattern]) => pattern.test(file));
+  return chosen === undefined ? [] : chosen[1](source);
+}
+
+/**
+ * Declared ungoverned-execution findings, anchored by content.
+ *
+ * Each entry pins the SHA-256 of `${kind}\n${text}` for every finding the file is allowed to
+ * produce. A new finding, a changed command, or a removed one fails this suite until the
+ * declaration is updated deliberately. There is no pathname exemption: a declared file is
+ * exempt for exactly the findings it declares and for nothing else.
+ */
+const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
+  ["interview-demo-" + "factory/demos/001-ikbi-osapa-proof/luna-smoke-test.md", {
+    reason: "inert demo runbook for a separate project's repository (loony-luna-only)",
     lineDigests: [
-      "c648852f9381231b06dacd70d6e0dcceb2efdef65e0a6e69417c50ed58dc7d4e",
+      "6091fb53186c00f64a068e4d61a3190d7b3c2a95d3e24199ec98412c636ee88d",
     ],
   }],
-  ["scripts/trio/governed-pnpm.mjs", {
-    reason: "THE canonical pnpm entry; pnpm is the Trio’s own package manager",
+  ["interview-demo-" + "factory/demos/001-ikbi-osapa-proof/terminal-runbook.md", {
+    reason: "inert demo runbook for a separate project's repository (loony-luna-only)",
     lineDigests: [
-      "10cac1b9ec100c53eed15da6276a8ed67c6c7e686304ef2a243e4e94cfb713d0",
+      "31def17fd4cf4f0cbc64b50267bd3bc418148384524cdc5533bc74ee92997f9b",
+      "40317744494214018575819180bcee96d3794d82e71ab33e2cdce7f209294564",
+      "7b3a349e19c92c74e6a0137726666ce24d4dae2f8a8e8ce5bfb503173047be87",
+      "efba5cb1f59b5d3e0e6991e728d48f8691122e78d9b7220cf235d98b431a099b",
+    ],
+  }],
+  ["interview-demo-" + "factory/scripts/assemble-demo.sh", {
+    reason: "owner-scoped demo tooling with a command-position variable this analysis cannot resolve (loony-luna-only)",
+    lineDigests: [
+      "9a640f33e7f48c3b1f0282e907e75b0a0b80b9ebd18eb105c468858ac029b98a",
+    ],
+  }],
+  ["scripts/trio/governed-run.mjs", {
+    reason: "THE governed spawn: the command is the caller's by design, and it is spawned only after the private run directory exists",
+    lineDigests: [
+      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
+    ],
+  }],
+  ["skills/ptah-occasio/SKILL.md", {
+    reason: "skill prose describing a command in a DIFFERENT project's repository; inert here (mad-ptah-only)",
+    lineDigests: [
+      "b6b961332f6dd94668af297a311f838b8f814d247a4a17472ddb9b1ccb5efbee",
+    ],
+  }],
+  ["src/core/agent-tools/delegate-tools.ts", {
+    reason: "the agent's delegation surface spawns a caller-chosen executable; the command is runtime data, not a committed call path",
+    lineDigests: [
+      "8e6d52e9af5b26cbdb07afdb3c916501d49009ece4906f8b8bddb6d936fec7ad",
+    ],
+  }],
+  ["src/core/agent-tools/execute-code-tools.ts", {
+    reason: "the agent's code-execution surface spawns a caller-chosen interpreter",
+    lineDigests: [
+      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
     ],
   }],
   ["src/core/agent-tools/ikbi-tools.test.ts", {
     reason: "inert fixture data describing a remote check command; never executed here",
     lineDigests: [
-      "1d8aa54498fb160a1a0e801314e2554893fe7fffac309c73f0f0304f4d29018e",
-      "6f188f44a0b90d43e64814b5849d6baa8b552225a2a3e3f52cff9e23d69a5991",
+      "14ee6105f62cbba9ab5d6698c1e702064d3c31646cfeef233e4b5c607b30b5f2",
+    ],
+  }],
+  ["src/core/agent-tools/phone-tools.ts", {
+    reason: "the agent's phone-bridge surface spawns a caller-chosen executable",
+    lineDigests: [
+      "8e6d52e9af5b26cbdb07afdb3c916501d49009ece4906f8b8bddb6d936fec7ad",
     ],
   }],
   ["src/core/governed-launch-regression.test.ts", {
-    reason: "positive controls that prove an ungoverned manager allocates, and the refusal matrix",
+    reason: "the T21 plant matrix and the T6/T19 controls: every enumerated bypass class, spelled out so it can be planted and caught",
     lineDigests: [
-      "2d94f3e8c7e583319449f35fa005b4a4555990a193df633fa7b519b8b174997e",
-      "3a0ba3a0d4f3b880f70250bfaf77cab5063596829adf2c09bec597460befc65e",
-      "5e3385e53bf2ab65bc4a51918dadb1871ab38e0465f3e4c24021ccc467e97bf3",
-      "ef76789795cdd65c0cdea3d3939bfa4ae820c414f35eabdc2c300442db034e45",
+      "0031ee996876befce433d9ab86746e24af7249e00ee055262670ff09fe675c63",
+      "1cb01bff91c500af7f7ba9bc2011343dafa828330d2348316d8ce9f96b1d8c82",
+      "20701de1c84f60cf37d2fe2f1862c46f99bfbf59cf029cd128fc65524b415863",
+      "26f79f0f0ae20943b1d2093e799e3e44c6e0c93fc04c58fc209d3e61fc329dea",
+      "38bc229744bcb9fd39946123d8ed40108f8f9549f1b3a40b4827d6683b39e533",
+      "48df4b7336ab3c03d13aaa0fea214fd41a40670db5a8378488bbd53494dfe8a2",
+      "7e5e2f08b90648785c8b2e2048ac029204001cc2f1e0427f04f49093393c2b57",
+      "879902e25fd9a6c2b50d501e56f8855041697f4978c2e1bc65ed2a4ddc248e14",
+      "aa2d3476fba03ad401608760d1bf060ec1ad4b63e34b8efba6bd4baa9c1f9a49",
+      "ac7919fa4af1d5a0a23000616c676056d2d8729a995e308269b4b3e51f69bfd9",
+      "b93f145bc6d5a5807656f14b4df20552002cf250ebf009c3f84022dca490b82f",
+      "bba6902a5aca04ceffe18e12d076a4937fa391eb1d9d26b2cf0d1934a5d75045",
+      "c044625927256a4d14a9a7f8d364977570bc8fa7f52fdff68e14182d05d01a24",
     ],
   }],
-  ["src/data/lesson-cards.ts", {
-    reason: "lesson prose about a separate teaching project; inert text, never executed",
+  ["src/core/process-registry.ts", {
+    reason: "the background-process registry spawns a caller-chosen executable and records it",
     lineDigests: [
-      "469f04e102fe107a7d1da8d233f749b2fcaf6678cd9fd6723538f6b74d4d57c8",
-      "783f8da51a3a6f32705f4f914b7ee449a680d2b5c049c5cc2f7d938ad00e269f",
-      "98b28700139e5ca439f3758e3b20ce33b6e3529c05a5e328db13d03170fb1f0e",
+      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
+    ],
+  }],
+  ["src/core/temp-policy.test.ts", {
+    reason: "this analysis's own self-test: every construction it claims to resolve, spelled out so the claim is not vacuous",
+    lineDigests: [
+      "1cb01bff91c500af7f7ba9bc2011343dafa828330d2348316d8ce9f96b1d8c82",
+      "26f79f0f0ae20943b1d2093e799e3e44c6e0c93fc04c58fc209d3e61fc329dea",
+      "38bc229744bcb9fd39946123d8ed40108f8f9549f1b3a40b4827d6683b39e533",
+      "48df4b7336ab3c03d13aaa0fea214fd41a40670db5a8378488bbd53494dfe8a2",
+      "7e5e2f08b90648785c8b2e2048ac029204001cc2f1e0427f04f49093393c2b57",
+      "879902e25fd9a6c2b50d501e56f8855041697f4978c2e1bc65ed2a4ddc248e14",
+      "8c850f6cf8d0006e2db3193462d8fe149f5b2d7f8e23437f01964d909827e4c2",
+      "aa2d3476fba03ad401608760d1bf060ec1ad4b63e34b8efba6bd4baa9c1f9a49",
+      "ac7919fa4af1d5a0a23000616c676056d2d8729a995e308269b4b3e51f69bfd9",
+      "af620e6ca5c711e99556a15f0e21998467749e63fe134c66dd795e9a9f36f01a",
+      "b93f145bc6d5a5807656f14b4df20552002cf250ebf009c3f84022dca490b82f",
+      "bba6902a5aca04ceffe18e12d076a4937fa391eb1d9d26b2cf0d1934a5d75045",
+      "e24c41c7f688b91c3685b67acd2efc9875909e688c87c1ca9f3b792e45b9dae3",
+    ],
+  }],
+  ["src/core/tools.ts", {
+    reason: "the agent's shell tool surface spawns a caller-chosen executable",
+    lineDigests: [
+      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
     ],
   }],
 ];
@@ -272,7 +699,7 @@ const RAW_PACKAGE_MANAGER_DECLARATIONS: ReadonlyArray<readonly [string, Declared
 const TMP_TEXT_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(TMP_TEXT_DECLARATIONS);
 const TMPDIR_CALL_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(TMPDIR_CALL_DECLARATIONS);
 const MKDTEMP_CALL_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(MKDTEMP_CALL_DECLARATIONS);
-const RAW_PACKAGE_MANAGER_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(RAW_PACKAGE_MANAGER_DECLARATIONS);
+const UNGOVERNED_EXECUTION_ALLOWED: ReadonlyMap<string, DeclaredException> = new Map(UNGOVERNED_EXECUTION_DECLARATIONS);
 
 const EXECUTABLE = /\.(ts|mts|cts|mjs|cjs|js|sh|py)$/;
 
@@ -294,15 +721,16 @@ function trackedExecutableFiles(): readonly string[] {
 }
 
 /**
- * The files a package-manager bypass could hide in: every executable, plus the manifests,
- * deployment descriptors and service definitions that name commands without being code.
+ * Every file an ungoverned execution could hide in: programs, shell scripts, the manifests that
+ * name commands, deployment descriptors, service definitions, and the documents that teach a
+ * human what to type. The lock file is data, not a call path.
  */
-const PACKAGE_MANAGER_SCANNED = /(?:^|\/)(?:package\.json)$|\.(ts|mts|cts|mjs|cjs|js|sh|py|service|conf|yaml|yml)$/;
+const EXECUTION_SCANNED = /(?:^|\/)package\.json$|\.(ts|tsx|mts|cts|mjs|cjs|js|sh|bash|py|service|conf|ya?ml|md)$/;
 
-function trackedPackageManagerFiles(): readonly string[] {
+function trackedExecutionFiles(): readonly string[] {
   return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
     .split("\0")
-    .filter((f) => f.length > 0 && PACKAGE_MANAGER_SCANNED.test(f))
+    .filter((f) => f.length > 0 && EXECUTION_SCANNED.test(f))
     .filter((f) => !f.startsWith("ui/") && !f.startsWith("dist/") && !f.startsWith("node_modules/"))
     .filter((f) => !f.includes("/node_modules/") && f !== "pnpm-lock.yaml");
 }
@@ -367,13 +795,70 @@ test("shell mktemp and Python tempfile are used only under the governed root", (
   assert.deepEqual(offenders, [], `ungoverned shell/python temp use: ${offenders.join(", ")}`);
 });
 
-test("no raw package-manager invocation survives in committed scripts, tests, deployment files or service definitions", () => {
-  assertDeclared(
-    /(?:^|[\s"'`;&|(])(?:npm|pnpm|npx|yarn)\s+(?:run\b|exec\b|test\b|start\b|install\b|ci\b|dlx\b|add\b|-)|(?:spawn|spawnSync|execFile|execFileSync|execSync)\s*\(\s*["'`](?:npm|pnpm|npx|yarn)["'`]|\bcommand:\s*["'`](?:npm|pnpm|npx|yarn)["'`]|\brunPackageManager\s*\(\s*["'`](?:npm|pnpm|npx|yarn)["'`]/,
-    RAW_PACKAGE_MANAGER_ALLOWED,
-    "committed files invoking a package manager outside the governed entry",
-    trackedPackageManagerFiles(),
-  );
+/**
+ * ONE analysis, applied to every governed file type. A file with no finding is silent; a file
+ * with an undeclared finding is an offender; a declared file must produce EXACTLY what it
+ * declared. Unknown or dynamically unresolved execution is a finding, so it fails closed.
+ */
+test("no ungoverned package-manager or build-tool execution survives in committed files", () => {
+  const offenders: string[] = [];
+  const drifted: string[] = [];
+  for (const file of trackedExecutionFiles()) {
+    const findings = analyseExecution(file, readFileSync(file, "utf8"));
+    if (findings.length === 0) continue;
+    const declared = UNGOVERNED_EXECUTION_ALLOWED.get(file);
+    if (declared === undefined) {
+      offenders.push(`${file} (${[...new Set(findings.map((f) => f.kind))].sort().join(", ")})`);
+      continue;
+    }
+    const actual = [...new Set(findings.map((f) => digestOf(`${f.kind}\n${f.text}`)))].sort();
+    const expected = [...declared.lineDigests].sort();
+    if (actual.length !== expected.length || actual.some((d, i) => d !== expected[i])) {
+      drifted.push(`${file} (declared ${expected.length}, found ${actual.length})`);
+    }
+  }
+  assert.deepEqual(offenders, [], `committed files with ungoverned execution: ${offenders.join(", ")}`);
+  assert.deepEqual(drifted, [],
+    `ungoverned-execution declarations changed, update them deliberately: ${drifted.join(", ")}`);
+});
+
+test("the ungoverned-execution analysis resolves every construction it claims to resolve", () => {
+  // A self-test of the analysis itself: if these stop being findings the suite above would pass
+  // vacuously, whatever the tree contained.
+  const cases: ReadonlyArray<readonly [string, string]> = [
+    ["pnpm run build", "ungoverned-command:pnpm"],
+    ["PM=pnpm; $PM run test", "ungoverned-command:pnpm"],
+    ["alias pm=pnpm; pm run test", "ungoverned-command:pnpm"],
+    ["corepack pnpm@9 run build", "ungoverned-command:corepack"],
+    ["corepack enable", "ungoverned-command:corepack"],
+    ["npx tsc -p tsconfig.json", "ungoverned-command:npx"],
+    ["env FOO=1 pnpm install", "ungoverned-command:pnpm"],
+    ['sh -c "pnpm run build"', "ungoverned-command:pnpm"],
+    ['bash -c "PM=npm; $PM ci"', "ungoverned-command:npm"],
+    ["tsc -p tsconfig.json", "ungoverned-command:tsc"],
+    ["tsx src/server.ts", "ungoverned-command:tsx"],
+    ["$UNKNOWN run build", "unresolved-command"],
+  ];
+  for (const [command, expected] of cases) {
+    const kinds = analyseExecution("probe/package.json", JSON.stringify({ scripts: { probe: command } })).map((f) => f.kind);
+    assert.ok(kinds.includes(expected), `${JSON.stringify(command)} produced ${JSON.stringify(kinds)}, not ${expected}`);
+  }
+  for (const governed of [
+    "node scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json",
+    "node scripts/trio/governed-pnpm.mjs run test",
+    "node ../scripts/trio/governed-launch.mjs trio-agent -- tsx src/entry.tsx",
+  ]) {
+    assert.deepEqual(analyseExecution("probe/package.json", JSON.stringify({ scripts: { probe: governed } })), [],
+      `the governed form ${JSON.stringify(governed)} must not be a finding`);
+  }
+  // Construction cannot hide a name.
+  for (const expression of ['spawnSync("pn" + "pm", [])', 'spawnSync(["p","n","p","m"].join(""), [])']) {
+    assert.ok(analyseExecution("probe.ts", expression).some((f) => f.kind === "ungoverned-command:pnpm"),
+      `${expression} was not folded to a package manager`);
+  }
+  // A command that cannot be resolved statically fails closed.
+  assert.ok(analyseExecution("probe.ts", "spawnSync(chosenCommand, [])").some((f) => f.kind === "unresolved-command"),
+    "an unresolvable command expression must fail closed");
 });
 
 test("the refusal fixtures declared above still exist and still justify themselves", () => {
@@ -388,7 +873,7 @@ test("the refusal fixtures declared above still exist and still justify themselv
       /* an absent sibling checkout proves nothing about this repo's entries */
     }
   }
-  for (const map of [TMP_TEXT_ALLOWED, TMPDIR_CALL_ALLOWED, MKDTEMP_CALL_ALLOWED, RAW_PACKAGE_MANAGER_ALLOWED]) {
+  for (const map of [TMP_TEXT_ALLOWED, TMPDIR_CALL_ALLOWED, MKDTEMP_CALL_ALLOWED, UNGOVERNED_EXECUTION_ALLOWED]) {
     for (const [file, declared] of map) {
       assert.ok(
         trackedAnywhere.has(file),

@@ -2,7 +2,7 @@ import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, test } from 'node:test';
@@ -103,15 +103,19 @@ function requireRepository(slot: string, configuredPath: string, source: string)
 
 const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.roots[index]!, discovery.source));
 
-// Independent code-level trust anchor for the architecture-controlled shape.
+// Independent code-level trust anchor for the architecture-controlled boundary.
 // Editing a runtime file plus local inventory data cannot redefine the boundary;
 // doing so also requires an explicit, review-visible verifier change.
 //
-// Moved when the effectful executor was made private and the loop's decisions were split into
-// `src/core/loop-mechanics.ts`, with `src/core/effect-sinks.ts` added as the governed effect
-// inventory. That is a change to the architecture-controlled shape, so it is recorded here by
-// hand rather than absorbed by regeneration -- which is exactly what this anchor is for.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '5e9e4a90594bbf300ddafed02491a965b613aaa262670f18764304146470afe0';
+// Version 2 BINDS BYTES, not only paths. Version 1 digested the declared path lists, so three
+// byte-identical repositories could be modified uniformly and still report PARITY: the
+// cross-repository comparison sees no divergence, and a path-only anchor sees no change. The
+// anchor now additionally carries, for every security-critical canonical entry, its normalized
+// relative path, file type, mode classification and content digest, in a deterministic order.
+// Addition, deletion, replacement, chmod, symlink substitution and uniform byte modification
+// each move the anchor, so each one has to be declared here deliberately.
+const BOUNDARY_ANCHOR_VERSION = 2;
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '36f28b7a6dbbabb7f6f7dd25247f0994fb7a3ad0a5d7b8b105a28d04e1e07ed4';
 
 interface Inventory {
   schemaVersion: 3;
@@ -307,19 +311,81 @@ function localDependencyDigest(root: string, declaration: Closure['legitimateExt
   return hash.digest('hex');
 }
 
-function boundaryShapeDigest(inventory: Inventory, closure: Closure): string {
+/**
+ * The security-critical canonical entries whose BYTES are part of the trusted boundary.
+ *
+ * Everything the governed temporary authority is made of: the whole `scripts/trio` directory
+ * (the canonical authority, the lifecycle and ownership-record/reaper implementation, both
+ * package-manager entries, the launch wrapper, the provenance generator and the test
+ * bootstrap), plus the in-process authority and the adapter boundary it hands validated values
+ * across. A file added to or removed from `scripts/trio` changes the entry list, so the set is
+ * closed by construction rather than by an easily-stale enumeration.
+ */
+const ANCHORED_DIRECTORIES = ['scripts/trio'] as const;
+const ANCHORED_FILES = [
+  'runtime/server/truth-agent-adapter.ts',
+  'runtime/server/truth-gate.ts',
+  'src/core/temp-authority.ts',
+] as const;
+
+interface AnchoredEntry {
+  readonly path: string;
+  readonly type: 'file' | 'symlink' | 'directory' | 'other' | 'absent';
+  readonly mode: string;
+  readonly sha256: string;
+}
+
+/**
+ * Classify one anchored path. A symlink is recorded AS a symlink and its target is digested --
+ * never followed -- so substituting a link for a file moves the anchor instead of laundering
+ * the bytes it points at.
+ */
+function anchoredEntry(root: string, relativePath: string): AnchoredEntry {
+  const path = safePath(relativePath);
+  const target = join(root, path);
+  let stat;
+  try { stat = lstatSync(target); } catch { return { path, type: 'absent', mode: '', sha256: shaBytes('') }; }
+  const mode = (stat.mode & 0o777).toString(8).padStart(3, '0');
+  if (stat.isSymbolicLink()) return { path, type: 'symlink', mode, sha256: shaBytes(readlinkSync(target)) };
+  if (stat.isDirectory()) return { path, type: 'directory', mode, sha256: shaBytes('') };
+  if (!stat.isFile()) return { path, type: 'other', mode, sha256: shaBytes('') };
+  return { path, type: 'file', mode, sha256: shaBytes(readFileSync(target)) };
+}
+
+/** Every anchored entry, deterministically ordered by normalized relative path. */
+function anchoredEntries(root: string): AnchoredEntry[] {
+  const entries = new Map<string, AnchoredEntry>();
+  const walk = (directory: string): void => {
+    for (const name of readdirSync(join(root, safePath(directory))).sort()) {
+      const path = `${directory}/${name}`;
+      const stat = lstatSync(join(root, path));
+      if (stat.isDirectory() && !stat.isSymbolicLink()) walk(path);
+      else entries.set(path, anchoredEntry(root, path));
+    }
+  };
+  for (const directory of ANCHORED_DIRECTORIES) walk(directory);
+  for (const file of ANCHORED_FILES) entries.set(file, anchoredEntry(root, file));
+  return [...entries.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+function boundaryShapeDigest(inventory: Inventory, closure: Closure, entries: readonly AnchoredEntry[]): string {
   return shaBytes(JSON.stringify({
-    entryPoints: closure.entryPoints,
-    configurationData: closure.configurationData,
-    dynamicLoaders: closure.dynamicLoaders,
-    runtimePolicyLoads: closure.runtimePolicyLoads,
-    identityReferences: closure.identityReferences,
-    sharedFiles: inventory.sharedFiles,
-    closedDirectories: inventory.closedDirectories,
-    configurationDataFiles: inventory.configurationData,
-    external: closure.legitimateExternalDependencies.map((item) => item.specifier),
-    spawnedRuntimeFiles: closure.spawnedRuntimeFiles,
-    generatedRuntime: closure.generatedRuntime,
+    anchorVersion: BOUNDARY_ANCHOR_VERSION,
+    inventorySchemaVersion: inventory.schemaVersion,
+    shape: {
+      entryPoints: closure.entryPoints,
+      configurationData: closure.configurationData,
+      dynamicLoaders: closure.dynamicLoaders,
+      runtimePolicyLoads: closure.runtimePolicyLoads,
+      identityReferences: closure.identityReferences,
+      sharedFiles: inventory.sharedFiles,
+      closedDirectories: inventory.closedDirectories,
+      configurationDataFiles: inventory.configurationData,
+      external: closure.legitimateExternalDependencies.map((item) => item.specifier),
+      spawnedRuntimeFiles: closure.spawnedRuntimeFiles,
+      generatedRuntime: closure.generatedRuntime,
+    },
+    files: entries,
   }));
 }
 
@@ -336,7 +402,8 @@ function loadTrustedManifests(root: string): { inventory: Inventory; closure: Cl
   const inventory = JSON.parse(inventoryBytes.toString('utf8')) as Inventory;
   const closure = JSON.parse(closureBytes.toString('utf8')) as Closure;
   assert.equal(inventory.schemaVersion, 3);
-  assert.equal(boundaryShapeDigest(inventory, closure), TRUSTED_BOUNDARY_SHAPE_SHA256, 'architecture boundary cannot self-redefine through local manifests');
+  assert.equal(boundaryShapeDigest(inventory, closure, anchoredEntries(root)), TRUSTED_BOUNDARY_SHAPE_SHA256,
+    'architecture boundary cannot self-redefine through local manifests or uniform byte edits');
   assert.deepEqual(inventory.sharedFileSources, [{ manifest: 'trio/runtime-closure.json', pointer: '/governedCommon' }]);
   // Each declared list must still be free of duplicates -- that is what catches a sloppy
   // manifest. Their union may legitimately overlap now that the package-execution closure is
@@ -522,7 +589,29 @@ test('path and trust-anchor helpers reject traversal, normalization, case collis
   const inventory = JSON.parse(original.toString('utf8')) as Inventory;
   const closure = JSON.parse(readFileSync(join(currentRoot, 'trio/runtime-closure.json'), 'utf8')) as Closure;
   const redefined = { ...inventory, sharedFiles: [...inventory.sharedFiles, 'src/core/undeclared-common.test.ts'] };
-  assert.notEqual(boundaryShapeDigest(redefined, closure), TRUSTED_BOUNDARY_SHAPE_SHA256, 'self-updated inventory cannot redefine the trusted shape');
+  const entries = anchoredEntries(currentRoot);
+  assert.notEqual(boundaryShapeDigest(redefined, closure, entries), TRUSTED_BOUNDARY_SHAPE_SHA256, 'self-updated inventory cannot redefine the trusted shape');
+  // The anchor binds bytes, so a UNIFORM edit -- the one shape a cross-repository comparison
+  // cannot see, because all three stay byte-identical to one another -- still moves it.
+  assert.ok(entries.length > 8, `only ${entries.length} anchored entries; the byte binding would be near-empty`);
+  for (const required of [...ANCHORED_FILES, 'scripts/trio/governed-temp-authority.mjs', 'scripts/trio/governed-run.mjs',
+       'scripts/trio/governed-launch.mjs', 'scripts/trio/governed-npm.mjs', 'scripts/trio/governed-pnpm.mjs']) {
+    const entry = entries.find((e) => e.path === required);
+    assert.ok(entry, `${required} is not bound into the trusted boundary`);
+    assert.equal(entry.type, 'file', `${required} is anchored as ${entry.type}, not a file`);
+  }
+  const mutations: ReadonlyArray<readonly [string, AnchoredEntry[]]> = [
+    ['uniform byte modification', entries.map((e) => (e.path === 'scripts/trio/governed-temp-authority.mjs' ? { ...e, sha256: shaBytes('tampered') } : e))],
+    ['chmod', entries.map((e) => (e.path === 'scripts/trio/governed-pnpm.mjs' ? { ...e, mode: '755' } : e))],
+    ['symlink substitution', entries.map((e) => (e.path === 'scripts/trio/governed-run.mjs' ? { ...e, type: 'symlink' as const } : e))],
+    ['deletion', entries.filter((e) => e.path !== 'scripts/trio/governed-npm.mjs')],
+    ['addition', [...entries, { path: 'scripts/trio/rogue.mjs', type: 'file' as const, mode: '644', sha256: shaBytes('rogue') }]
+      .sort((a, b) => (a.path < b.path ? -1 : 1))],
+  ];
+  for (const [name, mutated] of mutations) {
+    assert.notEqual(boundaryShapeDigest(inventory, closure, mutated), TRUSTED_BOUNDARY_SHAPE_SHA256,
+      `${name} left the trusted boundary anchor unchanged`);
+  }
 });
 
 test('computed imports, createRequire, and executable configuration are visible to the closed-boundary analysis', () => {

@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "node ../scripts/trio/governed-launch.mjs trio-agent -- tsx --watch src/entry.tsx",
     "start": "node ../scripts/trio/governed-launch.mjs trio-agent -- tsx src/entry.tsx",
-    "build": "node scripts/build.mjs",
-    "type-check": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../scripts/trio/governed-launch.mjs trio-test -- node scripts/build.mjs",
+    "type-check": "node ../scripts/trio/governed-launch.mjs trio-test -- tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "ink": "^6.8.0",

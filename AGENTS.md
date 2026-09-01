@@ -55,9 +55,9 @@ so it can never be governed from inside `package.json`; the wrapper runs first, 
 builtin-only `node` process, and establishes private storage before pnpm or npm starts. A raw
 `pnpm test` is refused with `ungoverned_parent_environment`, not silently accepted.
 
-- `node scripts/trio/governed-pnpm.mjs run build` — `tsc -p tsconfig.json`, emits to `dist/`. The build is reproducible:
+- `node scripts/trio/governed-pnpm.mjs run build` — the compiler, run through `governed-launch.mjs`, emits to `dist/`. A bare `tsc` is refused: TypeScript enables a compile cache against `os.tmpdir()` before it reads a config. The build is reproducible:
   rebuilding produces no diff against the committed `dist/`.
-- `node scripts/trio/governed-pnpm.mjs run typecheck` — `tsc -p tsconfig.json --noEmit`.
+- `node scripts/trio/governed-pnpm.mjs run typecheck` — the same compiler, `--noEmit`, through the same boundary.
 - `node scripts/trio/governed-pnpm.mjs run test` — `node --import tsx --test <explicit file list>`. Tests use `node:test`
   and `node:assert/strict`, never vitest or jest.
 - `node scripts/trio/governed-pnpm.mjs run test:runtime` — shared runtime and hostile-remediation suites.
@@ -69,7 +69,7 @@ builtin-only `node` process, and establishes private storage before pnpm or npm 
   runs it against clean committed trees, and is invoked from outside this repository.
   Every slot is required.
 
-Run one file directly: `node --import tsx --test src/core/loop.test.ts`.
+Run one file directly, still through the boundary: `node scripts/trio/governed-launch.mjs --entry=operator trio-test -- node --import tsx --test src/core/loop.test.ts`.
 
 There is no lint or dev script.
 

@@ -14,8 +14,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -652,64 +652,90 @@ test("T13 the TypeScript authority refuses exactly what the canonical module ref
 
 // T14 — the boundary is live, not dead code.
 test("T14 every canonical entry point routes through the governed boundary", () => {
+  // No script is exempt by NAME. Order 14 exempted `build` and `typecheck` on the premise that
+  // a bare `tsc` allocates nothing; that premise is false — TypeScript enables a compile cache
+  // against os.tmpdir() at start-up, so an ungoverned `tsc` writes /tmp/node-compile-cache. The
+  // requirement is therefore structural: every committed script value begins at a canonical
+  // governed entry, and the two package-manager entries are themselves that boundary.
+  const GOVERNED_SCRIPT = /^node (?:\.\.\/)?scripts\/trio\/governed-(?:launch|npm|pnpm)\.mjs(?: |$)/;
   const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { scripts: Record<string, string> };
-  const exempt = new Set(["build", "typecheck", "governed", "governed:pnpm"]);
   for (const [name, value] of Object.entries(pkg.scripts)) {
-    if (exempt.has(name)) continue;
-    assert.match(value, /^node scripts\/trio\/governed-launch\.mjs /, `package.json script ${name} bypasses the governed boundary`);
+    assert.match(value, GOVERNED_SCRIPT, `package.json script ${name} bypasses the governed boundary`);
   }
   assert.equal(pkg.scripts["governed"], "node scripts/trio/governed-npm.mjs",
     "the pre-npm boundary has no committed caller — it would be dead code");
   assert.equal(pkg.scripts["governed:pnpm"], "node scripts/trio/governed-pnpm.mjs",
     "the pre-pnpm boundary has no committed caller — pnpm is the Trio's own package manager");
-  const tui = JSON.parse(readFileSync(join(process.cwd(), "tui/package.json"), "utf8")) as { scripts: Record<string, string> };
-  for (const name of ["start", "dev"]) {
-    assert.match(tui.scripts[name] ?? "", /^node \.\.\/scripts\/trio\/governed-launch\.mjs /, `tui script ${name} bypasses the governed boundary`);
+  for (const name of ["build", "typecheck"]) {
+    assert.match(pkg.scripts[name] ?? "", /governed-launch\.mjs trio-test -- tsc /,
+      `package.json script ${name} must run the compiler through the governed boundary`);
   }
+  const tui = JSON.parse(readFileSync(join(process.cwd(), "tui/package.json"), "utf8")) as { scripts: Record<string, string> };
+  for (const [name, value] of Object.entries(tui.scripts)) {
+    assert.match(value, GOVERNED_SCRIPT, `tui script ${name} bypasses the governed boundary`);
+  }
+  assert.match(tui.scripts["type-check"] ?? "", /governed-launch\.mjs trio-test -- tsc /,
+    "the tui type-check must run the compiler through the governed boundary");
 });
 
-// T15 — the scanners are EXECUTED, and their exit status is the assertion.
-test("T15 both content-anchored scanners run, pass clean, and fail on a plant", () => {
-  const work = scratch("t15");
+/** Test-name patterns that select exactly one scanner each. */
+const TMP_SCANNER = "outside the declared refusal fixtures";
+const EXECUTION_SCANNER = "no ungoverned package-manager or build-tool execution";
+
+/**
+ * A detached, git-tracked copy of THIS repository's committed tree, with a runner that executes
+ * one scanner in it as an independent process. Plants go here; never into a candidate.
+ */
+function detachedScannerHost(name: string): {
+  copy: string;
+  work: string;
+  runScanner: (pattern: string) => { status: number | null; out: string };
+  add: (relative: string) => void;
+  remove: (relative: string) => void;
+} {
+  const work = scratch(name);
   const copy = join(work, "repo");
   mkdirSync(copy, { recursive: true, mode: 0o700 });
-  // Plant into a detached copy of the tracked tree; never into a candidate. The copy carries
-  // the tracked files AS THEY ARE, so the scanners under test are the ones this repository
-  // would actually ship, not a stale revision of them.
   execFileSync("sh", ["-c", `git ls-files -z | tar -c --null -T - -f - | tar -x -f - -C ${JSON.stringify(copy)}`],
     { cwd: process.cwd() });
   for (const args of [["init", "-q"], ["add", "-A"],
-       ["-c", "user.email=o16@lab", "-c", "user.name=o16", "commit", "-qm", "detached"]]) {
+       ["-c", "user.email=o17@lab", "-c", "user.name=o17", "commit", "-qm", "detached"]]) {
     execFileSync("git", args, { cwd: copy, stdio: "ignore" });
   }
   assert.ok(execFileSync("git", ["ls-files"], { cwd: copy, encoding: "utf8" }).split("\n").length > 100,
     "the detached copy tracks almost nothing — the scanners would pass vacuously");
   // The loader and its dependencies come from this repository; nothing is installed.
   symlinkSync(join(process.cwd(), "node_modules"), join(copy, "node_modules"));
-
   // The node test runner refuses to run files when it detects it is already inside one, and it
   // signals that through the environment. The scanner must be a genuinely independent run.
   const scannerEnv: NodeJS.ProcessEnv = { ...process.env, TMPDIR: work, TMP: work, TEMP: work };
   for (const key of Object.keys(scannerEnv)) if (key.startsWith("NODE_TEST_")) delete scannerEnv[key];
-
-  const TMP_SCANNER = "outside the declared refusal fixtures";
-  const PM_SCANNER = "raw package-manager invocation";
   const runScanner = (pattern: string): { status: number | null; out: string } => {
     const r = spawnSync(process.execPath,
       ["--import", "tsx", "--test", "--test-name-pattern", pattern, "src/core/temp-policy.test.ts"],
       { cwd: copy, encoding: "utf8", shell: false, env: scannerEnv });
     const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
     // A name pattern that selects nothing exits 0. Requiring the scanner to have RUN is what
-    // stops this control from passing vacuously.
+    // stops every control below from passing vacuously.
     const ran = Number((out.match(/^# tests (\d+)$/m) ?? [])[1] ?? "0");
     assert.equal(ran, 1, `the pattern ${JSON.stringify(pattern)} selected ${ran} tests, not exactly 1: ${out.slice(-600)}`);
     return { status: r.status, out };
   };
+  return {
+    copy, work, runScanner,
+    add: (relative) => execFileSync("git", ["add", relative], { cwd: copy, stdio: "ignore" }),
+    remove: (relative) => execFileSync("git", ["rm", "-q", "-f", relative], { cwd: copy, stdio: "ignore" }),
+  };
+}
+
+// T15 — the scanners are EXECUTED, and their exit status is the assertion.
+test("T15 both content-anchored scanners run, pass clean, and fail on a plant", () => {
+  const { copy, work, runScanner, add, remove } = detachedScannerHost("t15");
 
   const cleanTmp = runScanner(TMP_SCANNER);
   assert.equal(cleanTmp.status, 0, `the /tmp scanner failed on an unmodified tree: ${cleanTmp.out.slice(-800)}`);
-  const cleanPm = runScanner(PM_SCANNER);
-  assert.equal(cleanPm.status, 0, `the package-manager scanner failed on an unmodified tree: ${cleanPm.out.slice(-800)}`);
+  const cleanExecution = runScanner(EXECUTION_SCANNER);
+  assert.equal(cleanExecution.status, 0, `the execution scanner failed on an unmodified tree: ${cleanExecution.out.slice(-800)}`);
 
   // Plant A — a live forbidden write inside a DECLARED file. A pathname allowlist would miss it.
   const declared = join(copy, "scripts/trio/governed-temp-authority.mjs");
@@ -723,17 +749,17 @@ test("T15 both content-anchored scanners run, pass clean, and fail on a plant", 
   // Plant B — a forbidden write in a file the allowlist has never heard of.
   const unknown = join(copy, "src/core/o16-unknown-writer.ts");
   writeFileSync(unknown, `import fs from "node:fs";\nfs.mkdirSync("/tmp/o16-plant-unknown", { recursive: true });\n`);
-  execFileSync("git", ["add", "src/core/o16-unknown-writer.ts"], { cwd: copy, stdio: "ignore" });
+  add("src/core/o16-unknown-writer.ts");
   const plantedUnknown = runScanner(TMP_SCANNER);
   assert.notEqual(plantedUnknown.status, 0, "a live /tmp write in an UNDECLARED file was not caught");
   assert.match(plantedUnknown.out, /o16-unknown-writer/, "the undeclared-file plant was caught for the wrong reason");
-  execFileSync("git", ["rm", "-q", "-f", "src/core/o16-unknown-writer.ts"], { cwd: copy, stdio: "ignore" });
+  remove("src/core/o16-unknown-writer.ts");
 
   // Plant C — a raw package-manager invocation, the bypass class the second scanner exists for.
   const bypass = join(copy, "src/core/o16-bypass.ts");
   writeFileSync(bypass, `export const build = "pnpm run build";\n`);
-  execFileSync("git", ["add", "src/core/o16-bypass.ts"], { cwd: copy, stdio: "ignore" });
-  const plantedPm = runScanner(PM_SCANNER);
+  add("src/core/o16-bypass.ts");
+  const plantedPm = runScanner(EXECUTION_SCANNER);
   assert.notEqual(plantedPm.status, 0, "a raw package-manager invocation was not caught");
   assert.match(plantedPm.out, /o16-bypass/, "the package-manager plant was caught for the wrong reason");
 
@@ -797,7 +823,7 @@ test("T17 the governed-child contract refuses every forged, blank, absent and tr
   refuse("blank markers", { ...baseEnv(root), npm_lifecycle_event: "", npm_execpath: "" });
   refuse("forged markers with no governed environment",
     { ...baseEnv(root), npm_lifecycle_event: "test", npm_execpath: "/usr/bin/npm" });
-  refuse("pnpm exec shape (npm_command set, no lifecycle markers)",
+  refuse("pnpm-exec shape (npm_command set, no lifecycle markers)",
     { ...baseEnv(root), npm_command: "exec", npm_config_user_agent: "pnpm/11.5.0 npm/? node/v22.22.3 linux x64" });
   refuse("blank TMPDIR", { ...good, TMPDIR: "", TMP: "", TEMP: "" });
   refuse("whitespace TMPDIR", { ...good, TMPDIR: "   ", TMP: "   ", TEMP: "   " });
@@ -900,7 +926,7 @@ test("T19 an undeclared launch is refused end to end, however it was reached", (
     ["no markers at all", {}],
     ["blank markers", { npm_lifecycle_event: "", npm_execpath: "" }],
     ["forged markers", { npm_lifecycle_event: "test", npm_execpath: "/usr/bin/npm" }],
-    ["pnpm exec shape", { npm_command: "exec", npm_config_user_agent: "pnpm/11.5.0" }],
+    ["pnpm-exec shape", { npm_command: "exec", npm_config_user_agent: "pnpm/11.5.0" }],
   ] as const) {
     const r = runNode([LAUNCH, "trio-test", "--", process.execPath, ...child], { ...baseEnv(root), ...extra });
     assert.notEqual(r.status, 0, `${name}: an undeclared launch succeeded`);
@@ -943,4 +969,119 @@ test("T20 the reaper collects a disproven run and never a live one", async () =>
     rmSync(orphanRecord, { force: true });
     live.release();
   }
+});
+
+// ─── T21: every bypass class the analysis claims to close, planted and caught ─
+//
+// Order 16's scanner was a regex, and a regex cannot see `PM=pnpm; $PM run test`, an alias,
+// `corepack`, a bare `npx <tool>`, or a name assembled from pieces. Each row below is one of
+// those classes, planted into a detached copy and required to fail the scanner. The clean
+// control runs first, so a plant that "fails" because the tree was already failing is visible.
+
+test("T21 the execution analysis catches every enumerated bypass class", () => {
+  const { copy, work, runScanner, add, remove } = detachedScannerHost("t21");
+  const clean = runScanner(EXECUTION_SCANNER);
+  assert.equal(clean.status, 0, `the execution scanner failed on an unmodified tree: ${clean.out.slice(-900)}`);
+
+  const shell = (body: string): readonly [string, string] => ["scripts/o17-plant.sh", `#!/bin/sh\n${body}\n`];
+  const program = (body: string): readonly [string, string] => ["src/core/o17-plant.ts", body];
+  const plants: ReadonlyArray<readonly [string, readonly [string, string]]> = [
+    ["direct command", shell("pnpm run build")],
+    ["shell variable in command position", shell("PM=pnpm\n$PM run test")],
+    ["shell alias", shell("alias pm=pnpm\npm run test")],
+    ["shell function body", shell("build() {\n  pnpm run build\n}\nbuild")],
+    ["corepack", shell("corepack pnpm@9 run build")],
+    ["corepack enable", shell("corepack enable")],
+    ["bare npx <tool>", shell("npx tsc -p tsconfig.json")],
+    ["env wrapper", shell("env FOO=1 pnpm install")],
+    ["sh -c wrapper", shell('sh -c "pnpm run build"')],
+    ["bash -c with an inner variable", shell('bash -c "PM=npm; $PM ci"')],
+    ["bare compiler", shell("tsc -p tsconfig.json")],
+    ["bare loader", shell("tsx src/server.ts")],
+    ["spawn API", program('import { spawnSync } from "node:child_process";\nspawnSync("pnpm", ["run", "build"]);\n')],
+    ["concatenated construction", program('import { spawnSync } from "node:child_process";\nspawnSync("pn" + "pm", []);\n')],
+    ["array-join construction", program('import { spawnSync } from "node:child_process";\nspawnSync(["p","n","p","m"].join(""), []);\n')],
+    ["unresolved dynamic command", program('import { spawnSync } from "node:child_process";\nspawnSync(chosenCommand, []);\n')],
+    ["shell string through exec", program('import { execSync } from "node:child_process";\nexecSync("pnpm run build");\n')],
+    ["manifest script", ["o17-plant/package.json", JSON.stringify({ name: "p", private: true, scripts: { build: "pnpm run compile" } })]],
+    ["service definition", ["deploy/o17-plant.service", "[Service]\nExecStart=/usr/bin/env pnpm run start\n"]],
+    ["deployment descriptor", ["deploy/o17-plant.yaml", "steps:\n  - run: npm ci\n"]],
+    ["documented example", ["docs/o17-plant.md", "Run it:\n\n```sh\npnpm test\n```\n"]],
+  ];
+
+  const missed: string[] = [];
+  for (const [name, [relative, contents]] of plants) {
+    mkdirSync(dirname(join(copy, relative)), { recursive: true });
+    writeFileSync(join(copy, relative), contents);
+    add(relative);
+    const planted = runScanner(EXECUTION_SCANNER);
+    if (planted.status === 0 || !planted.out.includes(relative.replace(/\/package\.json$/, ""))) {
+      missed.push(`${name} (${relative}) status=${planted.status}`);
+    }
+    remove(relative);
+  }
+  assert.deepEqual(missed, [], `the execution analysis missed: ${missed.join("; ")}`);
+
+  // …and the clean tree still passes afterwards, so the controls above are not sticky.
+  const after = runScanner(EXECUTION_SCANNER);
+  assert.equal(after.status, 0, `the execution scanner did not return to clean: ${after.out.slice(-900)}`);
+  rmSync(work, { recursive: true, force: true });
+  assert.deepEqual(tmpEntries(), TMP_BASELINE, "the execution-analysis controls touched shared /tmp");
+});
+
+// ─── T22: uniform three-repository tampering cannot preserve the boundary ─────
+//
+// A cross-repository comparison is blind to a change made identically in all three: nothing
+// diverges. Order 16's anchor digested declared PATHS, so it was blind too. The anchor now
+// binds bytes, and this test proves it end to end — three copies, one identical edit, still
+// byte-identical to one another, and the parity suite refuses them.
+
+test("T22 a uniform three-repository byte change cannot keep the trusted boundary", () => {
+  const work = scratch("t22");
+  const slots = ["pehlichi", "loony-luna", "mad-ptah"] as const;
+  // Copy each slot from ITS OWN repository: the parity suite checks package identity per slot,
+  // so three copies of one repository would fail discovery instead of failing on the anchor.
+  const sources = slots.map((slot) => join(process.cwd(), "..", slot));
+  for (const source of sources) {
+    assert.ok(existsSync(join(source, "package.json")), `sibling checkout ${source} is missing — T22 cannot run`);
+  }
+  const roots = slots.map((slot) => join(work, slot));
+  for (const [index, root] of roots.entries()) {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    execFileSync("sh", ["-c", `git ls-files -z | tar -c --null -T - -f - | tar -x -f - -C ${JSON.stringify(root)}`],
+      { cwd: sources[index] });
+  }
+  const parityEnv: NodeJS.ProcessEnv = { ...process.env, TMPDIR: work, TMP: work, TEMP: work, TRIO_REPOSITORIES: roots.join(",") };
+  for (const key of Object.keys(parityEnv)) if (key.startsWith("NODE_TEST_")) delete parityEnv[key];
+  const runParity = (): { status: number | null; out: string } => {
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "--test", "--test-name-pattern", "trusted manifests bind the closed inventory", "tests/parity/runtime-parity.test.ts"],
+      { cwd: process.cwd(), encoding: "utf8", shell: false, env: parityEnv });
+    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+    const ran = Number((out.match(/^# tests (\d+)$/m) ?? [])[1] ?? "0");
+    assert.equal(ran, 1, `the anchor test did not run (selected ${ran}): ${out.slice(-700)}`);
+    return { status: r.status, out };
+  };
+
+  // The copies are faithful, so the anchor holds before the tamper.
+  const clean = runParity();
+  assert.equal(clean.status, 0, `the anchor rejected faithful copies: ${clean.out.slice(-900)}`);
+
+  const anchored = "scripts/trio/governed-temp-authority.mjs";
+  const before = roots.map((root) => readFileSync(join(root, anchored), "utf8"));
+  assert.equal(new Set(before).size, 1, "the anchored authority is not byte-identical across the Trio to begin with");
+
+  // The uniform edit: the same bytes in all three, so nothing DIVERGES between them. This is the
+  // one shape a cross-repository comparison cannot see, and the shape a path-only anchor missed.
+  for (const root of roots) writeFileSync(join(root, anchored), `${before[0]}\n// uniform tamper\n`);
+  assert.equal(new Set(roots.map((root) => readFileSync(join(root, anchored), "utf8"))).size, 1,
+    "the tamper was not uniform — it would be caught by parity, which is not what this test proves");
+
+  const tampered = runParity();
+  assert.notEqual(tampered.status, 0, "a uniform three-repository byte change kept the trusted boundary anchor");
+  assert.match(tampered.out, /architecture boundary cannot self-redefine/,
+    `the anchor test failed for the wrong reason: ${tampered.out.slice(-900)}`);
+
+  rmSync(work, { recursive: true, force: true });
+  assert.deepEqual(tmpEntries(), TMP_BASELINE, "the anchor controls touched shared /tmp");
 });
