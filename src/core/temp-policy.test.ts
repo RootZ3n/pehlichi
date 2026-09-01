@@ -29,6 +29,8 @@ const TMP_TEXT_ALLOWED: ReadonlyMap<string, string> = new Map([
   ["src/core/temp-authority.ts", "names /tmp solely to refuse it"],
   ["src/core/temp-authority.test.ts", "adversarial fixtures prove /tmp refusal without touching it"],
   ["src/core/temp-policy.test.ts", "this scanner's own patterns"],
+  ["scripts/trio/governed-launch.mjs", "names /tmp solely to refuse it (pre-tsx launch wrapper)"],
+  ["src/core/governed-launch-regression.test.ts", "adversarial fixtures prove /tmp refusal; positive controls"],
   ["scripts/model-test.sh", "guards PEHVERSE_TEMP_ROOT against /tmp values (pehlichi-only)"],
   ["interview-demo-" + "factory/scripts/assemble-demo.sh", "guards PEHVERSE_TEMP_ROOT against /tmp values (loony-luna-only)"],
   ["stress_test.py", "guards PEHVERSE_TEMP_ROOT against /tmp values"],
@@ -40,6 +42,7 @@ const TEMP_API_ALLOWED: ReadonlyMap<string, string> = new Map([
   ["src/core/temp-authority.ts", "the authority implementation itself"],
   ["src/core/temp-authority.test.ts", "proves os.tmpdir() mediation"],
   ["src/core/temp-policy.test.ts", "this scanner's own patterns and messages"],
+  ["src/core/governed-launch-regression.test.ts", "positive control proves tsx creates /tmp/tsx-* without TMPDIR"],
 ]);
 
 const EXECUTABLE = /\.(ts|mts|cts|mjs|cjs|js|sh|py)$/;

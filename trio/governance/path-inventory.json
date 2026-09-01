@@ -327,6 +327,7 @@
       "src/core/gbrain-bridge.test.ts",
       "src/core/gbrain-bridge.ts",
       "src/core/governed-inventory.test.ts",
+      "src/core/governed-launch-regression.test.ts",
       "src/core/index.ts",
       "src/core/lab-transcript.test.ts",
       "src/core/lab-transcript.ts",

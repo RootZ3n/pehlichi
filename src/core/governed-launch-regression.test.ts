@@ -151,26 +151,27 @@ test("F2 positive control: from-empty env without governed vars sends child to /
   assert.equal(child.PEHVERSE_TEMP_ROOT, null, "positive control: child should have no PEHVERSE_TEMP_ROOT");
 });
 
-test("F2 fix verification: truth-agent-adapter.ts imports childTempEnv and processScratchDir", () => {
-  // Read the adapter source and verify it imports the governed temp functions
+test("F2 fix verification: truth-agent-adapter.ts is builtin-only and vendorable", () => {
+  // Read the adapter source and verify it has NO non-builtin imports
   const adapterPath = join(process.cwd(), "runtime/server/truth-agent-adapter.ts");
   const source = readFileSync(adapterPath, "utf8");
+  // Must NOT import from sibling tree (vendorability invariant)
   assert.ok(
-    source.includes("processScratchDir"),
-    "truth-agent-adapter.ts does not import processScratchDir"
+    !source.includes("from '../../src/core/temp-authority"),
+    "truth-agent-adapter.ts must not import from temp-authority (builtin-only)"
   );
-  assert.ok(
-    source.includes("childTempEnv"),
-    "truth-agent-adapter.ts does not import childTempEnv"
-  );
-  assert.ok(
-    source.includes("from '../../src/core/temp-authority.js'"),
-    "truth-agent-adapter.ts does not import from temp-authority.js"
-  );
+  // Must only import from node: builtins
+  const importLines = source.split('\n').filter(l => l.startsWith('import '));
+  for (const line of importLines) {
+    assert.ok(
+      line.includes("from 'node:") || line.includes('from "node:'),
+      `non-builtin import found: ${line}`
+    );
+  }
 });
 
-test("F2 fix verification: verifierEnv() spreads childTempEnv and includes PEHVERSE_TEMP_ROOT", () => {
-  // Read the adapter source and verify verifierEnv() uses childTempEnv
+test("F2 fix verification: verifierEnv() propagates governed vars and never throws", () => {
+  // Read the adapter source and verify verifierEnv() includes all four governed vars
   const adapterPath = join(process.cwd(), "runtime/server/truth-agent-adapter.ts");
   const source = readFileSync(adapterPath, "utf8");
   // Find the verifierEnv function body
@@ -178,16 +179,25 @@ test("F2 fix verification: verifierEnv() spreads childTempEnv and includes PEHVE
   assert.ok(fnMatch !== null, "could not find verifierEnv() in truth-agent-adapter.ts");
   const fnBody = fnMatch[0];
   assert.ok(
-    fnBody.includes("childTempEnv("),
-    "verifierEnv() does not call childTempEnv()"
-  );
-  assert.ok(
-    fnBody.includes("processScratchDir()"),
-    "verifierEnv() does not call processScratchDir()"
-  );
-  assert.ok(
     fnBody.includes("PEHVERSE_TEMP_ROOT"),
     "verifierEnv() does not include PEHVERSE_TEMP_ROOT"
+  );
+  assert.ok(
+    fnBody.includes("TMPDIR"),
+    "verifierEnv() does not include TMPDIR"
+  );
+  assert.ok(
+    fnBody.includes("process.env.TMPDIR"),
+    "verifierEnv() does not read TMPDIR from process.env"
+  );
+  // Must NOT call processScratchDir or childTempEnv (those can throw)
+  assert.ok(
+    !fnBody.includes("processScratchDir("),
+    "verifierEnv() must not call processScratchDir() (never-throw contract)"
+  );
+  assert.ok(
+    !fnBody.includes("childTempEnv("),
+    "verifierEnv() must not call childTempEnv() (never-throw contract)"
   );
 });
 
