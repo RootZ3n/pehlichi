@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /**
  * the Mechanic HTTP Server — the lab task runner.
  *

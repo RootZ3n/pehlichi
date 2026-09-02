@@ -96,8 +96,10 @@ async function main() {
   } else {
     // Info mode — just show agent details
     console.log('  No message provided. Usage, from the repository root:');
-    console.log('    node scripts/trio/governed-launch.mjs --entry=operator trio-agent --');
-    console.log('      node --import tsx tui/src/harness.ts "Hello, who are you?"');
+    // One line, deliberately: the command a human is told to type begins at the governed entry,
+    // and a command split across two printed strings reads as two commands -- the second of
+    // which starts at `node --import tsx` and is not governed by anything the reader can see.
+    console.log('    node scripts/trio/governed-launch.mjs --entry=operator trio-agent -- node --import tsx tui/src/harness.ts "Hello, who are you?"');
     console.log('    (add --interactive for a session)');
     console.log('');
     console.log('  Environment:');

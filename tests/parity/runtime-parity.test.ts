@@ -115,7 +115,7 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // Addition, deletion, replacement, chmod, symlink substitution and uniform byte modification
 // each move the anchor, so each one has to be declared here deliberately.
 const BOUNDARY_ANCHOR_VERSION = 2;
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '36f28b7a6dbbabb7f6f7dd25247f0994fb7a3ad0a5d7b8b105a28d04e1e07ed4';
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9f74e2b449ffe9aadf68f3cb1355ffe63619e842d1ac18f2e789e95f4ceeb2f8';
 
 interface Inventory {
   schemaVersion: 3;
@@ -326,6 +326,13 @@ const ANCHORED_FILES = [
   'runtime/server/truth-agent-adapter.ts',
   'runtime/server/truth-gate.ts',
   'src/core/temp-authority.ts',
+  // The scanner that decides whether any committed call path is governed. It was NOT anchored,
+  // and that was the gap: a uniform three-way weakening of it left the cross-repository
+  // comparison seeing no divergence and the anchor seeing no change, so the control that finds
+  // planted execution could itself be removed invisibly. Its bytes are now part of the boundary.
+  'src/core/temp-policy.test.ts',
+  // The TUI's build route: a governed child that runs a compiler and writes an artifact.
+  'tui/scripts/build.mjs',
 ] as const;
 
 interface AnchoredEntry {

@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 // Entry point — launches the agent's TUI
 import React from 'react';
 import { render } from 'ink';

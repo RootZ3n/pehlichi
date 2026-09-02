@@ -1,4 +1,3 @@
-#!/usr/bin/env tsx
 /** Byte-identical Trio compatibility launcher. All differing inputs are validated data. */
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

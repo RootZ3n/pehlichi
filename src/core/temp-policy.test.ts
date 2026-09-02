@@ -248,8 +248,40 @@ const PACKAGE_MANAGERS = ["npm", "pnpm", "npx", "yarn", "corepack"] as const;
 const BUILD_TOOLS = ["tsc", "tsx"] as const;
 const UNGOVERNED_COMMANDS: readonly string[] = [...PACKAGE_MANAGERS, ...BUILD_TOOLS];
 
-/** The canonical entries. A command that begins with one of these IS the boundary. */
-const GOVERNED_ENTRY = /(?:^|\/)governed-(?:launch|npm|pnpm)\.mjs$/;
+/**
+ * The canonical entries. A command that begins with one of these IS the boundary.
+ *
+ * Identity is the exact repository-relative path, not a filename suffix. A suffix test accepts
+ * `./anywhere/governed-launch.mjs`, so anyone could park a file with the right name beside their
+ * own script and inherit the boundary's authority without passing through it. The boundary is a
+ * specific committed file, and only that file.
+ */
+const GOVERNED_ENTRY_PATHS: readonly string[] = [
+  "scripts/trio/governed-launch.mjs",
+  "scripts/trio/governed-npm.mjs",
+  "scripts/trio/governed-pnpm.mjs",
+];
+
+/**
+ * Normalise a command word to a repository-relative identity.
+ *
+ * `./x`, `x/./y` and `a/../b` collapse. A LEADING `..` drops, because a nested manifest reaches
+ * the repository root exactly that way — `tui/package.json` says `../scripts/trio/…` and means
+ * the canonical file. An absolute path keeps its leading separator and therefore can never equal
+ * a repository-relative canonical entry, which is the intent: the boundary is a committed file
+ * at a known path, not whatever happens to sit at that name on some host.
+ */
+function canonicalCommandPath(word: string): string {
+  const out: string[] = [];
+  for (const segment of word.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") { out.pop(); continue; }
+    out.push(segment);
+  }
+  return (word.startsWith("/") ? "/" : "") + out.join("/");
+}
+
+const isGovernedEntry = (word: string): boolean => GOVERNED_ENTRY_PATHS.includes(canonicalCommandPath(word));
 
 interface Finding {
   /** `ungoverned-command:<tool>`, `literal-ungoverned-command:<tool>` or `unresolved-command`. */
@@ -284,14 +316,29 @@ function tokenise(command: string): string[] {
   return out;
 }
 
-/** Split a shell fragment into individual commands on operators, respecting quotes. */
+/**
+ * Split a shell fragment into individual commands on operators, respecting quotes.
+ *
+ * Two constructs are kept whole because splitting them manufactures commands that were never
+ * written. `name=(a b c)` is an array ASSIGNMENT -- its parentheses hold data, and cutting there
+ * turns the operands into a command line. `${…}` is one word, and cutting on its braces leaves a
+ * bare `$` standing where a command name would be.
+ */
 function splitCommands(text: string): string[] {
   const out: string[] = [];
   let cur = "";
   let quote: string | null = null;
-  for (const c of text) {
+  let assignmentDepth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i] ?? "";
     if (quote !== null) { cur += c; if (c === quote) quote = null; continue; }
     if (c === '"' || c === "'") { quote = c; cur += c; continue; }
+    if (c === "$" && text[i + 1] === "{") {
+      const end = text.indexOf("}", i + 2);
+      if (end >= 0) { cur += text.slice(i, end + 1); i = end; continue; }
+    }
+    if (c === "(" && cur.endsWith("=")) { assignmentDepth++; cur += c; continue; }
+    if (c === ")" && assignmentDepth > 0) { assignmentDepth--; cur += c; continue; }
     if (c === "\n" || c === ";" || c === "|" || c === "&" || "(){}".includes(c)) { out.push(cur); cur = ""; continue; }
     cur += c;
   }
@@ -300,7 +347,7 @@ function splitCommands(text: string): string[] {
 }
 
 /** Words that pass a command through unchanged: what follows is still a command. */
-const NEUTRAL_PREFIX = new Set(["exec", "command", "nohup", "time", "sudo", "builtin", "eval",
+const NEUTRAL_PREFIX = new Set(["exec", "command", "nohup", "time", "builtin", "eval",
   "if", "elif", "while", "until", "then", "else", "do", "done", "fi", "!"]);
 /** Words after which the rest is operands, not a command: a test expression or a word list. */
 const TERMINAL_WORD = new Set(["[[", "[", "test", "for", "in", "case", "esac", "select", "local",
@@ -309,69 +356,222 @@ const SHELLS = ["sh", "bash", "zsh", "dash", "ksh"];
 /** A command-position VARIABLE — the shape `$PM run test` has. A fragment that merely contains
  *  `$` is a path or a substitution remnant, not a command name, and judging it is noise. */
 const COMMAND_VARIABLE = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/;
+/** Every shell expansion form, so what remains of a word can be judged on its own. */
+const EXPANSION = /\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]/g;
+const withoutExpansions = (word: string): string => word.replace(EXPANSION, "");
+
+/** A `-c` flag, alone or combined with other single letters: `-c`, `-ec`, `-ce`, `-euxc`. */
+const SHELL_COMMAND_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
+/** `sudo` options that consume the following word, so the command is not the next token. */
+const SUDO_OPTION_WITH_VALUE = new Set(["-u", "--user", "-g", "--group", "-p", "--prompt",
+  "-C", "--close-from", "-h", "--host", "-U", "--other-user", "-r", "--role", "-t", "--type",
+  "-T", "--command-timeout", "-R", "--chroot", "-D", "--chdir"]);
+/** `xargs` options that consume the following word. Everything after them is the command. */
+const XARGS_OPTION_WITH_VALUE = new Set(["-I", "-i", "-n", "-L", "-P", "-s", "-E", "-d", "-a",
+  "--replace", "--max-args", "--max-lines", "--max-procs", "--max-chars", "--eof",
+  "--delimiter", "--arg-file", "--process-slot-var"]);
+/** The interpreters whose arguments say what actually runs. */
+const NODE_COMMANDS = ["node", "nodejs"];
+
+/** Drop options from an option-taking wrapper, so the head lands on the real command. */
+function skipOptions(tokens: readonly string[], withValue: ReadonlySet<string>): string[] {
+  let index = 0;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token === undefined || !token.startsWith("-") || token === "--") break;
+    index += token.includes("=") || !withValue.has(token) ? 1 : 2;
+  }
+  return tokens.slice(index);
+}
+
+/**
+ * Analyse a `node` invocation's ARGUMENTS.
+ *
+ * Node is not a package manager, so an analysis that stopped at the executable saw nothing wrong
+ * with `node --import tsx src/server.ts` — which is a `tsx` loader start-up, cache and all — or
+ * with `node --no-warnings scripts/trio/…`, where checking only the first argument missed the
+ * entry entirely. Every argument is inspected instead: a flag's value can be a loader, the first
+ * non-flag word is the script, and the words after it can still name a tool.
+ *
+ * The first non-flag word that is a canonical governed entry ENDS the analysis. That word is the
+ * boundary, and what it goes on to run is governed by construction — which is precisely why the
+ * word has to be the canonical file and not merely something ending in the right name.
+ */
+function analyseNodeArguments(tokens: readonly string[], raw: string): Finding[] {
+  const findings: Finding[] = [];
+  let scriptSeen = false;
+  for (const token of tokens) {
+    if (token === "--") continue;
+    if (token.startsWith("-")) {
+      const equals = token.indexOf("=");
+      const value = equals >= 0 ? token.slice(equals + 1) : "";
+      if (value.length > 0 && isUngoverned(value)) findings.push(finding(`ungoverned-command:${baseOf(value)}`, raw));
+      continue;
+    }
+    if (!scriptSeen && isGovernedEntry(token)) return [];
+    scriptSeen = true;
+    if (isUngoverned(token)) findings.push(finding(`ungoverned-command:${baseOf(token)}`, raw));
+  }
+  return findings;
+}
+
+/**
+ * Analyse ONE command, given as tokens.
+ *
+ * Wrappers are peeled recursively rather than in a fixed order, because they nest: `xargs sh -c`
+ * is an `xargs` whose command is a shell whose command is a string. Peeling once and falling
+ * through — which is what the earlier straight-line version did — analysed `sh` as if it were
+ * the command and never looked inside it.
+ */
+function analyseCommandTokens(
+  initial: readonly string[],
+  symbols: Map<string, string>,
+  depth: number,
+  raw: string,
+): Finding[] {
+  if (depth > 6) return [finding("unresolved-command", raw)];
+  let tokens = [...initial];
+  while (tokens[0] !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
+    const equals = tokens[0].indexOf("=");
+    symbols.set(tokens[0].slice(0, equals), unquote(tokens[0].slice(equals + 1)));
+    tokens = tokens.slice(1);
+  }
+  // `env` additionally carries its own assignments and flags; the neutral words do not, so a
+  // flag after one of them is an operand of the NEXT command, not something to skip past.
+  for (;;) {
+    const word = tokens[0];
+    if (word === undefined) break;
+    if (baseOf(word) === "env") {
+      tokens = tokens.slice(1);
+      while (tokens[0] !== undefined && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]) || tokens[0].startsWith("-"))) tokens = tokens.slice(1);
+      continue;
+    }
+    if (NEUTRAL_PREFIX.has(word)) { tokens = tokens.slice(1); continue; }
+    break;
+  }
+  const head = tokens[0];
+  if (head === undefined) return [];
+  if (TERMINAL_WORD.has(head)) return [];
+
+  // `sudo -u nobody pnpm run build`: the command is not the next token, it is the one after the
+  // options and their values. Treating `sudo` as a plain pass-through read `-u` as the command.
+  if (baseOf(head) === "sudo" || baseOf(head) === "doas") {
+    return analyseCommandTokens(skipOptions(tokens.slice(1), SUDO_OPTION_WITH_VALUE), symbols, depth + 1, raw);
+  }
+  if (baseOf(head) === "xargs") {
+    return analyseCommandTokens(skipOptions(tokens.slice(1), XARGS_OPTION_WITH_VALUE), symbols, depth + 1, raw);
+  }
+  if (SHELLS.includes(baseOf(head))) {
+    const flag = tokens.findIndex((token, index) => index > 0 && SHELL_COMMAND_FLAG.test(token));
+    const inner = flag >= 0 ? tokens[flag + 1] : undefined;
+    if (inner !== undefined) return analyseShell(unquote(inner), symbols, depth + 1);
+  }
+  if (isGovernedEntry(head)) return [];
+  if (NODE_COMMANDS.includes(baseOf(head))) return analyseNodeArguments(tokens.slice(1), raw);
+
+  let resolved: string = head;
+  const seen = new Set<string>();
+  for (;;) {
+    const name = resolved.replace(/^\$\{?/, "").replace(/\}$/, "");
+    const next = symbols.get(name);
+    if (next === undefined || seen.has(name)) break;
+    seen.add(name);
+    resolved = next;
+  }
+  if (COMMAND_VARIABLE.test(resolved)) return [finding("unresolved-command", raw)];
+  if (isUngoverned(resolved)) return [finding(`ungoverned-command:${baseOf(resolved)}`, raw)];
+  // A command name ASSEMBLED from an expansion is a name this analysis cannot read, and skipping
+  // it was fail-open. What is left once the expansions are removed decides which case it is: a
+  // remaining PATH means a real command is being built out of a value, and its identity is
+  // unknown, so it fails closed. A head that is nothing but an expansion names no command at all
+  // -- it is a test expression's operand or a fragment -- and judging it would be noise.
+  if (/[$`]/.test(resolved) && withoutExpansions(resolved).includes("/"))
+    return [finding("unresolved-command", raw)];
+  return [];
+}
+
+/**
+ * Extract `$( … )` and backtick command substitutions. Their contents are commands too.
+ *
+ * `echo $(pnpm run build)` used to be caught only as a side effect of splitting on parentheses,
+ * and the backtick spelling of the very same thing was caught by nothing at all. Both are
+ * extracted here and analysed as commands in their own right, and a substitution that never
+ * closes is reported rather than ignored.
+ */
+function extractSubstitutions(fragment: string): { stripped: string; inner: string[]; unterminated: boolean } {
+  const inner: string[] = [];
+  let stripped = "";
+  let unterminated = false;
+  let singleQuoted = false;
+  for (let i = 0; i < fragment.length; i++) {
+    const c = fragment[i] ?? "";
+    if (c === "'") { singleQuoted = !singleQuoted; stripped += c; continue; }
+    if (!singleQuoted && c === "`") {
+      const end = fragment.indexOf("`", i + 1);
+      if (end < 0) { unterminated = true; break; }
+      inner.push(fragment.slice(i + 1, end));
+      i = end;
+      stripped += " ";
+      continue;
+    }
+    if (!singleQuoted && c === "$" && fragment[i + 1] === "(") {
+      const end = matchingIndex(fragment, i + 1);
+      if (end < 0) { unterminated = true; break; }
+      inner.push(fragment.slice(i + 2, end));
+      i = end;
+      stripped += " ";
+      continue;
+    }
+    stripped += c;
+  }
+  return { stripped, inner, unterminated };
+}
 
 /**
  * Analyse a shell fragment IN ORDER, accumulating the symbols it defines as it goes, so that a
  * variable, an alias and a function body are each resolved to the command they actually run.
  */
-function analyseShell(fragment: string, inherited: ReadonlyMap<string, string> = new Map(), depth = 0): Finding[] {
+function analyseShell(
+  fragment: string,
+  inherited: ReadonlyMap<string, string> = new Map(),
+  depth = 0,
+  substitutions = true,
+): Finding[] {
   if (depth > 6) return [finding("unresolved-command", fragment)];
+  // Substitution is SHELL syntax, and it is only read where the text is shell. A free-standing
+  // string literal in a program is prose far more often than it is a command, and there a
+  // backtick is markdown inline code -- `tsc -p …` inside an English sentence about a different
+  // repository is documentation, not an execution path. Reading it as substitution there would
+  // be exactly the indiscriminate rejection this analysis is supposed to avoid.
+  const extracted = substitutions
+    ? extractSubstitutions(fragment)
+    : { stripped: fragment, inner: [] as string[], unterminated: false };
+  const { stripped, inner, unterminated } = extracted;
   const findings: Finding[] = [];
+  if (unterminated) findings.push(finding("unresolved-command", fragment));
   const symbols = new Map(inherited);
-  for (const raw of splitCommands(fragment)) {
-    let tokens = tokenise(raw);
+  for (const substitution of inner) findings.push(...analyseShell(substitution, symbols, depth + 1));
+  for (const raw of splitCommands(stripped)) {
+    const tokens = tokenise(raw);
     if (tokens[0] === "alias" && tokens[1]?.includes("=")) {
       const eq = tokens[1].indexOf("=");
       symbols.set(tokens[1].slice(0, eq), unquote([tokens[1].slice(eq + 1), ...tokens.slice(2)].join(" ")).split(/\s+/)[0] ?? "");
       continue;
     }
-    while (tokens[0] !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
-      const eq = tokens[0].indexOf("=");
-      symbols.set(tokens[0].slice(0, eq), unquote(tokens[0].slice(eq + 1)));
-      tokens = tokens.slice(1);
-    }
-    // `env` additionally carries its own assignments and flags; the neutral words do not, so a
-    // flag after one of them is an operand of the NEXT command, not something to skip past.
-    for (;;) {
-      const word = tokens[0];
-      if (word === undefined) break;
-      if (baseOf(word) === "env") {
-        tokens = tokens.slice(1);
-        while (tokens[0] !== undefined && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]) || tokens[0].startsWith("-"))) tokens = tokens.slice(1);
-        continue;
-      }
-      if (NEUTRAL_PREFIX.has(word)) { tokens = tokens.slice(1); continue; }
-      break;
-    }
-    let head = tokens[0];
-    if (head === undefined) continue;
-    if (TERMINAL_WORD.has(head)) continue;
-    if (SHELLS.includes(baseOf(head))) {
-      const dashC = tokens.indexOf("-c");
-      const inner = dashC >= 0 ? tokens[dashC + 1] : undefined;
-      if (inner !== undefined) { findings.push(...analyseShell(unquote(inner), symbols, depth + 1)); continue; }
-    }
-    if (baseOf(head) === "xargs") {
-      tokens = tokens.slice(1).filter((t) => !t.startsWith("-"));
-      head = tokens[0];
-      if (head === undefined) continue;
-    }
-    if (baseOf(head) === "node" && tokens[1] !== undefined && GOVERNED_ENTRY.test(tokens[1])) continue;
-    if (GOVERNED_ENTRY.test(head)) continue;
-    let resolved: string = head;
-    const seen = new Set<string>();
-    for (;;) {
-      const name = resolved.replace(/^\$\{?/, "").replace(/\}$/, "");
-      const next = symbols.get(name);
-      if (next === undefined || seen.has(name)) break;
-      seen.add(name);
-      resolved = next;
-    }
-    if (COMMAND_VARIABLE.test(resolved)) { findings.push(finding("unresolved-command", raw)); continue; }
-    if (/[$`]/.test(resolved)) continue;
-    if (isUngoverned(resolved)) findings.push(finding(`ungoverned-command:${baseOf(resolved)}`, raw));
+    findings.push(...analyseCommandTokens(tokens, symbols, depth, raw));
   }
   return findings;
+}
+
+/**
+ * A `#!` line is an execution path: the file names its own interpreter, and `#!/usr/bin/env tsx`
+ * starts a loader exactly as a command line would. Analysed for every scanned file rather than
+ * only for the ones currently carrying the executable bit, because a mode is not a commitment.
+ */
+function analyseShebang(source: string): Finding[] {
+  if (!source.startsWith("#!")) return [];
+  const line = source.slice(2).split("\n")[0] ?? "";
+  return analyseShell(line);
 }
 
 /** npm-family sub-commands that make the following word an invocation rather than prose. */
@@ -455,13 +655,52 @@ function fold(expression: string, consts: ReadonlyMap<string, string>, depth = 0
   return bound === undefined ? undefined : fold(bound, consts, depth + 1);
 }
 
-/** Command expressions that are statically known not to be a package manager. */
-const SAFE_DYNAMIC_COMMAND = [/^process\.execPath$/, /^process\.argv\[0\]$/, /^execPath$/, /^resolved\.node$/, /^runtime\.node$/];
+/**
+ * Command expressions that name the running Node binary.
+ *
+ * These are not package managers, so the command itself is fine — but what Node is TOLD to run
+ * is the whole question, and the earlier analysis accepted the executable and discarded the
+ * argument list. `spawnSync(process.execPath, ["--import", "tsx", …])` is a `tsx` start-up
+ * spelled without ever writing the word in command position.
+ */
+const NODE_COMMAND_EXPRESSION = [/^process\.execPath$/, /^process\.argv\[0\]$/, /^execPath$/, /^resolved\.node$/, /^runtime\.node$/];
 /** A first argument that is a parameter declaration is a signature, not a call. */
 const PARAMETER_DECLARATION = /^[A-Za-z_$][\w$]*\s*\??:/;
 
 const SPAWN_APIS = ["spawn", "spawnSync", "execFile", "execFileSync", "fork"];
 const SHELL_APIS = ["exec", "execSync"];
+
+/**
+ * The names this module binds `node:child_process` to.
+ *
+ * Qualified calls are recognised only through them. Matching any `x.exec(` would sweep in every
+ * `RegExp.prototype.exec` in the tree and judge its subject as a command, which is noise, not
+ * analysis; matching only the names that actually hold the child-process module catches
+ * `cp.spawnSync(…)` and `cp.spawn?.(…)` without inventing findings out of unrelated source text.
+ */
+function childProcessNamespaces(code: string): string[] {
+  const names = new Set<string>();
+  for (const m of code.matchAll(/import\s+(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?child_process["']/g)) {
+    if (m[1] !== undefined) names.add(m[1]);
+  }
+  for (const m of code.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g)) {
+    if (m[1] !== undefined) names.add(m[1]);
+  }
+  return [...names].sort();
+}
+
+/** Fold an array-literal argument to the elements that are statically decidable. */
+function foldArrayElements(expression: string | undefined, consts: ReadonlyMap<string, string>): string[] {
+  if (expression === undefined) return [];
+  const array = /^\[([\s\S]*)\]$/.exec(expression.trim());
+  if (array === null) return [];
+  const out: string[] = [];
+  for (const part of splitTop(array[1] ?? "", ",")) {
+    const folded = fold(part, consts);
+    if (folded !== undefined) out.push(folded);
+  }
+  return out;
+}
 
 function analyseProgram(source: string): Finding[] {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
@@ -470,15 +709,20 @@ function analyseProgram(source: string): Finding[] {
   for (const m of code.matchAll(/(?:^|\n)\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)[;\n]/g)) {
     if (m[1] !== undefined && m[2] !== undefined) consts.set(m[1], m[2].trim());
   }
-  const callsTo = (name: string): { first: string }[] => {
-    const out: { first: string }[] = [];
-    const re = new RegExp(`(?:^|[^\\w$.])${name}\\s*\\(`, "g");
+  const namespaces = childProcessNamespaces(code);
+  const qualifier = namespaces.length > 0 ? `(?:(?:${namespaces.join("|")})\\s*\\??\\.\\s*)?` : "";
+  const callsTo = (name: string): { first: string; args: string[] }[] => {
+    const out: { first: string; args: string[] }[] = [];
+    // The trailing `(?:\?\.)?` is optional-call syntax: `cp.spawn?.("pnpm", [])` runs exactly
+    // what `cp.spawn("pnpm", [])` runs, and reached the same child through a regex that did not.
+    const re = new RegExp(`(?:^|[^\\w$.])${qualifier}${name}\\s*(?:\\?\\.)?\\s*\\(`, "g");
     for (let m = re.exec(code); m !== null; m = re.exec(code)) {
       const open = code.indexOf("(", m.index + m[0].length - 1);
       const close = matchingIndex(code, open);
       if (close < 0) continue;
-      const first = splitTop(code.slice(open + 1, close), ",")[0];
-      if (first !== undefined) out.push({ first });
+      const args = splitTop(code.slice(open + 1, close), ",");
+      const first = args[0];
+      if (first !== undefined) out.push({ first, args });
       re.lastIndex = close;
     }
     return out;
@@ -487,12 +731,18 @@ function analyseProgram(source: string): Finding[] {
     for (const call of callsTo(api)) {
       if (PARAMETER_DECLARATION.test(call.first)) continue;
       const folded = fold(call.first, consts);
+      const isNode = folded === undefined
+        ? NODE_COMMAND_EXPRESSION.some((re) => re.test(call.first))
+        : NODE_COMMANDS.includes(baseOf(folded));
+      if (isNode) {
+        findings.push(...analyseNodeArguments(foldArrayElements(call.args[1], consts), call.first));
+        continue;
+      }
       if (folded !== undefined) {
-        if (GOVERNED_ENTRY.test(folded)) continue;
+        if (isGovernedEntry(folded)) continue;
         if (isUngoverned(folded)) findings.push(finding(`ungoverned-command:${baseOf(folded)}`, call.first));
         continue;
       }
-      if (SAFE_DYNAMIC_COMMAND.some((re) => re.test(call.first))) continue;
       findings.push(finding("unresolved-command", call.first));
     }
   }
@@ -517,7 +767,7 @@ function analyseProgram(source: string): Finding[] {
   for (const m of code.matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)) {
     const literal = m[2] ?? "";
     if (literal.length < 4 || literal.length > 400) continue;
-    for (const f of analyseShell(literal)) {
+    for (const f of analyseShell(literal, new Map(), 0, false)) {
       if (f.kind.startsWith("ungoverned-command:") && looksLikeInvocation(f.text)) {
         findings.push(finding(`literal-${f.kind}`, f.text));
       }
@@ -542,11 +792,25 @@ function analyseManifest(source: string): Finding[] {
 const UNIT_DIRECTIVE = /^\s*(?:ExecStart|ExecStartPre|ExecStartPost|ExecStop|ExecReload|ExecCondition)\s*=\s*[-@+!]*(.*)$/;
 const DESCRIPTOR_COMMAND = /^\s*-?\s*(?:run|command|cmd|entrypoint|args)\s*:\s*(.*)$/;
 
+/** `command: [pnpm, run, build]` — a descriptor's argv, written as a list. */
+const INLINE_ARRAY = /^\[([\s\S]*)\]$/;
+
 function analyseDescriptor(source: string): Finding[] {
   const findings: Finding[] = [];
   for (const line of source.split("\n")) {
     const matched = UNIT_DIRECTIVE.exec(line) ?? DESCRIPTOR_COMMAND.exec(line);
-    const command = (matched?.[1] ?? "").trim().replace(/^["'[]|["'\]]$/g, "");
+    const raw = (matched?.[1] ?? "").trim();
+    if (raw.length === 0) continue;
+    // An argv list is a structure, not a sentence. Stripping its brackets and handing the rest
+    // to a shell tokeniser produced the token `pnpm,` — a name that matches nothing — so the
+    // elements are split on the list's own separator and unquoted individually instead.
+    const array = INLINE_ARRAY.exec(raw);
+    if (array !== null) {
+      const tokens = splitTop(array[1] ?? "", ",").map(unquote).filter((token) => token.length > 0);
+      for (const f of analyseCommandTokens(tokens, new Map(), 0, raw)) findings.push(finding(f.kind, line));
+      continue;
+    }
+    const command = raw.replace(/^["']|["']$/g, "");
     if (command.length === 0) continue;
     for (const f of analyseShell(command)) findings.push(finding(f.kind, line));
   }
@@ -577,7 +841,8 @@ const EXECUTION_ANALYSES: readonly (readonly [RegExp, (source: string) => Findin
 
 function analyseExecution(file: string, source: string): Finding[] {
   const chosen = EXECUTION_ANALYSES.find(([pattern]) => pattern.test(file));
-  return chosen === undefined ? [] : chosen[1](source);
+  const byType = chosen === undefined ? [] : chosen[1](source);
+  return [...analyseShebang(source), ...byType];
 }
 
 /**
@@ -589,10 +854,22 @@ function analyseExecution(file: string, source: string): Finding[] {
  * exempt for exactly the findings it declares and for nothing else.
  */
 const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
+  ["docs/trio/TRIO-000-CONTAINMENT-REPORT.md", {
+    reason: "an inert historical record; the quoted verification predates this boundary and is not a call path",
+    lineDigests: [
+      "5a38692230829beac4611434ebc187acee02174b548086ecc847c6cfc8ce1fde",
+    ],
+  }],
   ["interview-demo-" + "factory/demos/001-ikbi-osapa-proof/luna-smoke-test.md", {
     reason: "inert demo runbook for a separate project's repository (loony-luna-only)",
     lineDigests: [
       "6091fb53186c00f64a068e4d61a3190d7b3c2a95d3e24199ec98412c636ee88d",
+    ],
+  }],
+  ["interview-demo-" + "factory/demos/001-ikbi-osapa-proof/receipts/commands-run.md", {
+    reason: "an inert receipt recording what a demo run executed; a record, not a call path (loony-luna-only)",
+    lineDigests: [
+      "0ff84fc6af40576fc9e14f60f2f73f32f467d77b38af2812324087e242f20b4d",
     ],
   }],
   ["interview-demo-" + "factory/demos/001-ikbi-osapa-proof/terminal-runbook.md", {
@@ -605,8 +882,9 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
     ],
   }],
   ["interview-demo-" + "factory/scripts/assemble-demo.sh", {
-    reason: "owner-scoped demo tooling with a command-position variable this analysis cannot resolve (loony-luna-only)",
+    reason: "owner-scoped demo tooling that builds command paths out of its own location; unresolvable here (loony-luna-only)",
     lineDigests: [
+      "1856dda2e6a5898b4893a5a39014468cb908fb20808091cd9fae3ca23f04394c",
       "9a640f33e7f48c3b1f0282e907e75b0a0b80b9ebd18eb105c468858ac029b98a",
     ],
   }],
@@ -655,6 +933,7 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "26f79f0f0ae20943b1d2093e799e3e44c6e0c93fc04c58fc209d3e61fc329dea",
       "38bc229744bcb9fd39946123d8ed40108f8f9549f1b3a40b4827d6683b39e533",
       "48df4b7336ab3c03d13aaa0fea214fd41a40670db5a8378488bbd53494dfe8a2",
+      "6a047717abdeb39fca6d8c6222ba8b7e458fa7ab56fffe2ab75b54ddf626d2dc",
       "7e5e2f08b90648785c8b2e2048ac029204001cc2f1e0427f04f49093393c2b57",
       "879902e25fd9a6c2b50d501e56f8855041697f4978c2e1bc65ed2a4ddc248e14",
       "aa2d3476fba03ad401608760d1bf060ec1ad4b63e34b8efba6bd4baa9c1f9a49",
@@ -670,15 +949,28 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
     ],
   }],
-  ["src/core/temp-policy.test.ts", {
-    reason: "this analysis's own self-test: every construction it claims to resolve, spelled out so the claim is not vacuous",
+  ["src/core/temp-authority.test.ts", {
+    reason: "an adversarial fixture starts the loader on purpose, to prove the authority refuses ungoverned storage",
     lineDigests: [
+      "6a047717abdeb39fca6d8c6222ba8b7e458fa7ab56fffe2ab75b54ddf626d2dc",
+    ],
+  }],
+  ["src/core/temp-policy.test.ts", {
+    reason: "this analysis's own self-test: every construction it claims to resolve, and every hostile form it claims to catch, spelled out so neither claim is vacuous",
+    lineDigests: [
+      "10d867f35a556569e3eaf19d823d4b44aadd654c49a81889e72cc371118c91a0",
+      "1b2266a448fdd87f944a81cfe1712253c239862c157dc2251c3f6c03ebfdbafc",
       "1cb01bff91c500af7f7ba9bc2011343dafa828330d2348316d8ce9f96b1d8c82",
+      "2592001142945d2c0d83f911f7c51e65eee611e6a838121dc0d647089bd2efd2",
       "26f79f0f0ae20943b1d2093e799e3e44c6e0c93fc04c58fc209d3e61fc329dea",
       "38bc229744bcb9fd39946123d8ed40108f8f9549f1b3a40b4827d6683b39e533",
       "48df4b7336ab3c03d13aaa0fea214fd41a40670db5a8378488bbd53494dfe8a2",
+      "568a35a73b1d822644387bcbf3d3d70320b8a2405a4d986350ef3b9c60a64a10",
+      "62477c3bf7ebf6c9bc9265beb0dbcf3436d4a97c622a74abd51d1e6ebc38c29a",
+      "6a047717abdeb39fca6d8c6222ba8b7e458fa7ab56fffe2ab75b54ddf626d2dc",
       "7e5e2f08b90648785c8b2e2048ac029204001cc2f1e0427f04f49093393c2b57",
       "879902e25fd9a6c2b50d501e56f8855041697f4978c2e1bc65ed2a4ddc248e14",
+      "88342f540bcf3bb9c1dedddf7c6327c37cb7a549045eff5fe041c13d9b464f12",
       "8c850f6cf8d0006e2db3193462d8fe149f5b2d7f8e23437f01964d909827e4c2",
       "aa2d3476fba03ad401608760d1bf060ec1ad4b63e34b8efba6bd4baa9c1f9a49",
       "ac7919fa4af1d5a0a23000616c676056d2d8729a995e308269b4b3e51f69bfd9",
@@ -686,6 +978,7 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "b93f145bc6d5a5807656f14b4df20552002cf250ebf009c3f84022dca490b82f",
       "bba6902a5aca04ceffe18e12d076a4937fa391eb1d9d26b2cf0d1934a5d75045",
       "e24c41c7f688b91c3685b67acd2efc9875909e688c87c1ca9f3b792e45b9dae3",
+      "f89aec536e0d8bd4f6dcb279bedfe3de48bf7dfae7c4c84be5270e63959be8a8",
     ],
   }],
   ["src/core/tools.ts", {
@@ -859,6 +1152,95 @@ test("the ungoverned-execution analysis resolves every construction it claims to
   // A command that cannot be resolved statically fails closed.
   assert.ok(analyseExecution("probe.ts", "spawnSync(chosenCommand, [])").some((f) => f.kind === "unresolved-command"),
     "an unresolvable command expression must fail closed");
+});
+
+/**
+ * THE HOSTILE FORMS, AND THE HARMLESS ONES THAT LOOK LIKE THEM.
+ *
+ * An independent audit planted forty command-execution forms against this analysis and twelve
+ * of them walked through: qualified and optional call syntax, `tsx` reached as a Node loader
+ * rather than as a command, an executable shebang, backtick substitution, `xargs sh -c`,
+ * combined shell flags, `sudo` options, a governed entry accepted on the strength of its
+ * filename, a Node flag hiding the real script argument, and an argv written as a list.
+ *
+ * Each is committed here as a case rather than left to the external harness, because a control
+ * that lives outside the repository proves nothing about the repository after it stops being
+ * run. Each hostile case is paired with a HARMLESS one of the same shape — the same syntax
+ * carrying `git` instead of a package manager, or the canonical governed entry instead of a
+ * look-alike. Catching the first without catching the second is the whole requirement: an
+ * analysis that flagged both would be noise wearing the costume of rigour.
+ */
+const HOSTILE_EXECUTION_CASES: ReadonlyArray<readonly [string, string, string, string]> = [
+  ["qualified-spawn", "probe.ts",
+    'import * as cp from "node:child_process";\ncp.spawnSync("pnpm", ["run", "build"]);\n', "ungoverned-command:pnpm"],
+  ["optional-spawn", "probe.ts",
+    'import * as cp from "node:child_process";\ncp.spawn?.("pnpm", []);\n', "ungoverned-command:pnpm"],
+  ["node-import-tsx", "probe.sh",
+    "node --import tsx src/server.ts\n", "ungoverned-command:tsx"],
+  ["process-execpath-tsx", "probe.ts",
+    'spawnSync(process.execPath, ["--import", "tsx", "src/server.ts"]);\n', "ungoverned-command:tsx"],
+  ["tsx-shebang", "probe.ts",
+    '#!/usr/bin/env tsx\nexport const value = 1;\n', "ungoverned-command:tsx"],
+  ["backtick-substitution", "probe.sh",
+    "echo `pnpm run build`\n", "ungoverned-command:pnpm"],
+  ["xargs-shell", "probe.sh",
+    'printf x | xargs sh -c "pnpm run build"\n', "ungoverned-command:pnpm"],
+  ["bash-combined-flags", "probe.sh",
+    'bash -ec "pnpm run build"\n', "ungoverned-command:pnpm"],
+  ["sudo-options", "probe.sh",
+    "sudo -u nobody pnpm run build\n", "ungoverned-command:pnpm"],
+  ["fake-governed-path", "probe.sh",
+    "node ./fake/governed-launch.mjs trio-test -- tsc -p tsconfig.json\n", "ungoverned-command:tsc"],
+  ["loader-ahead-of-governed-entry", "probe.sh",
+    "node --import tsx scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json\n", "ungoverned-command:tsx"],
+  ["descriptor-array", "probe.yaml",
+    "command: [pnpm, run, build]\n", "ungoverned-command:pnpm"],
+  ["unterminated-substitution", "probe.sh",
+    "echo `pnpm run build\n", "unresolved-command"],
+  ["expansion-built-command-path", "probe.sh",
+    '"$TOOLCHAIN/bin/helper" --run\n', "unresolved-command"],
+  ["expansion-built-manager-path", "probe.sh",
+    "${TOOLCHAIN}/bin/pnpm run build\n", "ungoverned-command:pnpm"],
+];
+
+/** The same shapes, carrying something harmless. Every one of these must stay silent. */
+const HARMLESS_EXECUTION_CONTROLS: ReadonlyArray<readonly [string, string, string]> = [
+  ["qualified-spawn", "probe.ts", 'import * as cp from "node:child_process";\ncp.spawnSync("git", ["status"]);\n'],
+  ["optional-spawn", "probe.ts", 'import * as cp from "node:child_process";\ncp.spawn?.("git", []);\n'],
+  ["node-script", "probe.sh", "node scripts/report.mjs --json\n"],
+  ["process-execpath-script", "probe.ts", 'spawnSync(process.execPath, ["scripts/trio/build-provenance.mjs", "--check"]);\n'],
+  ["node-shebang", "probe.ts", "#!/usr/bin/env node\nexport const value = 1;\n"],
+  ["backtick-substitution", "probe.sh", "echo `git rev-parse HEAD`\n"],
+  ["xargs-shell", "probe.sh", 'printf x | xargs sh -c "git status"\n'],
+  ["bash-combined-flags", "probe.sh", 'bash -ec "git status"\n'],
+  ["sudo-options", "probe.sh", "sudo -u nobody git status\n"],
+  ["dot-relative-governed-entry", "probe.sh", "node ./scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json\n"],
+  ["flag-before-governed-entry", "probe.sh", "node --no-warnings scripts/trio/governed-launch.mjs trio-test -- tsc -p tsconfig.json\n"],
+  ["descriptor-array", "probe.yaml", "command: [git, status]\n"],
+  // An array assignment holds data, and a test expression's operands are not command names.
+  // Splitting on their punctuation used to manufacture both into commands.
+  ["array-assignment", "probe.sh", 'assets=("$DEMO"/media/*)\n'],
+  ["test-expression-expansion", "probe.sh", 'if [[ ${#assets[@]} -eq 0 || ( ${#assets[@]} -eq 1 ) ]]; then\n  echo none\nfi\n'],
+  // A regular expression's `exec` is not a shell. Recognising qualified calls through the names
+  // a module actually binds `node:child_process` to is what keeps this from becoming a finding.
+  ["regexp-exec", "probe.ts", 'import * as cp from "node:child_process";\nconst m = PATTERN.exec(text);\ncp.spawnSync("git", []);\n'],
+];
+
+test("every hostile execution form an independent audit planted is caught, and its harmless twin is not", () => {
+  for (const [name, file, source, expected] of HOSTILE_EXECUTION_CASES) {
+    const kinds = analyseExecution(file, source).map((f) => f.kind);
+    assert.ok(kinds.includes(expected),
+      `hostile form ${name} produced ${JSON.stringify(kinds)}, not ${expected}`);
+  }
+  for (const [name, file, source] of HARMLESS_EXECUTION_CONTROLS) {
+    assert.deepEqual(analyseExecution(file, source), [],
+      `harmless control ${name} must not be a finding`);
+  }
+  // Identity, not resemblance: only the canonical committed entries are the boundary.
+  for (const impostor of ["fake/governed-launch.mjs", "./x/governed-npm.mjs", "/opt/scripts/trio/governed-pnpm.mjs"])
+    assert.equal(isGovernedEntry(impostor), false, `${impostor} must not be accepted as the governed entry`);
+  for (const canonical of ["scripts/trio/governed-launch.mjs", "./scripts/trio/governed-npm.mjs", "../scripts/trio/governed-pnpm.mjs"])
+    assert.equal(isGovernedEntry(canonical), true, `${canonical} is a canonical governed entry`);
 });
 
 test("the refusal fixtures declared above still exist and still justify themselves", () => {

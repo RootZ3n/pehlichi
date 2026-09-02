@@ -362,6 +362,7 @@
       "src/core/tools.ts",
       "src/core/truth-bridge.test.ts",
       "src/core/truth-bridge.ts",
+      "src/core/tui-build.test.ts",
       "src/core/workspace.ts",
       "src/data/lesson-cards.ts",
       "src/data/ui-explanations.ts",
@@ -398,6 +399,9 @@
       "trio/path-inventory.json",
       "trio/runtime-closure.json",
       "trio/runtime-manifest.characterization.json"
+    ],
+    "tui-build-scripts": [
+      "tui/scripts/build.mjs"
     ],
     "tui-public-quarantine": [],
     "tui-source-runtime": [

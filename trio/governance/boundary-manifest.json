@@ -1211,6 +1211,29 @@
       "allowedTypes": [
         "file"
       ],
+      "bytesMustMatch": true,
+      "class": "behavior-identical",
+      "divergenceBlocking": true,
+      "expiresBefore": null,
+      "id": "tui-build-scripts",
+      "modeMustMatch": true,
+      "permittedFormats": [
+        "javascript"
+      ],
+      "productionReachable": false,
+      "selector": {
+        "closedInventory": true,
+        "directory": "tui/scripts"
+      },
+      "transitional": false,
+      "validation": {
+        "kind": "none"
+      }
+    },
+    {
+      "allowedTypes": [
+        "file"
+      ],
       "attestation": "Reserved agent-owned static surface. Currently empty in all three; the closed inventory keeps any new file from appearing unclassified.",
       "bytesMustMatch": false,
       "class": "agent-owned-ui",
