@@ -115,7 +115,12 @@ const roots = TRIO_SLOTS.map((slot, index) => requireRepository(slot, discovery.
 // Addition, deletion, replacement, chmod, symlink substitution and uniform byte modification
 // each move the anchor, so each one has to be declared here deliberately.
 const BOUNDARY_ANCHOR_VERSION = 2;
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9f74e2b449ffe9aadf68f3cb1355ffe63619e842d1ac18f2e789e95f4ceeb2f8';
+// Moved deliberately when the committed-execution scanner and the TUI build were corrected: the
+// scanner stopped accepting a governed entry reached by traversal or through a symlink and began
+// parsing Node's option arity, and the build stopped resolving its entry and output directory
+// lexically. Both files are anchored, so both corrections had to be declared here to land -- which
+// is the anchor working, not an obstacle to it.
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '99517f318f64b10065cd63d9ebfb320c73c187cf11f08f54a363ebfe8ba0d5fe';
 
 interface Inventory {
   schemaVersion: 3;
