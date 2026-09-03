@@ -351,3 +351,138 @@ test("the build removes its own staging directory and leaves a foreign one untou
     "the build modified another run's staging content");
   rmSync(root, { recursive: true, force: true });
 });
+
+/**
+ * ORDER 20 — POST-PROOF SUBSTITUTION.
+ *
+ * The Order 19 audit proved that proving a path and then reopening it by NAME is not a proof at
+ * all: `tui/dist` and `src/entry.tsx` were each replaced with a symlink AFTER the walk had
+ * accepted them, and the build published outside the package and compiled substituted source.
+ * These cases hold the build to identity, not spelling.
+ *
+ * The swap is timed against an OBSERVABLE CONDITION -- the run's private source snapshot appearing
+ * under the governed root -- not against a sleep. A sleep would make the test a race about the
+ * host's speed; waiting for the build to reach a known state makes it a race about the build.
+ */
+function awaitCondition(predicate: () => boolean, budgetMs = 120_000): boolean {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    // Yield without pretending a fixed delay is synchronisation.
+    spawnSync(process.execPath, ["-e", "0"], { timeout: 5_000 });
+  }
+  return false;
+}
+
+function startBuild(root: string, governedRoot: string) {
+  return spawn(process.execPath,
+    [LAUNCH, "--entry=operator", "trio-test", "--", process.execPath, join(root, "tui/scripts/build.mjs")],
+    {
+      cwd: REPOSITORY, shell: false,
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", [TEMP_ROOT_ENV]: governedRoot },
+    });
+}
+
+/** True once this run has captured its private source snapshot, i.e. the proofs have been made. */
+const snapshotTaken = (governedRoot: string): boolean => {
+  const stack = [governedRoot];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let entries: string[];
+    try { entries = readdirSync(dir); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.startsWith("tui-build-source-")) return true;
+      const child = join(dir, entry);
+      try { if (lstatSync(child).isDirectory()) stack.push(child); } catch { /* raced away */ }
+    }
+  }
+  return false;
+};
+
+async function raceBuild(root: string, governedRoot: string, swap: () => void): Promise<number | null> {
+  const child = startBuild(root, governedRoot);
+  const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+  if (awaitCondition(() => snapshotTaken(governedRoot) || child.exitCode !== null)) swap();
+  return exited;
+}
+
+test("a first build with no dist directory succeeds and creates the declared artifact", () => {
+  const root = fixture();
+  rmSync(join(root, "tui/dist"), { recursive: true, force: true });
+  assert.equal(existsSync(join(root, "tui/dist")), false);
+  const result = runBuild(root, scratch("governed"));
+  assert.equal(result.status, 0, result.out);
+  assert.equal(existsSync(artifactOf(root)), true, "the first build must create tui/dist and publish into it");
+  assert.ok(readFileSync(artifactOf(root)).length > 0);
+});
+
+test("an ordinary rebuild republishes over the previous artifact", () => {
+  const root = fixture();
+  const first = runBuild(root, scratch("governed"));
+  assert.equal(first.status, 0, first.out);
+  const before = readFileSync(artifactOf(root));
+  const second = runBuild(root, scratch("governed"));
+  assert.equal(second.status, 0, second.out);
+  assert.deepEqual(readFileSync(artifactOf(root)), before, "a rebuild of the same sources is deterministic");
+  assert.deepEqual(stagingOf(root), [], "a rebuild leaves no staging behind");
+});
+
+test("replacing the output directory after it is proved refuses and writes nothing outside", async () => {
+  const root = fixture({ modules: 400 });
+  const governedRoot = scratch("governed");
+  const outside = scratch("outside");
+  mkdirSync(outside, { recursive: true, mode: 0o700 });
+  writeFileSync(join(outside, "sentinel.txt"), "untouched\n");
+  mkdirSync(join(root, "tui/dist"), { recursive: true, mode: 0o700 });
+  const status = await raceBuild(root, governedRoot, () => {
+    rmSync(join(root, "tui/dist"), { recursive: true, force: true });
+    symlinkSync(outside, join(root, "tui/dist"));
+  });
+  assert.notEqual(status, 0, "a replaced output directory must refuse");
+  assert.equal(existsSync(join(outside, "entry.mjs")), false, "nothing may be published outside the package");
+  assert.equal(readFileSync(join(outside, "sentinel.txt"), "utf8"), "untouched\n", "unrelated files survive");
+});
+
+test("replacing the entry after it is proved refuses and compiles nothing substituted", async () => {
+  const root = fixture({ modules: 400 });
+  const governedRoot = scratch("governed");
+  const outside = scratch("outside");
+  mkdirSync(outside, { recursive: true, mode: 0o700 });
+  writeFileSync(join(outside, "entry.tsx"), "export default 'SUBSTITUTED-ORDER20';\n");
+  const status = await raceBuild(root, governedRoot, () => {
+    rmSync(join(root, "tui/src/entry.tsx"), { force: true });
+    symlinkSync(join(outside, "entry.tsx"), join(root, "tui/src/entry.tsx"));
+  });
+  assert.notEqual(status, 0, "a replaced entry must refuse");
+  if (existsSync(artifactOf(root)))
+    assert.equal(readFileSync(artifactOf(root), "utf8").includes("SUBSTITUTED-ORDER20"), false,
+      "substituted source must never reach the artifact");
+});
+
+test("replacing an imported source after it is proved refuses", async () => {
+  const root = fixture({ modules: 400 });
+  const governedRoot = scratch("governed");
+  const outside = scratch("outside");
+  mkdirSync(outside, { recursive: true, mode: 0o700 });
+  writeFileSync(join(outside, "helper.ts"), "export const helper = (): number => 999;\n");
+  const status = await raceBuild(root, governedRoot, () => {
+    rmSync(join(root, "tui/src/helper.ts"), { force: true });
+    symlinkSync(join(outside, "helper.ts"), join(root, "tui/src/helper.ts"));
+  });
+  assert.notEqual(status, 0, "a replaced imported source must refuse, not just the entry");
+});
+
+test("replacing a parent directory of the sources after proof refuses", async () => {
+  const root = fixture({ modules: 400 });
+  const governedRoot = scratch("governed");
+  const outside = scratch("outside");
+  mkdirSync(join(outside, "src"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(outside, "src/entry.tsx"), "export default 'SUBSTITUTED-PARENT';\n");
+  const status = await raceBuild(root, governedRoot, () => {
+    rmSync(join(root, "tui/src"), { recursive: true, force: true });
+    symlinkSync(join(outside, "src"), join(root, "tui/src"));
+  });
+  assert.notEqual(status, 0, "a replaced ancestor directory must refuse");
+  if (existsSync(artifactOf(root)))
+    assert.equal(readFileSync(artifactOf(root), "utf8").includes("SUBSTITUTED-PARENT"), false);
+});

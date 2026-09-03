@@ -107,6 +107,89 @@ function containedPath(relative, kind, why) {
   return current;
 }
 
+/**
+ * DESCRIPTOR-BOUND ROOTS.
+ *
+ * A pathname check proves what a name meant at the instant it was read. An independent audit
+ * replaced `tui/dist` with a symlink AFTER the walk above had proved it, and replaced
+ * `src/entry.tsx` the same way; the build then published through the link and compiled the
+ * substituted source, because every later step reopened those names. Re-walking the names more
+ * often only shortens the window.
+ *
+ * So the build stops using the names. Each trusted directory and file is opened once, without
+ * following symlinks, and every later operation goes through `/proc/self/fd/<fd>` -- a handle to
+ * the INODE that was proved, not to the name that pointed at it. Replacing the name afterwards
+ * cannot redirect a single read or write, because no read or write consults the name again.
+ *
+ * `openAt` walks one relative path component by component, anchored at the previous descriptor,
+ * refusing a symlink at every step. That is `openat(2)` semantics expressed with the primitives
+ * Node exposes.
+ */
+const O = fs.constants;
+const fdPath = (fd) => `/proc/self/fd/${fd}`;
+
+function openNoFollow(absolute, directory, why) {
+  try {
+    return fs.openSync(absolute, O.O_RDONLY | O.O_NOFOLLOW | (directory ? O.O_DIRECTORY : 0));
+  } catch (error) {
+    if (error?.code === 'ELOOP')
+      return refuse(`${why}: ${absolute} is reached through a symbolic link`);
+    if (error?.code === 'ENOTDIR')
+      return refuse(`${why}: ${absolute} is not a directory`);
+    return refuse(`${why}: ${absolute} could not be opened (${error?.code ?? 'unknown'})`);
+  }
+}
+
+/** Open `relative` beneath an already-trusted directory descriptor, refusing any symlink. */
+function openAt(rootFd, relative, kind, why) {
+  const segments = relative.split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.');
+  if (segments.length === 0 || segments.includes('..'))
+    return refuse(`${why}: ${relative} is not a path inside the trusted root`);
+  let currentFd = rootFd;
+  const opened = [];
+  try {
+    for (const [index, segment] of segments.entries()) {
+      const last = index === segments.length - 1;
+      const next = openNoFollow(path.join(fdPath(currentFd), segment), !last || kind === 'directory', why);
+      opened.push(next);
+      currentFd = next;
+    }
+    const stats = fs.fstatSync(currentFd);
+    if (kind === 'file' ? !stats.isFile() : !stats.isDirectory())
+      return refuse(`${why}: ${relative} is not a ${kind === 'file' ? 'regular file' : 'directory'}`);
+    opened.pop();
+    return { fd: currentFd, dev: stats.dev, ino: stats.ino };
+  } finally {
+    for (const fd of opened) { try { fs.closeSync(fd); } catch { /* nothing else to do */ } }
+  }
+}
+
+/** Bind a proved absolute path to its inode. */
+function bind(absolute, directory, why) {
+  const fd = openNoFollow(absolute, directory, why);
+  const stats = fs.fstatSync(fd);
+  if (directory ? !stats.isDirectory() : !stats.isFile())
+    return refuse(`${why}: ${absolute} is not a ${directory ? 'directory' : 'regular file'}`);
+  return { fd, dev: stats.dev, ino: stats.ino, absolute, root: fdPath(fd) };
+}
+
+/**
+ * Re-prove that a NAME still refers to the inode this build bound.
+ *
+ * The descriptor already makes an external write impossible. This is the second half of the
+ * contract: if the declared path has been replaced since it was proved, the build refuses instead
+ * of publishing into a directory that is no longer the one the package declares.
+ */
+function stillBound(handle, why) {
+  let stats;
+  try { stats = fs.lstatSync(handle.absolute); }
+  catch { return refuse(`${why}: ${handle.absolute} no longer exists`); }
+  if (stats.isSymbolicLink())
+    return refuse(`${why}: ${handle.absolute} was replaced with a symbolic link after it was proved`);
+  if (stats.dev !== handle.dev || stats.ino !== handle.ino)
+    return refuse(`${why}: ${handle.absolute} was replaced after it was proved`);
+}
+
 function readJson(absolute, why) {
   let text;
   try { text = fs.readFileSync(absolute, 'utf8'); }
@@ -125,105 +208,86 @@ readJson(path.join(packageRoot, 'package.json'), 'the package manifest');
 const tsconfig = readJson(path.join(packageRoot, 'tsconfig.json'), 'the compiler configuration');
 containedPath(ENTRY, 'file', 'the declared entry');
 
-// 3. The output directory, taken from the compiler configuration rather than assumed, and
-//    confined: a build that can be pointed outside its own package is not a build, it is a write
-//    primitive. It need not exist yet -- but if it does, it is a real directory of this package's,
-//    reached through real directories, or the build refuses rather than publishing through it.
+// 3. The output directory, taken from the compiler configuration rather than assumed, confined,
+//    and then BOUND. The walk proves the name; the descriptor holds the inode. Everything this
+//    build writes goes through the descriptor, so replacing the name afterwards cannot redirect it.
 const declaredOutDir = tsconfig?.compilerOptions?.outDir;
 if (typeof declaredOutDir !== 'string' || declaredOutDir.length === 0)
   refuse('the compiler configuration declares no outDir, so there is no output path to write');
-const outDir = containedPath(declaredOutDir, 'optional-directory', 'the output directory');
-fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+const outDirPath = containedPath(declaredOutDir, 'optional-directory', 'the output directory');
+fs.mkdirSync(outDirPath, { recursive: true, mode: 0o700 });
 containedPath(declaredOutDir, 'directory', 'the output directory');
-const artifact = path.join(outDir, ARTIFACT);
+const outHandle = bind(outDirPath, true, 'the output directory');
+const outRoot = outHandle.root;
 
-// 4. The previously published artifact goes FIRST, before anything that can fail. Removing it
-//    after the type-check would leave the last successful output standing behind a failed build,
-//    where the next reader finds a plausible artifact and no reason to doubt it.
-fs.rmSync(artifact, { force: true });
+// The source root. `rootDir` is the repository, not this package: the compiler consumes 168 files
+// and only 17 of them live under `tui/`. Protecting the entry alone would leave the other 151
+// open to exactly the substitution the audit demonstrated, so the whole set is bound below.
+const repoRootPath = path.resolve(packageRoot, '..');
+const repoHandle = bind(repoRootPath, true, 'the source root');
+
+// 4. The previously published artifact goes FIRST, before anything that can fail, and it is
+//    removed THROUGH the bound output directory rather than by name.
+fs.rmSync(path.join(outRoot, ARTIFACT), { force: true });
 
 /**
  * 4a. Interruption is an ordinary end for a build, and it must not be a way to leave residue.
  *
- * The staging directory is removed on exit and on every terminating signal. The removal is bound
- * to the directory this process CREATED -- device and inode, re-read at the moment of removal --
- * so a path that has been replaced, or that was never ours, is left standing rather than deleted.
- * The signal is then re-raised with its own handler removed, so the parent observes the signal
- * this process actually received instead of a status invented in its place.
+ * Staging and the source snapshot are removed on exit and on every terminating signal. Each
+ * removal is bound to the directory this process CREATED -- device and inode, re-read at the
+ * moment of removal -- so a path that has been replaced, or that was never ours, is left standing
+ * rather than deleted. The signal is then re-raised with its own handler removed, so the parent
+ * observes the signal this process actually received.
  */
-let stagingPath;
+let stagingName;
 let stagingIdentity;
-function removeOwnStaging() {
-  if (stagingPath === undefined || stagingIdentity === undefined) return;
+let snapshotRoot;
+let snapshotIdentity;
+function removeOwned(absolute, identity) {
+  if (absolute === undefined || identity === undefined) return;
   let stats;
-  try { stats = fs.lstatSync(stagingPath); } catch { return; }
+  try { stats = fs.lstatSync(absolute); } catch { return; }
   if (!stats.isDirectory()) return;
-  if (stats.dev !== stagingIdentity.dev || stats.ino !== stagingIdentity.ino) return;
-  try { fs.rmSync(stagingPath, { recursive: true, force: true }); } catch { /* nothing else to do */ }
+  if (stats.dev !== identity.dev || stats.ino !== identity.ino) return;
+  try { fs.rmSync(absolute, { recursive: true, force: true }); } catch { /* nothing else to do */ }
+}
+function cleanup() {
+  if (stagingName !== undefined) removeOwned(path.join(outRoot, stagingName), stagingIdentity);
+  removeOwned(snapshotRoot, snapshotIdentity);
 }
 let published = false;
-process.on('exit', removeOwnStaging);
+process.on('exit', cleanup);
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']) {
   process.on(signal, () => {
-    removeOwnStaging();
-    // An artifact that has not been published yet is, at best, a half-written one; an artifact
-    // that HAS been published is this build's finished work and outlives the signal.
-    if (!published) fs.rmSync(artifact, { force: true });
+    cleanup();
+    if (!published) fs.rmSync(path.join(outRoot, ARTIFACT), { force: true });
     process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   });
 }
 
-// 5. Type errors fail the build. The diagnostics come from the same configuration the
-//    `type-check` script uses, read in process so no second toolchain can disagree with it.
-const ts = require_('typescript');
-const parsedConfig = ts.parseJsonConfigFileContent(
-  tsconfig,
-  ts.sys,
-  packageRoot,
-  { noEmit: true },
-  path.join(packageRoot, 'tsconfig.json'),
-);
-if (parsedConfig.errors.length > 0)
-  refuse(`the compiler configuration is invalid:\n${ts.formatDiagnostics(parsedConfig.errors, {
-    getCanonicalFileName: (f) => f,
-    getCurrentDirectory: () => packageRoot,
-    getNewLine: () => '\n',
-  })}`);
-const program = ts.createProgram(parsedConfig.fileNames, parsedConfig.options);
-const diagnostics = ts.getPreEmitDiagnostics(program)
-  .filter((d) => d.category === ts.DiagnosticCategory.Error);
-if (diagnostics.length > 0) {
-  process.stderr.write(ts.formatDiagnostics(diagnostics, {
-    getCanonicalFileName: (f) => f,
-    getCurrentDirectory: () => packageRoot,
-    getNewLine: () => '\n',
-  }));
-  refuse(`${diagnostics.length} type error(s); nothing was written`);
-}
-
-// 6. Staging is created only once the build is known to be worth publishing, and created
-//    EXCLUSIVELY: removing a name and then creating it is a window in which someone else's
-//    symlink can occupy it, and this build would then have staged through their link. `mkdir`
-//    without `recursive` fails on an existing name instead, which is the answer -- a staging
-//    name that already exists belongs to somebody, and this run is not entitled to it.
-const staging = path.join(outDir, `.staging-${governed.runId}`);
-try { fs.mkdirSync(staging, { mode: 0o700 }); }
-catch { refuse(`the staging directory ${path.relative(packageRoot, staging)} already exists; refusing to build through it`); }
-stagingPath = staging;
-const stagingStats = fs.lstatSync(staging);
-if (!stagingStats.isDirectory()) refuse('the staging directory is not a directory');
-stagingIdentity = { dev: stagingStats.dev, ino: stagingStats.ino };
-
 /**
- * Resolve the way the runtime does.
+ * 5. THE SOURCE SNAPSHOT.
  *
- * These sources import each other with `.js` specifiers while the files on disk are `.ts` and
- * `.tsx` -- the same rewrite `scripts/trio/build-provenance.mjs` performs to walk the import
- * graph. Without it a bundler resolves nothing at all.
+ * TypeScript and esbuild both open their inputs by pathname. Proving `src/entry.tsx` and then
+ * handing its NAME to either tool reopens whatever occupies that name at the moment the tool
+ * reads it -- which is exactly the substitution the audit performed. Neither tool can be told to
+ * read a descriptor.
+ *
+ * So neither tool is shown the working tree. Every file the compiler resolves is opened here,
+ * anchored at the bound source root, refusing a symlink at every component, read through the
+ * descriptor, and written into a private snapshot under this run's governed directory (mode 0700,
+ * outside any path an attacker can reach). The type-check and the bundle then run against the
+ * snapshot. A source replaced after this point is not read by anything, so substituted content
+ * cannot be compiled -- and the identity re-proof below still refuses the build outright.
+ *
+ * `node_modules` is linked rather than copied: dependency identity is the dependency-closure
+ * suite's contract, not this build's, and copying an installed tree would make the artifact depend
+ * on it. The link lives inside the private snapshot, which is owner-only.
  */
-const rewriteJsSpecifier = {
-  name: 'trio-source-specifiers',
+/** Specifier rewrite for the enumeration pass, against the working tree. */
+const rewriteProbeSpecifier = {
+  name: 'trio-source-specifiers-probe',
   setup(build) {
     build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
       const base = path.resolve(args.resolveDir, args.path);
@@ -237,16 +301,158 @@ const rewriteJsSpecifier = {
   },
 };
 
+const ts = require_('typescript');
+const parsedConfig = ts.parseJsonConfigFileContent(
+  tsconfig, ts.sys, packageRoot, { noEmit: true }, path.join(packageRoot, 'tsconfig.json'),
+);
+if (parsedConfig.errors.length > 0)
+  refuse(`the compiler configuration is invalid:\n${ts.formatDiagnostics(parsedConfig.errors, {
+    getCanonicalFileName: (f) => f, getCurrentDirectory: () => packageRoot, getNewLine: () => '\n',
+  })}`);
+
+snapshotRoot = path.join(governed.runDir, `tui-build-source-${governed.runId}`);
+try { fs.mkdirSync(snapshotRoot, { mode: 0o700 }); }
+catch { refuse('the private source snapshot directory already exists; refusing to build through it'); }
+{
+  const stats = fs.lstatSync(snapshotRoot);
+  if (!stats.isDirectory()) refuse('the private source snapshot is not a directory');
+  snapshotIdentity = { dev: stats.dev, ino: stats.ino };
+}
+
+/** Copy one repository-relative file into the snapshot through descriptor-bound reads. */
+function snapshotFile(relative) {
+  const opened = openAt(repoHandle.fd, relative, 'file', 'a declared source file');
+  let bytes;
+  try { bytes = fs.readFileSync(opened.fd); }
+  finally { try { fs.closeSync(opened.fd); } catch { /* nothing else to do */ } }
+  const destination = path.join(snapshotRoot, relative);
+  fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(destination, bytes, { mode: 0o600 });
+  return { relative, dev: opened.dev, ino: opened.ino };
+}
+
+/**
+ * The complete source set, not the declared one.
+ *
+ * `tsconfig`'s include globs name 168 files, but the compiler also resolves modules those files
+ * import -- `scripts/trio/governed-temp-authority.mjs` among them. Snapshotting only the globbed
+ * set leaves every resolved-but-unglobbed file open to the same substitution, so the set is taken
+ * from a program built over the working tree and used ONLY to enumerate. Its diagnostics are
+ * discarded; the diagnostics that decide the build come from the snapshot.
+ */
+const probe = ts.createProgram(parsedConfig.fileNames, parsedConfig.options);
+const resolved = new Set(parsedConfig.fileNames);
+for (const file of probe.getSourceFiles()) resolved.add(file.fileName);
+
+/**
+ * esbuild resolves files TypeScript never lists.
+ *
+ * A TypeScript-only snapshot is incomplete: `src/core/temp-authority.ts` imports
+ * `scripts/trio/governed-temp-authority.mjs`, which the compiler resolves as a module but does not
+ * report as a source file, so it never appears in `getSourceFiles()`. Bundling from a snapshot
+ * built only from the compiler's view fails to resolve it -- and, worse, a snapshot that merely
+ * happened to contain it would still leave any other esbuild-only input reachable through the
+ * working tree. So the bundler is asked directly, with a metafile pass that writes nothing, and
+ * the union of both views is what gets captured.
+ */
+const probeBuild = await (await import('esbuild')).build({
+  absWorkingDir: packageRoot, entryPoints: [ENTRY], bundle: true, write: false, metafile: true,
+  packages: 'external', platform: 'node', format: 'esm', target: 'es2022', jsx: 'automatic',
+  logLevel: 'silent', plugins: [rewriteProbeSpecifier],
+}).catch((error) => refuse(`the source graph could not be resolved:\n${error?.message ?? String(error)}`));
+for (const input of Object.keys(probeBuild.metafile.inputs)) resolved.add(path.resolve(packageRoot, input));
+const sourceRelatives = [];
+const nodeModules = `${path.sep}node_modules${path.sep}`;
+for (const absolute of resolved) {
+  const normalised = path.resolve(absolute);
+  if (!normalised.startsWith(repoRootPath + path.sep)) continue;   // dependency types, linked below
+  if (normalised.includes(nodeModules)) continue;
+  sourceRelatives.push(path.relative(repoRootPath, normalised));
+}
+for (const declared of ['tui/tsconfig.json', 'tui/package.json', 'package.json']) {
+  if (fs.existsSync(path.join(repoRootPath, declared))) sourceRelatives.push(declared);
+}
+if (!sourceRelatives.includes(path.join('tui', ENTRY)))
+  refuse('the declared entry is not part of the compiler configuration');
+// Dependency trees are linked first, so a snapshotted file can never collide with the link and
+// a failure to link is a refusal rather than a silent type error later.
+for (const linked of ['node_modules', 'tui/node_modules']) {
+  const source = path.join(repoRootPath, linked);
+  if (!fs.existsSync(source)) continue;
+  const destination = path.join(snapshotRoot, linked);
+  fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+  try { fs.symlinkSync(fs.realpathSync(source), destination, 'dir'); }
+  catch (error) { refuse(`the source snapshot could not link ${linked}: ${error?.code ?? error}`); }
+}
+
+const snapshotted = sourceRelatives.map(snapshotFile);
+
+const snapshotPackage = path.join(snapshotRoot, 'tui');
+
+// 6. Type errors fail the build -- checked against the snapshot, never against the working tree.
+const snapshotConfig = ts.parseJsonConfigFileContent(
+  tsconfig, ts.sys, snapshotPackage, { noEmit: true }, path.join(snapshotPackage, 'tsconfig.json'),
+);
+const program = ts.createProgram(snapshotConfig.fileNames, snapshotConfig.options);
+const diagnostics = ts.getPreEmitDiagnostics(program)
+  .filter((d) => d.category === ts.DiagnosticCategory.Error);
+if (diagnostics.length > 0) {
+  process.stderr.write(ts.formatDiagnostics(diagnostics, {
+    getCanonicalFileName: (f) => f, getCurrentDirectory: () => snapshotPackage, getNewLine: () => '\n',
+  }));
+  refuse(`${diagnostics.length} type error(s); nothing was written`);
+}
+
+// 7. Staging is created only once the build is known to be worth publishing, EXCLUSIVELY, and
+//    THROUGH the bound output directory: a name planted between the check and the create is a
+//    refusal rather than a target, and a `dist` replaced after the proof cannot relocate it.
+stagingName = `.staging-${governed.runId}`;
+const stagingAbsolute = path.join(outRoot, stagingName);
+try { fs.mkdirSync(stagingAbsolute, { mode: 0o700 }); }
+catch { refuse(`the staging directory ${stagingName} already exists; refusing to build through it`); }
+const stagingHandle = bind(stagingAbsolute, true, 'the staging directory');
+stagingIdentity = { dev: stagingHandle.dev, ino: stagingHandle.ino };
+
+/**
+ * Resolve the way the runtime does: these sources import each other with `.js` specifiers while
+ * the files on disk are `.ts`/`.tsx`. Resolution is confined to the snapshot, so an import cannot
+ * reach back into the working tree during the bundle.
+ */
+const rewriteJsSpecifier = {
+  name: 'trio-source-specifiers',
+  setup(build) {
+    build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
+      const base = path.resolve(args.resolveDir, args.path);
+      if (!base.startsWith(snapshotRoot + path.sep)) return { errors: [{ text: `import escapes the source snapshot: ${args.path}` }] };
+      if (!base.endsWith('.js')) return null;
+      const stem = base.slice(0, -3);
+      for (const candidate of [`${stem}.ts`, `${stem}.tsx`, base]) {
+        try { if (fs.lstatSync(candidate).isFile()) return { path: candidate }; } catch { /* try the next */ }
+      }
+      return null;
+    });
+  },
+};
+
+/**
+ * esbuild is given an ordinary private directory, not a descriptor path.
+ *
+ * A `/proc/self/fd/<n>` outfile fails: the bundler calls `mkdir` on the parent it derives from the
+ * outfile, and that parent is the magic link itself. So the bundle lands in the run's own governed
+ * storage -- owner-only, outside any attacker-reachable path -- and only the finished bytes are
+ * written into staging THROUGH the bound output descriptor. No pathname the attacker controls is
+ * ever used to place the artifact.
+ */
+const bundleOut = path.join(snapshotRoot, 'out');
+fs.mkdirSync(bundleOut, { mode: 0o700 });
+
 const esbuild = await import('esbuild');
 try {
   await esbuild.build({
-    absWorkingDir: packageRoot,
+    absWorkingDir: snapshotPackage,
     entryPoints: [ENTRY],
-    outfile: path.relative(packageRoot, path.join(staging, ARTIFACT)),
+    outfile: path.join(bundleOut, ARTIFACT),
     bundle: true,
-    // Every bare specifier stays external. The build's job is this package's own sources;
-    // vendoring a dependency tree into the artifact would make the output depend on an installed
-    // tree rather than on the committed one.
     packages: 'external',
     platform: 'node',
     format: 'esm',
@@ -258,20 +464,35 @@ try {
     plugins: [rewriteJsSpecifier],
   });
 } catch (error) {
-  removeOwnStaging();
+  cleanup();
   refuse(`bundling failed:\n${error?.message ?? String(error)}`);
 }
 
-// 7. Publish, then prove the artifact is really there. The staged file is proved to be a real
-//    regular file of this run's before it is renamed: publishing whatever now sits at that name
-//    would be handing the artifact's identity to whoever put it there.
-const staged = path.join(staging, ARTIFACT);
+// 8. Publish. Before a byte moves, every identity this build proved is re-proved: the output
+//    directory, the source root, and every source file. A replacement anywhere refuses the build
+//    with nothing published -- and because the rename goes through the bound descriptors, a
+//    replacement could not have sent it outside the package even if it had gone unnoticed.
+stillBound(outHandle, 'the output directory');
+stillBound(repoHandle, 'the source root');
+for (const file of snapshotted) {
+  let stats;
+  try { stats = fs.lstatSync(path.join(repoRootPath, file.relative)); }
+  catch { refuse(`a declared source file disappeared during the build: ${file.relative}`); }
+  if (stats.isSymbolicLink() || stats.dev !== file.dev || stats.ino !== file.ino)
+    refuse(`a declared source file was replaced during the build: ${file.relative}`);
+}
+
+const bundled = path.join(bundleOut, ARTIFACT);
+const bundledStats = fs.lstatSync(bundled);
+if (!bundledStats.isFile()) refuse('the bundled artifact is not a regular file');
+const staged = path.join(stagingHandle.root, ARTIFACT);
+fs.writeFileSync(staged, fs.readFileSync(bundled), { mode: 0o600 });
 const stagedStats = fs.lstatSync(staged);
 if (!stagedStats.isFile()) refuse('the staged artifact is not a regular file');
-fs.renameSync(staged, artifact);
+fs.renameSync(staged, path.join(outRoot, ARTIFACT));
 published = true;
-removeOwnStaging();
+cleanup();
 
-const bytes = fs.readFileSync(artifact);
-if (bytes.length === 0) refuse(`${path.relative(packageRoot, artifact)} was published empty`);
-process.stdout.write(`tui build: ${path.relative(packageRoot, artifact)} ${bytes.length} bytes sha256=${createHash('sha256').update(bytes).digest('hex')}\n`);
+const bytes = fs.readFileSync(path.join(outRoot, ARTIFACT));
+if (bytes.length === 0) refuse(`${path.join(declaredOutDir, ARTIFACT)} was published empty`);
+process.stdout.write(`tui build: ${path.join(declaredOutDir, ARTIFACT)} ${bytes.length} bytes sha256=${createHash('sha256').update(bytes).digest('hex')}\n`);

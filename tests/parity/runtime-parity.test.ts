@@ -120,7 +120,11 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // parsing Node's option arity, and the build stopped resolving its entry and output directory
 // lexically. Both files are anchored, so both corrections had to be declared here to land -- which
 // is the anchor working, not an obstacle to it.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '99517f318f64b10065cd63d9ebfb320c73c187cf11f08f54a363ebfe8ba0d5fe';
+// Moved again when the TUI build stopped trusting pathnames after it had proved them: the entry,
+// its imported graph and the output directory are now bound by descriptor and inode across the
+// whole read/build/publish sequence, and the sources are compiled from a captured snapshot rather
+// than reopened by name. `tui/scripts/build.mjs` is anchored, so that correction is declared here.
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '44bfa3c9ddc6c5d7bc488f228a28c218b2819d6e3709e523636386c37a6de395';
 
 interface Inventory {
   schemaVersion: 3;
