@@ -18,6 +18,10 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
+import { processScratchDir } from '../temp-authority.js';
+import { agentContainmentConfig } from '../containment-config.js';
+import { planFor } from '../containment/policy.js';
+import { wrap } from '../containment/wrap.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -119,9 +123,36 @@ export function validateLabCwd(cwd: string | undefined, root: string): { ok: tru
   return { ok: true, dir };
 }
 
-/** The default runner: ssh in BatchMode (never prompts), inheriting the process env (finds ~/.ssh). */
+/**
+ * The default runner: ssh in BatchMode (never prompts), inheriting the process env (finds ~/.ssh).
+ *
+ * CONTAINMENT. The local `ssh` client runs inside the lab's execution boundary: the host is bound
+ * read-only, this run's governed scratch is the only writable path, and the network is kept because
+ * an ssh client without a network is not contained, it is broken.
+ *
+ * WHAT THIS DOES AND DOES NOT COVER — stated plainly, because the distinction matters. Containment
+ * confines the local client. It does NOT govern the command on the far end; that remains governed
+ * only by `validateLabCommand` above, which is why that allowlist is still the load-bearing control
+ * for this tool.
+ *
+ * OBSERVABLE CHANGE: ssh can no longer write to `~/.ssh/known_hosts`. For a host already known this
+ * is invisible. For a NEW host the connection fails — where before it would fail anyway, because
+ * BatchMode refuses the trust prompt. There is no fallback to an uncontained ssh.
+ */
 export function defaultLabRunner(host: string, remoteCommand: string): LabRunResult {
-  const res = spawnSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCommand], {
+  const scratch = processScratchDir();
+  const argv = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCommand];
+
+  const decision = planFor(
+    { command: 'ssh', args: argv, writableRoot: scratch, tempRoot: scratch },
+    agentContainmentConfig(),
+  );
+  if (!decision.allowed) {
+    return { code: -1, stdout: '', stderr: '', error: `containment refused [${decision.denial.code}]: ${decision.denial.reason}` };
+  }
+  const contained = wrap(decision, 'ssh', argv);
+
+  const res = spawnSync(contained.binary, [...contained.args], {
     encoding: 'utf8',
     timeout: SSH_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,

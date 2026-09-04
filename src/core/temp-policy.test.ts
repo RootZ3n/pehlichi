@@ -1130,15 +1130,21 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
     ],
   }],
   ["src/core/agent-tools/execute-code-tools.ts", {
-    reason: "the agent's code-execution surface spawns a caller-chosen interpreter",
+    reason: "the code-execution surface spawns what the containment authority returns -- bwrap, or the interpreter when the boundary is off; wrap() decides the binary, never the caller",
     lineDigests: [
-      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
+      "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
     ],
   }],
   ["src/core/agent-tools/ikbi-tools.test.ts", {
     reason: "inert fixture data describing a remote check command; never executed here",
     lineDigests: [
       "14ee6105f62cbba9ab5d6698c1e702064d3c31646cfeef233e4b5c607b30b5f2",
+    ],
+  }],
+  ["src/core/agent-tools/lab-shell-tools.ts", {
+    reason: "the lab read-seam spawns what the containment authority returns; the ssh argv is validated above and wrap() decides the binary, never the caller",
+    lineDigests: [
+      "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
     ],
   }],
   ["src/core/agent-tools/phone-tools.ts", {

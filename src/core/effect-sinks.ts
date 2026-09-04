@@ -101,6 +101,12 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/bridges/registry.ts': ['network'],
   'src/core/checkpoint.ts': ['filesystem-mutation'],
   'src/core/context-compressor.ts': ['network'],
+  // The vendored containment authority. `availability` probes by RUNNING a no-op policy --
+  // a version string is not evidence that the boundary works on this host. `conformance`
+  // exercises the boundary for real, which is the only way its result means anything.
+  'src/core/containment/availability.ts': ['child-process'],
+  'src/core/containment/conformance.ts': ['child-process', 'filesystem-mutation'],
+
   'src/core/driver.ts': ['model-provider-request'],
   'src/core/drivers/llamacpp.ts': ['model-provider-request'],
   'src/core/drivers/mimo.ts': ['model-provider-request'],

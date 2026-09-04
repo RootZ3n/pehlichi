@@ -1,8 +1,26 @@
 /**
- * EXECUTE CODE TOOL — sandboxed code execution.
+ * EXECUTE CODE TOOL — contained code execution.
  *
  * Tool name matches Hermes: execute_code.
- * Runs Python or Node.js code in a sandboxed subprocess.
+ * Runs Python or Node.js code inside the lab's execution boundary.
+ *
+ * CONTAINMENT (lab-containment, vendored at ../containment/).
+ * The code this tool runs is, by definition, code nobody reviewed. It executes under the worktree
+ * view: the whole host is bound READ-ONLY, this run's governed scratch is the single writable path,
+ * and all namespaces are unshared.
+ *
+ * TWO OBSERVABLE CHANGES, stated rather than hidden:
+ *
+ *   1. Executed code NO LONGER HAS NETWORK ACCESS. An interpreter is classified `interpreter`, which
+ *      does not carry a network need, so the sandbox holds an empty network namespace. Code that
+ *      previously fetched a URL now fails to resolve it. This is the point of the change, not a
+ *      regression, but it is a contract change and callers can see it.
+ *   2. Executed code can no longer write outside the run's scratch directory. It never should have
+ *      been able to; it could.
+ *
+ * There is NO fallback. If the boundary is unavailable the tool refuses and says why. It does not
+ * quietly run the code the old way, because "the sandbox was missing" is precisely the moment
+ * arbitrary code must not run.
  */
 import { spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
@@ -10,6 +28,9 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import { processScratchDir } from '../temp-authority.js';
+import { agentContainmentConfig } from '../containment-config.js';
+import { planFor } from '../containment/policy.js';
+import { wrap } from '../containment/wrap.js';
 
 const obj = (
   properties: Record<string, unknown>,
@@ -52,7 +73,23 @@ export function createExecuteCodeToolHandlers(): Map<string, ToolHandler> {
       writeFileSync(tmpFile, code, 'utf8');
 
       const command = language === 'python' ? 'python3' : 'node';
-      const result = spawnSync(command, [tmpFile], {
+
+      // Decide BEFORE spawning. A refusal is a value carrying no policy, so there is no shape of
+      // code below this point that could run the command anyway.
+      const decision = planFor(
+        { command, args: [tmpFile], writableRoot: scratch, cwd: scratch, tempRoot: scratch },
+        agentContainmentConfig(),
+      );
+      if (!decision.allowed) {
+        return {
+          ok: false,
+          output: '',
+          error: `execute_code refused [${decision.denial.code}]: ${decision.denial.reason}`,
+        };
+      }
+
+      const contained = wrap(decision, command, [tmpFile]);
+      const result = spawnSync(contained.binary, [...contained.args], {
         encoding: 'utf8',
         timeout,
         maxBuffer: 8 * 1024 * 1024,
