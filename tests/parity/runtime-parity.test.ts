@@ -2,7 +2,7 @@ import { governedMkdtemp } from '../../src/core/temp-authority.js';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, test } from 'node:test';
@@ -693,4 +693,118 @@ test('a one-byte mutation of any governed shared byte is detected by the compari
     writeFileSync(join(mirror, victim), original);
   }
   assert.deepEqual(shared.filter((path) => sha(join(mirror, path)) !== sha(join(currentRoot, path))), [], 'mirror must be restored');
+});
+
+// ---------------------------------------------------------------------------------------------
+// CONTAINMENT: the boundary is one artefact, and the allocation is closed per-deployment data.
+//
+// This file is not part of `governedCommon`, so it may name the deployments. The shared enforcement
+// code may not, and the first test below is what holds that line.
+// ---------------------------------------------------------------------------------------------
+
+/** The approved allocation. Changing a line here is the reviewed act of changing an allocation. */
+const APPROVED_WORKSPACES: Readonly<Record<string, readonly string[]>> = {
+  'mad-ptah': ['/pehverse/worktrees', '/pehverse/builds'],
+  'loony-luna': ['/pehverse/worktrees', '/pehverse/renders'],
+  pehlichi: ['/pehverse/worktrees', '/pehverse/workspace'],
+};
+
+const CONTAINMENT_MODULES = [
+  'version', 'risk', 'availability', 'paths', 'policy', 'argv', 'wrap', 'conformance', 'index',
+] as const;
+
+const deploymentOf = (root: string): { containment: { writableWorkspaces: string[] } } =>
+  JSON.parse(readFileSync(join(root, 'deployment/agent.env.json'), 'utf8')) as never;
+
+test('containment: the vendored boundary is byte-identical across the Trio and names no deployment', () => {
+  const names = /pehlichi|loony-luna|mad-ptah|johnny|\bpeh\b|\bluna\b|\bptah\b/i;
+  for (const module of CONTAINMENT_MODULES) {
+    const relative = `src/core/containment/${module}.ts`;
+    const reference = readFileSync(join(roots[0]!, relative), 'utf8');
+    assert.equal(names.test(reference), false, `${relative} names a deployment`);
+    for (const root of roots) {
+      assert.equal(readFileSync(join(root, relative), 'utf8'), reference, `${root}: ${relative} differs`);
+    }
+  }
+  // The loader is shared too, and the identity table must not be vendored anywhere.
+  const loader = 'src/core/containment-config.ts';
+  const loaderReference = readFileSync(join(roots[0]!, loader), 'utf8');
+  for (const root of roots) {
+    assert.equal(readFileSync(join(root, loader), 'utf8'), loaderReference, `${root}: ${loader} differs`);
+    assert.equal(existsSync(join(root, 'src/core/containment/agents.ts')), false,
+      `${root}: the identity table must not be vendored`);
+  }
+});
+
+test('containment: every common policy field is identical, and only writableWorkspaces differs', () => {
+  const shapes = new Set<string>();
+  const allocations = new Map<string, readonly string[]>();
+  for (const [index, root] of roots.entries()) {
+    const slot = TRIO_SLOTS[index]!;
+    const { containment } = deploymentOf(root);
+    const { writableWorkspaces, ...rest } = containment;
+    shapes.add(JSON.stringify(rest));
+    allocations.set(slot, writableWorkspaces);
+  }
+  // Every other field of the containment block is common — today there are none, and this is what
+  // notices the day someone adds a second per-deployment knob without declaring it a doctrine change.
+  assert.equal(shapes.size, 1, 'the containment block must differ only in writableWorkspaces');
+  assert.deepEqual([...shapes], ['{}']);
+  assert.equal(new Set([...allocations.values()].map((v) => JSON.stringify(v))).size, roots.length,
+    'each deployment must have its own allocation');
+});
+
+test('containment: each deployment declares exactly its approved workspace set', () => {
+  for (const [index, root] of roots.entries()) {
+    const slot = TRIO_SLOTS[index]!;
+    const approved = APPROVED_WORKSPACES[slot];
+    assert.ok(approved !== undefined, `${slot} has an approved allocation`);
+    assert.deepEqual(deploymentOf(root).containment.writableWorkspaces, approved,
+      `${slot}: declared allocation is not the approved one`);
+  }
+});
+
+test('containment: a swapped or misbound deployment configuration is rejected', () => {
+  // A capsule and a deployment describe the same agent. Binding one agent's capsule to another's
+  // deployment must not silently produce a working configuration with the wrong writable set.
+  for (const [index, root] of roots.entries()) {
+    const slot = TRIO_SLOTS[index]!;
+    const other = roots[(index + 1) % roots.length]!;
+    const otherSlot = TRIO_SLOTS[(index + 1) % roots.length]!;
+    const mine = deploymentOf(root).containment.writableWorkspaces;
+    const theirs = deploymentOf(other).containment.writableWorkspaces;
+    assert.notDeepEqual(mine, theirs, `${slot} and ${otherSlot} must not share an allocation`);
+    // The binding is positional inside one repository: capsule/ and deployment/ are siblings, so a
+    // swap is a visible file move, and the approved-set assertion above is what catches it.
+    assert.deepEqual(mine, APPROVED_WORKSPACES[slot], `${slot}: allocation is not its own`);
+    assert.notDeepEqual(mine, APPROVED_WORKSPACES[otherSlot], `${slot}: allocation is ${otherSlot}'s`);
+  }
+});
+
+test('containment: no deployment declares a broadened, traversing or expandable path', () => {
+  for (const [index, root] of roots.entries()) {
+    const slot = TRIO_SLOTS[index]!;
+    for (const workspace of deploymentOf(root).containment.writableWorkspaces) {
+      assert.ok(workspace.startsWith('/'), `${slot}: ${workspace} is not absolute`);
+      assert.equal(/[$`~]/.test(workspace), false, `${slot}: ${workspace} carries an expansion`);
+      assert.equal(workspace.includes('//') || workspace.endsWith('/'), false, `${slot}: ${workspace} is not normalised`);
+      assert.equal(workspace.split('/').includes('..'), false, `${slot}: ${workspace} traverses`);
+      assert.ok(workspace.split('/').filter((p) => p.length > 0).length >= 2, `${slot}: ${workspace} is too broad`);
+    }
+  }
+});
+
+test('containment: the shared schema itself refuses missing, extra and malformed configuration', () => {
+  // The negatives are exercised behaviourally in src/core/containment-wiring.test.ts against the
+  // real loader. Here parity only proves the SCHEMA is the same one in all three repositories --
+  // a per-repository schema would let one of them accept what the others refuse.
+  const relative = 'src/core/runtime-config.ts';
+  const reference = readFileSync(join(roots[0]!, relative), 'utf8');
+  for (const root of roots) {
+    assert.equal(readFileSync(join(root, relative), 'utf8'), reference, `${root}: ${relative} differs`);
+  }
+  assert.match(reference, /assertExactKeys\(deploymentValue\.containment, \['writableWorkspaces'\]/);
+  assert.match(reference, /function assertWritableWorkspaces/);
+  assert.match(reference, /too broad/);
+  assert.match(reference, /carries an expansion/);
 });

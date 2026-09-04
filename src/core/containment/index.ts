@@ -1,7 +1,7 @@
 /**
  * lab-containment — THE execution boundary authority for the lab.
  *
- * One versioned artefact, consumed identically by Ptah, Luna, Pehlichi and Johnny 5. The only thing
+ * One versioned artefact, consumed identically by every deployment that loads it. The only thing
  * that legitimately differs between them is `writableWorkspaces`; everything else is shared bytes,
  * and runtime parity asserts it.
  *
@@ -15,20 +15,16 @@
  * There is no path from a refusal to a spawn: the denial carries no policy, and `wrap` throws if
  * handed one. Nothing here deletes, and nothing here decides policy from an environment variable
  * that a child process could set.
+ *
+ * NOTE: `agents.ts` is deliberately NOT re-exported here, and is not part of what a deployment
+ * vendors. It records the approved workspace allocation for consumers that have no deployment
+ * capsule of their own. Where a capsule exists the allocation arrives as validated deployment data,
+ * so this shared enforcement code names no deployment and branches on none.
  */
 
 export { CONTAINMENT_VERSION, CONTAINMENT_CONTRACT_VERSION } from "./version.js";
 
 export { type CommandRisk, classifyCommandRisk, RISK_TABLE } from "./risk.js";
-
-export {
-  type AgentContainmentProfile,
-  type AgentId,
-  AGENT_PROFILES,
-  UnknownAgent,
-  configFor,
-  isAgentId,
-} from "./agents.js";
 
 export {
   type AvailabilityProbe,
@@ -48,6 +44,7 @@ export {
   type DenialCode,
   type ExecRequest,
   DEFAULT_CONTAINMENT_MODE,
+  containmentConfig,
   planFor,
 } from "./policy.js";
 

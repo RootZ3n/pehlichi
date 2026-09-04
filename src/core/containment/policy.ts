@@ -14,10 +14,10 @@ export const DEFAULT_CONTAINMENT_MODE: ContainmentMode = "auto";
 /**
  * The per-agent configuration.
  *
- * `writableWorkspaces` is THE ONLY field that legitimately differs between Ptah, Luna, Pehlichi and
- * Johnny 5. Everything else — the risk table, the views, the argv construction — is shared bytes,
- * and runtime parity asserts as much. If a second field ever needs to vary per agent, that is a
- * doctrine change and belongs in an ADR, not in a config file.
+ * `writableWorkspaces` is THE ONLY field that legitimately differs between deployments. Everything
+ * else — the risk table, the views, the argv construction — is shared bytes, and runtime parity
+ * asserts as much. If a second field ever needs to vary per deployment, that is a doctrine change
+ * and belongs in an ADR, not in a config file.
  */
 export interface ContainmentConfig {
   readonly mode: ContainmentMode;
@@ -201,5 +201,35 @@ function uncontained(
     networkAllowed: true,
     risk,
     ...(byOverride ? { uncontainedByOverride: true } : {}),
+  };
+}
+
+/**
+ * Build a containment configuration from ALREADY-VALIDATED deployment data.
+ *
+ * This is the factory the agents use, and it names no agent. The writable set arrives as data that
+ * the caller's own closed-schema validation has already accepted; nothing here decides policy from
+ * an identity, because shared enforcement code that branches on who is running it is no longer one
+ * boundary — it is three, wearing the same file name.
+ *
+ * `mode` is fixed at `auto`: risky work is denied when the boundary is unavailable. There is no
+ * parameter for `off`, and `trustedLocalOverride` is hard-false, so neither can be reached from a
+ * configuration file or an environment variable.
+ *
+ * The governed scratch is added to the writable set because every run writes the file it is about
+ * to execute there. It is the same addition for every deployment, so it distinguishes none of them.
+ */
+export function containmentConfig(declared: {
+  readonly writableWorkspaces: readonly string[];
+  readonly governedTempRoot?: string | undefined;
+}): ContainmentConfig {
+  const temp = declared.governedTempRoot;
+  return {
+    mode: "auto",
+    writableWorkspaces: temp === undefined || temp.length === 0
+      ? [...declared.writableWorkspaces]
+      : [...declared.writableWorkspaces, temp],
+    trustedLocalOverride: false,
+    ...(temp === undefined ? {} : { governedTempRoot: temp }),
   };
 }

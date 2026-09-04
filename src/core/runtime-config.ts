@@ -56,6 +56,14 @@ export interface DeploymentCapsule {
   readonly baseToolCeiling: readonly string[];
   readonly capabilityPackCeiling: readonly CapabilityPack[];
   readonly secretEnvironmentReferences: readonly string[];
+  /**
+   * The execution boundary's writable allocation for THIS deployment.
+   *
+   * It lives here, in closed declarative deployment data, so the shared containment code never
+   * names an agent and never branches on which one is running. Required, closed, and with no
+   * default: a deployment that does not declare it does not start.
+   */
+  readonly containment: { readonly writableWorkspaces: readonly string[] };
 }
 
 declare const validatedConfiguration: unique symbol;
@@ -84,6 +92,40 @@ function assertExactKeys(value: unknown, expected: readonly string[], field: str
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${field} contains missing or unknown fields`);
+  }
+}
+
+/**
+ * The declared writable allocation, checked structurally rather than against a list of names.
+ *
+ * Every rule here exists to stop the allocation being widened after review:
+ *   - absolute, and normalised — a relative or `..`-bearing path means something different
+ *     depending on where the process happens to be standing;
+ *   - no `$`, backtick or `~` — a path assembled from the environment is a path the reviewer of
+ *     this file never saw, and containment decided by an environment variable is not containment;
+ *   - at least two segments — `/` and a single top-level directory are refused outright, so a
+ *     typo cannot hand an agent the lab;
+ *   - unique, and at least one — an empty set would silently authorise nothing and then be
+ *     "fixed" by widening something else.
+ */
+function assertWritableWorkspaces(value: unknown): asserts value is readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('deployment.containment.writableWorkspaces must be a non-empty array');
+  }
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!isString(entry)) throw new Error('deployment.containment.writableWorkspaces entries must be non-empty strings');
+    if (!entry.startsWith('/')) throw new Error(`writable workspace is not absolute: ${entry}`);
+    if (/[$`~]/.test(entry)) throw new Error(`writable workspace carries an expansion: ${entry}`);
+    if (entry.includes('//') || entry.endsWith('/')) throw new Error(`writable workspace is not normalised: ${entry}`);
+    if (entry.split('/').some((part, index) => index > 0 && (part === '' || part === '.' || part === '..'))) {
+      throw new Error(`writable workspace is not normalised: ${entry}`);
+    }
+    if (entry.split('/').filter((part) => part.length > 0).length < 2) {
+      throw new Error(`writable workspace is too broad: ${entry}`);
+    }
+    if (seen.has(entry)) throw new Error(`writable workspace declared twice: ${entry}`);
+    seen.add(entry);
   }
 }
 
@@ -200,8 +242,9 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
   const capsule = capsuleValue as unknown as AgentCapsule;
   assertExactKeys(deploymentValue, [
     'schemaVersion', 'environment', 'defaults', 'namespaces', 'memoryAmbient', 'routingTargets',
-    'baseToolCeiling', 'capabilityPackCeiling', 'secretEnvironmentReferences',
+    'baseToolCeiling', 'capabilityPackCeiling', 'secretEnvironmentReferences', 'containment',
   ], 'deployment');
+  assertExactKeys(deploymentValue.containment, ['writableWorkspaces'], 'deployment.containment');
   assertExactKeys(deploymentValue.environment, ['port', 'host', 'workspace', 'workspaceRoots', 'releaseManifest', 'temporaryRoot'], 'deployment.environment');
   assertExactKeys(deploymentValue.defaults, ['port', 'host', 'workspace'], 'deployment.defaults');
   assertExactKeys(deploymentValue.namespaces, ['checkpoint', 'task', 'correlation', 'memory'], 'deployment.namespaces');
@@ -237,6 +280,7 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
       || !Array.isArray(deployment.secretEnvironmentReferences)) {
     throw new Error('invalid deployment/agent.env.json');
   }
+  assertWritableWorkspaces(deployment.containment.writableWorkspaces);
   assertUniqueStrings(deployment.memoryAmbient.includeNamespaces, 'memoryAmbient.includeNamespaces');
   assertUniqueStrings(deployment.baseToolCeiling, 'baseToolCeiling', (item) => TOOL_NAME.test(item));
   assertUniqueStrings(deployment.secretEnvironmentReferences, 'secretEnvironmentReferences', (item) => ENVIRONMENT_NAME.test(item));
