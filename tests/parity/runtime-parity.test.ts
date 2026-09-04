@@ -124,7 +124,11 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // its imported graph and the output directory are now bound by descriptor and inode across the
 // whole read/build/publish sequence, and the sources are compiled from a captured snapshot rather
 // than reopened by name. `tui/scripts/build.mjs` is anchored, so that correction is declared here.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '44bfa3c9ddc6c5d7bc488f228a28c218b2819d6e3709e523636386c37a6de395';
+// Moved again when the two highest-traffic tool seams were routed through the containment
+// authority: execute_code and lab_shell no longer spawn a bare child process, and the vendored
+// boundary at src/core/containment/ joined the closed inventory. The shape changed because the
+// governed surface genuinely grew, which is the anchor doing its job.
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '52661e5cd673d3f23fde79e81d5383a0025759383d9cb096d2f35e3f91a8025e';
 
 interface Inventory {
   schemaVersion: 3;

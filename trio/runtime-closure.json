@@ -276,6 +276,13 @@
       "effect": "validated-runtime-state"
     },
     {
+      "site": "src/core/containment-config.ts",
+      "targets": [
+        "capsule/agent.json"
+      ],
+      "effect": "validated-authority-data"
+    },
+    {
       "site": "src/core/external-runtime-integrity.ts",
       "targets": [
         "runtime/manifest.json",
@@ -367,6 +374,16 @@
         "pehlichi"
       ],
       "classification": "shared-protocol-service-catalog"
+    },
+    {
+      "site": "src/core/containment/agents.ts",
+      "tokens": [
+        "loony-luna",
+        "luna",
+        "mad-ptah",
+        "pehlichi",
+        "ptah"
+      ]
     },
     {
       "site": "src/core/runtime-config.ts",
