@@ -56,6 +56,32 @@ interface DeclaredException {
 }
 
 const TMP_TEXT_DECLARATIONS: ReadonlyArray<readonly [string, DeclaredException]> = [
+  ["src/core/containment/argv.ts", {
+    reason: "the containment authority names the system temporary directory in order to MASK it: the sandbox replaces it with a private tmpfs and points TMPDIR at governed scratch instead",
+    lineDigests: [
+      "12eaa972791a0f278442356ccf18c3418642f0454a8432b93f4848553eaece66",
+      "2f65cfb09ed5f319124d8589589afe7ef9cc1fa438d502e46ed9fdb63936df09",
+      "453b145af743476c3e22eff97244e5c81e1a9e662674271653a96c6488ffc7a9",
+      "473ad7f2a65e280507594c29d0b4e875bef5dfb51cf7329bed09c70c7dd95690",
+      "6d06617096095080b35979574817c86778e404dc0bb9c86e6c34e4bd7f278e86",
+      "ad9cf2968634830fe5d960b9d39ad6d6acad09e417525c2ca961131383cf121e",
+      "d6a1d2b1c9c1a71e26dde787790a7058438fa512f539f868f2e440b2f0505a4b",
+      "ecb13e87aa2015d49f58e6fdfc7f96ad5b2769368d7ca3d894363b4c7720112e",
+    ],
+  }],
+  ["src/core/containment/availability.ts", {
+    reason: "the availability probe runs the real policy shape, which includes that mask; a probe that tested something easier would report a boundary that does not exist",
+    lineDigests: [
+      "eeee2011693ff60574fa4931e038d78303227066e45d61610e37f2fa0dc6ae66",
+    ],
+  }],
+  ["src/core/containment/conformance.ts", {
+    reason: "controls asserting the mask is present in the built argv; naming the forbidden root in order to refuse it is the reviewed case",
+    lineDigests: [
+      "af06b25f10684b7b0ef36d942d9043665f7de725b3d1f32f94c990328d597bbd",
+      "fa20257a88726b4bd96707db4ba0fcc51fecab8e4671558f3d37308da7a3728e",
+    ],
+  }],
   // Split deliberately: this path names an owner-scoped tree that exists only in one Trio
   // member, and a governed shared file may not carry a literal reference to it.
   ["interview-demo-" + "factory/scripts/assemble-demo.sh", {
@@ -1127,6 +1153,19 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
     reason: "the agent's delegation surface spawns a caller-chosen executable; the command is runtime data, not a committed call path",
     lineDigests: [
       "8e6d52e9af5b26cbdb07afdb3c916501d49009ece4906f8b8bddb6d936fec7ad",
+    ],
+  }],
+  ["src/core/containment-wiring.test.ts", {
+    reason: "the wiring proof spawns what wrap() returns, and once uncontained on purpose so the contained control has a positive control to be measured against",
+    lineDigests: [
+      "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
+      "ea9c5b552e38950a2d998026fc729d03492274ea553478a66de6a51ef0150dd9",
+    ],
+  }],
+  ["src/core/containment/conformance.ts", {
+    reason: "the live controls run a command under the boundary to prove the kernel enforced it; the binary is whatever wrap() returned",
+    lineDigests: [
+      "ccc3e2b8a18ad638b681540db953e34f9c668693c7e9d2fa2822e761dd2a7061",
     ],
   }],
   ["src/core/agent-tools/execute-code-tools.ts", {

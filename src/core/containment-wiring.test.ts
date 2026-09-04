@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -22,6 +22,7 @@ import { planFor } from './containment/policy.js';
 import { CONTAINMENT_VERSION } from './containment/version.js';
 import { ContainmentRefused, wrap } from './containment/wrap.js';
 import { capsuleIdentityId, repositoryRootFrom } from './containment-config.js';
+import { governedMkdtemp } from './temp-authority.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = repositoryRootFrom(here);
@@ -211,7 +212,7 @@ test('live: the real boundary confines a wired-style execution on this host', (t
     t.skip(`no containment backend here: ${availability.reason ?? 'unknown'}`);
     return;
   }
-  const scratch = mkdtempSync(join(scratchRoot(), 'containment-wiring-'));
+  const scratch = governedMkdtemp('containment-wiring-');
   const run = join(scratch, 'run');
   const outside = join(scratch, 'outside');
   mkdirSync(run, { recursive: true });
@@ -249,7 +250,7 @@ test('live: the real boundary confines a wired-style execution on this host', (t
 });
 
 test('live: the same escape succeeds uncontained, so the control above has teeth', () => {
-  const scratch = mkdtempSync(join(scratchRoot(), 'containment-positive-'));
+  const scratch = governedMkdtemp('containment-positive-');
   const outside = join(scratch, 'outside');
   mkdirSync(outside, { recursive: true });
   const escape = join(outside, 'escaped');
@@ -267,7 +268,7 @@ test('live: a contained interpreter has no network, which is the documented cont
     t.skip('no containment backend here');
     return;
   }
-  const scratch = mkdtempSync(join(scratchRoot(), 'containment-net-'));
+  const scratch = governedMkdtemp('containment-net-');
   const script = join(scratch, 'net.mjs');
   writeFileSync(script, `
     import { lookup } from 'node:dns';
