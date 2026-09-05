@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { type ContainmentAvailability, detectContainment } from "./availability.js";
 import { buildNarrowArgs, buildWorktreeArgs } from "./argv.js";
-import { type ContainmentConfig, type ContainmentPolicy, planFor } from "./policy.js";
+import { type ContainmentConfig, type ContainmentPolicy, planFor, sshBrokerPolicy } from "./policy.js";
 import { classifyCommandRisk } from "./risk.js";
 import { CONTAINMENT_VERSION } from "./version.js";
 import { ContainmentRefused, wrap } from "./wrap.js";
@@ -59,6 +59,7 @@ function policyFor(over: Partial<ContainmentPolicy> = {}): ContainmentPolicy {
     backend: "bwrap",
     view: "worktree",
     networkAllowed: false,
+    denyUnixSockets: true,
     risk: classifyCommandRisk("node", []),
     ...over,
   };
@@ -170,6 +171,18 @@ export function conformance(options: { readonly scratch?: string } = {}): Confor
   controls.push(control("C22", "the narrow view never binds the host runtime directory at all",
     !has(narrowArgs, "--ro-bind", "/run", "/run")));
 
+  // The mask is not the boundary; the syscall filter is. A network-denied policy must carry it.
+  controls.push(control("C23", "a network-denied policy loads the AF_UNIX syscall filter",
+    has(worktreeArgs, "--seccomp")));
+  // Even the one networked operation carries the filter. There is no unfiltered class left, which
+  // is the point: the previous exception was reached by putting a private `ssh` earlier in PATH.
+  const brokered = sshBrokerPolicy({ writableRoot: "/" }, AVAILABLE);
+  controls.push(control("C24", "the networked broker operation still loads the syscall filter",
+    brokered.allowed === true && brokered.policy.networkAllowed && brokered.policy.denyUnixSockets));
+  const namedSsh = planFor({ command: "ssh", args: ["host"], writableRoot: "/" }, base, AVAILABLE);
+  controls.push(control("C25", "naming a network tool grants no network",
+    namedSsh.allowed === true && !namedSsh.policy.networkAllowed));
+
   // ---- the refusal cannot be spawned -------------------------------------------------------
   let threw = false;
   try {
@@ -189,6 +202,7 @@ export function conformance(options: { readonly scratch?: string } = {}): Confor
       ["L01", "a contained command can write inside its workspace"],
       ["L02", "a contained command cannot write outside its workspace"],
       ["L03", "a contained command cannot reach the network"],
+      ["L04", "a contained command cannot create a unix socket"],
     ] as const) {
       controls.push({ id, description, pass: false, skipped: true, detail: why });
     }
@@ -237,8 +251,14 @@ function liveControls(scratch: string): Control[] {
 
   const run = (script: string): { status: number | null; stdout: string; stderr: string } => {
     const wrapped = wrap(decision, "/bin/sh", ["-c", script]);
-    const r = spawnSync(wrapped.binary, [...wrapped.args], { encoding: "utf8", timeout: 20_000 });
-    return { status: r.status, stdout: (r.stdout ?? "").trim(), stderr: (r.stderr ?? "").trim() };
+    try {
+      const r = spawnSync(wrapped.binary, [...wrapped.args], {
+        encoding: "utf8", timeout: 20_000, stdio: [...wrapped.stdio] as never,
+      });
+      return { status: r.status, stdout: (r.stdout ?? "").trim(), stderr: (r.stderr ?? "").trim() };
+    } finally {
+      wrapped.dispose();
+    }
   };
 
   const marker = join(workspace, "written-inside");
@@ -296,6 +316,45 @@ function liveControls(scratch: string): Control[] {
     netRan
       ? (net.stdout === "BLOCKED" ? undefined : "name resolution succeeded inside the sandbox")
       : `the probe did not run: status=${net.status} stdout=${JSON.stringify(net.stdout)} ${net.stderr.slice(0, 100)}`));
+
+  /*
+    L04 -- the finding this filter closes.
+
+    A unix socket is a filesystem object, so no amount of mount masking can guarantee the absence of
+    one; the syscall filter refuses the address family instead. The probe asks for a socket rather
+    than for a particular path, because creating one is the capability, and every reachable host
+    socket needs it first.
+  */
+  const socketProbe = `
+    import net from 'node:net';
+    try { const s = new net.Socket(); s.connect('/nonexistent.sock');
+      s.on('error', (e) => { console.log(e.code === 'EACCES' || e.code === 'EAFNOSUPPORT' ? 'DENIED' : 'CREATED:' + e.code); process.exit(0); });
+    } catch (e) { console.log('DENIED'); process.exit(0); }
+  `;
+  const socketScript = join(workspace, "af-unix-probe.mjs");
+  writeFileSync(socketScript, socketProbe);
+  const socketDecision = planFor(
+    { command: process.execPath, args: [socketScript], writableRoot: workspace, cwd: workspace, tempRoot: workspace },
+    config);
+  if (!socketDecision.allowed) {
+    out.push(control("L04", "a contained command cannot create a unix socket", false,
+      `planFor refused its own probe: ${socketDecision.denial.reason}`));
+    return out;
+  }
+  const socketWrapped = wrap(socketDecision, process.execPath, [socketScript]);
+  let socketOut = "";
+  let socketStatus: number | null = null;
+  try {
+    const r = spawnSync(socketWrapped.binary, [...socketWrapped.args], {
+      encoding: "utf8", timeout: 25_000, stdio: [...socketWrapped.stdio] as never,
+    });
+    socketOut = (r.stdout ?? "").trim();
+    socketStatus = r.status;
+  } finally {
+    socketWrapped.dispose();
+  }
+  out.push(control("L04", "a contained command cannot create a unix socket", socketOut === "DENIED",
+    socketOut === "DENIED" ? undefined : `status=${socketStatus} stdout=${JSON.stringify(socketOut)}`));
 
   return out;
 }

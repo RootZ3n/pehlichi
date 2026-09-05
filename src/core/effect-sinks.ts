@@ -106,6 +106,10 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   // exercises the boundary for real, which is the only way its result means anything.
   'src/core/containment/availability.ts': ['child-process'],
   'src/core/containment/conformance.ts': ['child-process', 'filesystem-mutation'],
+  // `wrap` materialises the reviewed AF_UNIX syscall filter where the run already owns writable
+  // space, then hands the caller a read-only descriptor on it. Without a filter to load, bwrap
+  // would start without one -- so preparing it is part of the boundary, not incidental IO.
+  'src/core/containment/wrap.ts': ['filesystem-mutation'],
 
   'src/core/driver.ts': ['model-provider-request'],
   'src/core/drivers/llamacpp.ts': ['model-provider-request'],

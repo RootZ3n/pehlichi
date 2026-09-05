@@ -1155,6 +1155,12 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "8e6d52e9af5b26cbdb07afdb3c916501d49009ece4906f8b8bddb6d936fec7ad",
     ],
   }],
+  ["src/core/ssh-broker-hostile.test.ts", {
+    reason: "the SSH hostile suite spawns what wrap() returned, to prove the brokered policy denies a host unix socket",
+    lineDigests: [
+      "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
+    ],
+  }],
   ["src/core/containment-wiring.test.ts", {
     reason: "the wiring proof spawns what wrap() returns, and once uncontained on purpose so the contained control has a positive control to be measured against",
     lineDigests: [
@@ -1165,6 +1171,7 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
   ["src/core/containment/conformance.ts", {
     reason: "the live controls run a command under the boundary to prove the kernel enforced it; the binary is whatever wrap() returned",
     lineDigests: [
+      "a0d4b98f95956f7d5810e333947df24a58d6c0decc7880510cc47bc876f71928",
       "ccc3e2b8a18ad638b681540db953e34f9c668693c7e9d2fa2822e761dd2a7061",
     ],
   }],

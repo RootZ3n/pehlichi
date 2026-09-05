@@ -1,5 +1,6 @@
 import type { ContainmentPolicy } from "./policy.js";
 import { canonical, existsSafe, isWithin } from "./paths.js";
+import { SECCOMP_CHILD_FD } from "./seccomp.js";
 
 /**
  * The minimal system directories a bound binary needs in order to run at all: the dynamic linker,
@@ -140,6 +141,7 @@ export function buildWorktreeArgs(
 
   a.push("--unshare-all");
   if (policy.networkAllowed) a.push("--share-net");
+  if (policy.denyUnixSockets) a.push("--seccomp", String(SECCOMP_CHILD_FD));
   a.push("--die-with-parent", "--new-session", "--", command, ...args);
   return a;
 }
@@ -177,6 +179,8 @@ export function buildNarrowArgs(
     : (policy.readonlyRoots?.[0] !== undefined ? canonical(policy.readonlyRoots[0]) : undefined);
   if (chdir !== undefined) a.push("--chdir", chdir);
 
-  a.push("--unshare-all", "--die-with-parent", "--new-session", "--", command, ...args);
+  a.push("--unshare-all");
+  if (policy.denyUnixSockets) a.push("--seccomp", String(SECCOMP_CHILD_FD));
+  a.push("--die-with-parent", "--new-session", "--", command, ...args);
   return a;
 }

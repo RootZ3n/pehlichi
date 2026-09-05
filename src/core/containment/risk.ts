@@ -7,7 +7,7 @@
 export interface CommandRisk {
   /** True ⇒ this command can execute code or write files, and MUST be contained. */
   readonly risky: boolean;
-  readonly kind: "interpreter" | "package-install" | "package-script" | "toolchain" | "write-tool" | "network-client" | "safe";
+  readonly kind: "interpreter" | "package-install" | "package-script" | "toolchain" | "write-tool" | "network-tool" | "safe";
   /** True ⇒ legitimate work needs the network (dependency resolution), so the net namespace stays. */
   readonly needsNetwork: boolean;
   readonly reason: string;
@@ -53,18 +53,28 @@ const WRITE_TOOLS = new Set([
   "install", "rsync", "truncate", "mknod", "sed", "awk",
 ]);
 
+/*
+  THERE IS NO LONGER A NETWORK-CLIENT CLASSIFICATION.
+
+  `ssh` used to classify as `network-client`, which bought it shared networking and an exemption
+  from the syscall filter. An independent audit put a private executable named `ssh` earlier in
+  PATH and the production path ran it -- under the networked, unfiltered policy. A classification
+  keyed to a command NAME is a classification an attacker chooses.
+
+  The one operation that genuinely needs the network is now a dedicated broker with a closed
+  request schema and an absolute, root-owned executable, and it obtains its policy from
+  `sshBrokerPolicy()` rather than by being named. No string in this table can reach it.
+*/
+
 /**
- * Commands whose entire purpose IS the network.
+ * Tools whose purpose is to talk to something else.
  *
- * They are risky — an outbound client is an exfiltration seam, and `ssh` is an execution seam on
- * whatever it reaches — but containing them with an unshared network namespace does not make them
- * safe, it makes them broken. So they are classified as needing the network, and the containment
- * they get is filesystem confinement rather than isolation.
- *
- * What this does NOT do is govern the far end. A contained `ssh` is a confined *client*; the remote
- * command it carries is outside this boundary entirely and has to be governed where it is issued.
+ * They are RISKY, so an unavailable boundary refuses them rather than running them loose — an
+ * uncontained outbound client is exactly the escape this whole exercise is about. They do NOT carry
+ * `needsNetwork`, so naming one buys nothing: the only thing that grants the network is the broker,
+ * which is reached by being called rather than by being named.
  */
-const NETWORK_CLIENTS = new Set(["ssh", "scp", "sftp", "curl", "wget"]);
+const NETWORK_TOOLS = new Set(["ssh", "scp", "sftp", "curl", "wget", "nc", "ncat", "socat", "telnet"]);
 
 /** Package managers whose bare invocation (no subcommand) still installs. */
 const BARE_INSTALLERS = new Set(["pip", "pip3", "poetry", "pipenv", "gem", "bundle"]);
@@ -121,8 +131,8 @@ export function classifyCommandRisk(command: string, args: readonly string[]): C
     };
   }
 
-  if (NETWORK_CLIENTS.has(cmd)) {
-    return { risky: true, kind: "network-client", needsNetwork: true, reason: `${cmd} exists to reach the network` };
+  if (NETWORK_TOOLS.has(cmd)) {
+    return { risky: true, kind: "network-tool", needsNetwork: false, reason: `${cmd} reaches other systems and is contained without a network` };
   }
 
   if (WRITE_TOOLS.has(cmd)) {
@@ -139,5 +149,5 @@ export const RISK_TABLE = Object.freeze({
   packageManagers: Object.freeze([...PACKAGE_MANAGERS].sort()),
   packageInstallSubcommands: Object.freeze([...PM_INSTALL_SUBCOMMANDS].sort()),
   writeTools: Object.freeze([...WRITE_TOOLS].sort()),
-  networkClients: Object.freeze([...NETWORK_CLIENTS].sort()),
+  networkTools: Object.freeze([...NETWORK_TOOLS].sort()),
 });

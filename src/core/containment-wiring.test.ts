@@ -11,14 +11,14 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import type { ContainmentAvailability } from './containment/availability.js';
 import { detectContainment } from './containment/availability.js';
-import { containmentConfig, planFor } from './containment/policy.js';
+import { containmentConfig, planFor, sshBrokerPolicy } from './containment/policy.js';
 import { CONTAINMENT_VERSION } from './containment/version.js';
 import { ContainmentRefused, wrap } from './containment/wrap.js';
 import { agentContainmentConfig, repositoryRootFrom } from './containment-config.js';
@@ -91,7 +91,7 @@ test('2c. the parent of a declared workspace is not itself declared', () => {
 
 test('3. an unavailable boundary denies risky work rather than running it uncontained', () => {
   const scratch = scratchRoot();
-  for (const command of ['python3', 'node', 'ssh']) {
+  for (const command of ['python3', 'node', 'ssh']) { // ssh is a risky network TOOL now, so it is refused too
     const decision = planFor(
       { command, args: [], writableRoot: scratch, tempRoot: scratch },
       configWithScratch(scratch), UNAVAILABLE,
@@ -137,7 +137,9 @@ test('5. the wired files spawn only what wrap() returned', () => {
     for (const target of spawns) {
       assert.equal(target, 'contained.binary', `${file} spawns ${target}, which did not come from wrap()`);
     }
-    assert.match(source, /planFor\(/, `${file} must decide through planFor`);
+    // execute_code decides through planFor; lab_shell decides through the SSH broker policy, which
+    // is a separate code path precisely so no name can reach it.
+    assert.match(source, /planFor\(|sshBrokerPolicy\(/, `${file} must obtain a decision from the authority`);
     assert.match(source, /wrap\(decision/, `${file} must build its argv through wrap`);
   }
 });
@@ -213,12 +215,12 @@ test('N4. an empty allocation is refused rather than read as "nothing to protect
 });
 
 test('N5. a broadened allocation is refused', () => {
-  // `/` is caught by the normalisation rule (it ends in a separator) before the depth rule sees it.
-  // Both are refusals; the assertion accepts either so it pins the OUTCOME rather than the order in
-  // which two correct rules happen to fire.
-  for (const broad of ['/', '/pehverse', '/etc']) {
+  // Several correct rules can fire first -- `/` ends in a separator, the rest are simply not in the
+  // reviewed vocabulary. The assertion pins the OUTCOME (refused, with a reason that names the
+  // path) rather than which rule happened to reach it first.
+  for (const broad of ['/', '/pehverse', '/etc', '/etc/foo', '/pehverse-other', '/pehverse/worktrees-evil']) {
     const root = fixtureRoot((d) => { d['containment'] = { writableWorkspaces: [broad] }; });
-    assert.throws(() => readAgentCapsules(root), /too broad|not normalised/, broad);
+    assert.throws(() => readAgentCapsules(root), /not reviewed|not normalised/, broad);
   }
 });
 
@@ -257,6 +259,92 @@ test('N9. a capsule that cannot be parsed at all fails closed', () => {
   assert.throws(() => readAgentCapsules(root));
 });
 
+// ------------------------------------------------------------------ identity binding (C-1)
+
+/** The other two Trio repositories, as sources of genuinely valid foreign capsules. */
+const siblings = (): Array<{ id: string; root: string }> =>
+  ['pehlichi', 'mad-ptah', 'loony-luna']
+    .map((id) => ({ id, root: join(dirname(repositoryRoot), id) }))
+    .filter((s) => s.root !== repositoryRoot && existsSync(join(s.root, 'capsule', 'agent.json')));
+
+/**
+ * A repository root whose capsule and deployment can be taken from different agents.
+ *
+ * `packageName` defaults to THIS repository's, so the fixture is the honest reproduction of the
+ * audit: a real checkout with a foreign file dropped into it.
+ */
+function crossBoundFixture(capsuleFrom: string, deploymentFrom: string, packageFrom = repositoryRoot): string {
+  const root = governedMkdtemp('identity-fixture-');
+  mkdirSync(join(root, 'capsule'), { recursive: true });
+  mkdirSync(join(root, 'deployment'), { recursive: true });
+  cpSync(join(capsuleFrom, 'capsule', 'agent.json'), join(root, 'capsule', 'agent.json'));
+  cpSync(join(deploymentFrom, 'deployment', 'agent.env.json'), join(root, 'deployment', 'agent.env.json'));
+  cpSync(join(packageFrom, 'package.json'), join(root, 'package.json'));
+  return root;
+}
+
+test('I1. this deployment is bound: capsule, deployment and repository identities agree', () => {
+  const { capsule, deployment } = readAgentCapsules(repositoryRoot);
+  const packageName = (JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { name: string }).name;
+  assert.equal(deployment.identity, capsule.identity.id);
+  assert.equal(packageName, capsule.identity.id);
+});
+
+test('I2. a foreign deployment paired with this capsule is rejected (the audit\'s swapped-deployment)', () => {
+  for (const other of siblings()) {
+    const root = crossBoundFixture(repositoryRoot, other.root);
+    assert.throws(() => readAgentCapsules(root), /identity mismatch/,
+      `${other.id}'s deployment must not bind to this capsule`);
+  }
+});
+
+test('I3. a foreign capsule paired with this deployment is rejected (the audit\'s swapped-capsule)', () => {
+  for (const other of siblings()) {
+    const root = crossBoundFixture(other.root, repositoryRoot);
+    assert.throws(() => readAgentCapsules(root), /identity mismatch/,
+      `${other.id}'s capsule must not bind to this deployment`);
+  }
+});
+
+test('I4. a consistent foreign PAIR is still rejected, because it does not belong to this repository', () => {
+  for (const other of siblings()) {
+    const root = crossBoundFixture(other.root, other.root);
+    assert.throws(() => readAgentCapsules(root), /does not belong to this repository/,
+      `${other.id}'s matched pair must not bind to this repository`);
+  }
+});
+
+test('I5. a missing, wrong-typed or malformed deployment identity fails closed', () => {
+  const cases: Array<[string, unknown]> = [
+    ['missing', undefined], ['number', 7], ['empty', ''], ['padded', ' pehlichi'],
+    ['array', ['pehlichi']], ['object', { id: 'pehlichi' }], ['null', null],
+  ];
+  for (const [label, value] of cases) {
+    const root = fixtureRoot((d) => { if (value === undefined) delete d['identity']; else d['identity'] = value; });
+    assert.throws(() => readAgentCapsules(root), label);
+  }
+});
+
+test('I6. an unreadable or identity-less repository fails closed rather than defaulting', () => {
+  const noPackage = crossBoundFixture(repositoryRoot, repositoryRoot);
+  rmSync(join(noPackage, 'package.json'));
+  assert.throws(() => readAgentCapsules(noPackage), /repository identity unreadable/);
+});
+
+test('I7. identity is never inferred from the directory the checkout happens to sit in', () => {
+  // The fixture directory is a random governed scratch name that matches no agent. A correctly
+  // bound pair still loads, and a mismatched one still fails -- so the answer came from the files.
+  const bound = crossBoundFixture(repositoryRoot, repositoryRoot);
+  assert.equal(readAgentCapsules(bound).capsule.identity.id,
+    readAgentCapsules(repositoryRoot).capsule.identity.id);
+  const loader = readFileSync(join(here, 'containment-config.ts'), 'utf8');
+  const config = readFileSync(join(here, 'runtime-config.ts'), 'utf8');
+  for (const source of [loader, config]) {
+    assert.equal(/process\.argv|process\.env\.[A-Z_]*IDENTITY|basename\(/.test(source), false,
+      'identity must not come from arguments, the environment, or a directory name');
+  }
+});
+
 // ------------------------------------------------------------------ live: the real boundary
 
 test('live: the real boundary confines a wired-style execution on this host', (t) => {
@@ -289,10 +377,16 @@ test('live: the real boundary confines a wired-style execution on this host', (t
   const contained = wrap(decision, 'node', [script]);
   assert.equal(contained.binary, 'bwrap');
 
-  const result = spawnSync(contained.binary, [...contained.args], {
-    encoding: 'utf8', timeout: 30_000,
-    env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: run, LANG: 'C.UTF-8' },
-  });
+  let result;
+  try {
+    result = spawnSync(contained.binary, [...contained.args], {
+      encoding: 'utf8', timeout: 30_000,
+      stdio: [...contained.stdio] as never,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: run, LANG: 'C.UTF-8' },
+    });
+  } finally {
+    contained.dispose();
+  }
 
   assert.equal(readFileSync(join(run, 'inside.txt'), 'utf8'), 'ok',
     `the contained write inside the workspace did not land: ${result.stderr ?? ''}`);
@@ -327,19 +421,31 @@ test('live: a contained interpreter has no network, which is the documented cont
   );
   assert.equal(decision.allowed === true && decision.policy.networkAllowed, false);
   const contained = wrap(decision, 'node', [script]);
-  const result = spawnSync(contained.binary, [...contained.args], {
-    encoding: 'utf8', timeout: 30_000,
-    env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: scratch, LANG: 'C.UTF-8' },
-  });
+  let result;
+  try {
+    result = spawnSync(contained.binary, [...contained.args], {
+      encoding: 'utf8', timeout: 30_000,
+      stdio: [...contained.stdio] as never,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: scratch, LANG: 'C.UTF-8' },
+    });
+  } finally {
+    contained.dispose();
+  }
   assert.equal((result.stdout ?? '').trim(), 'BLOCKED', `stderr: ${result.stderr ?? ''}`);
 });
 
-test('live: ssh keeps the network, because containing it without one would only break it', () => {
+test('live: naming ssh grants no network, and the broker grants it with the filter still on', () => {
   const scratch = scratchRoot();
-  const decision = planFor(
+  const named = planFor(
     { command: 'ssh', args: ['-o', 'BatchMode=yes', 'host', 'true'], writableRoot: scratch, tempRoot: scratch },
     configWithScratch(scratch), AVAILABLE,
   );
-  assert.equal(decision.allowed === true && decision.policy.networkAllowed, true);
-  assert.equal(decision.allowed === true && decision.policy.risk.kind, 'network-client');
+  assert.equal(named.allowed === true && named.policy.networkAllowed, false, 'a name must not buy the network');
+  assert.equal(named.allowed === true && named.policy.risk.kind, 'network-tool');
+  assert.equal(named.allowed === true && named.policy.denyUnixSockets, true);
+
+  const brokered = sshBrokerPolicy({ writableRoot: scratch, tempRoot: scratch }, AVAILABLE);
+  assert.equal(brokered.allowed === true && brokered.policy.networkAllowed, true);
+  assert.equal(brokered.allowed === true && brokered.policy.denyUnixSockets, true,
+    'the exception is gone: the networked operation is filtered too');
 });

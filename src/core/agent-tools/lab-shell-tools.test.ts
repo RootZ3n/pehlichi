@@ -26,8 +26,10 @@ const ROOT = '/pehverse/repos';
 
 function fakeRunner(outcome: Partial<LabRunResult> = {}): { run: LabRunner; calls: Array<{ host: string; cmd: string }> } {
   const calls: Array<{ host: string; cmd: string }> = [];
-  const run: LabRunner = (host, cmd) => {
-    calls.push({ host, cmd });
+  const run: LabRunner = (request) => {
+    // The remote text the broker would build, so the existing expectations still describe the
+    // wire form rather than being loosened to match a new shape.
+    calls.push({ host: request.host, cmd: `cd '${request.directory}' && ${request.command}` });
     return { code: 0, stdout: 'ok', stderr: '', ...outcome };
   };
   return { run, calls };

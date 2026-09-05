@@ -1,5 +1,6 @@
 import { type ContainmentAvailability, detectContainment } from "./availability.js";
 import { canonical, isWithinAny } from "./paths.js";
+import { checkGrantableWorkspace } from "./grantable.js";
 import { type CommandRisk, classifyCommandRisk } from "./risk.js";
 
 /**
@@ -67,6 +68,19 @@ export interface ContainmentPolicy {
   readonly cwd?: string | undefined;
   readonly tempRoot?: string | undefined;
   readonly networkAllowed: boolean;
+  /**
+   * Deny the AF_UNIX address family at the syscall boundary.
+   *
+   * Set for every policy that denies the network. A policy that refuses IP but leaves unix sockets
+   * reachable does not isolate anything: an audit demonstrated contained code connecting to a host
+   * listener created outside every declared workspace, and mount masking cannot close a class of
+   * object that can appear anywhere on the filesystem.
+   *
+   * Deliberately NOT set for a network client. `ssh` reaches its agent over a unix socket, so the
+   * filter would break the one command whose entire purpose is to reach something. Its containment
+   * is filesystem confinement, and that is stated rather than overclaimed.
+   */
+  readonly denyUnixSockets: boolean;
   readonly risk: CommandRisk;
   /** Set when the policy is uncontained BECAUSE the operator override fired. Always receipted. */
   readonly uncontainedByOverride?: boolean | undefined;
@@ -95,6 +109,14 @@ export interface Denial {
 export type ContainmentDecision =
   | { readonly allowed: true; readonly policy: ContainmentPolicy }
   | { readonly allowed: false; readonly denial: Denial };
+
+/** Raised when a configuration names a workspace outside the reviewed vocabulary. */
+export class UngrantableWorkspace extends Error {
+  constructor(reason: string) {
+    super(`ungrantable workspace: ${reason}`);
+    this.name = "UngrantableWorkspace";
+  }
+}
 
 function deny(code: DenialCode, reason: string, risk: CommandRisk, availability: ContainmentAvailability): ContainmentDecision {
   return { allowed: false, denial: { code, reason, risk, availability } };
@@ -178,6 +200,10 @@ export function planFor(
       tempRoot: request.tempRoot ?? config.governedTempRoot,
       // The narrow view never shares the network, whatever the command would like.
       networkAllowed: view === "narrow" ? false : risk.needsNetwork,
+      // ALWAYS. Not "when the network is denied" -- a dependency install needs TCP and still has
+      // no business reaching a host service over a unix socket, and every toolchain the lab runs
+      // was verified to work under the filter. An unfiltered class is a class somebody aims for.
+      denyUnixSockets: true,
       risk,
     },
   };
@@ -199,6 +225,7 @@ function uncontained(
     cwd: request.cwd,
     tempRoot: request.tempRoot,
     networkAllowed: true,
+    denyUnixSockets: false,
     risk,
     ...(byOverride ? { uncontainedByOverride: true } : {}),
   };
@@ -218,11 +245,22 @@ function uncontained(
  *
  * The governed scratch is added to the writable set because every run writes the file it is about
  * to execute there. It is the same addition for every deployment, so it distinguishes none of them.
+ * It is the ONE path exempt from the grantable vocabulary, because it is not a fixed name: it is
+ * whatever the governed temporary authority resolved, and that authority validates it far more
+ * strictly than a list could.
+ *
+ * Every OTHER declared path must be in the reviewed vocabulary. The deployment schema checks this
+ * too; it is checked again here because a boundary that is only enforced at one edge is enforced by
+ * whoever remembers to call that edge.
  */
 export function containmentConfig(declared: {
   readonly writableWorkspaces: readonly string[];
   readonly governedTempRoot?: string | undefined;
 }): ContainmentConfig {
+  for (const workspace of declared.writableWorkspaces) {
+    const check = checkGrantableWorkspace(workspace);
+    if (!check.ok) throw new UngrantableWorkspace(check.reason);
+  }
   const temp = declared.governedTempRoot;
   return {
     mode: "auto",
@@ -231,5 +269,46 @@ export function containmentConfig(declared: {
       : [...declared.writableWorkspaces, temp],
     trustedLocalOverride: false,
     ...(temp === undefined ? {} : { governedTempRoot: temp }),
+  };
+}
+
+/**
+ * THE policy for the one operation that is allowed to reach the network.
+ *
+ * Not reachable through `planFor`: no command name, argument, or classification produces it. The
+ * broker calls it directly, which is what makes "is this the SSH operation?" a question about which
+ * code is running rather than about what a string says.
+ *
+ * It keeps the network and it KEEPS THE SYSCALL FILTER. The previous exception dropped both, on the
+ * theory that ssh needs a unix socket for its agent; with `IdentityAgent=none` it does not, and that
+ * was verified by running the real client under the real filter.
+ */
+export function sshBrokerPolicy(
+  workspace: { readonly writableRoot: string; readonly tempRoot?: string | undefined },
+  availability: ContainmentAvailability = detectContainment(),
+): ContainmentDecision {
+  const risk: CommandRisk = {
+    risky: true,
+    kind: "safe",
+    needsNetwork: true,
+    reason: "the governed SSH read operation",
+  };
+  if (!availability.available) {
+    return deny("CONTAINMENT_UNAVAILABLE",
+      `the SSH operation requires containment, which is unavailable: ${availability.reason ?? "unknown"}`,
+      risk, availability);
+  }
+  return {
+    allowed: true,
+    policy: {
+      backend: "bwrap",
+      view: "worktree",
+      writableRoot: workspace.writableRoot,
+      cwd: workspace.writableRoot,
+      tempRoot: workspace.tempRoot,
+      networkAllowed: true,
+      denyUnixSockets: true,
+      risk,
+    },
   };
 }

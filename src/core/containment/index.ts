@@ -44,11 +44,39 @@ export {
   type DenialCode,
   type ExecRequest,
   DEFAULT_CONTAINMENT_MODE,
+  UngrantableWorkspace,
   containmentConfig,
   planFor,
+  sshBrokerPolicy,
 } from "./policy.js";
 
+export {
+  type GrantRefusal,
+  WRITABLE_WORKSPACE_ROOTS,
+  checkGrantableWorkspace,
+  isGrantableWorkspace,
+} from "./grantable.js";
+
 export { NARROW_SYSTEM_DIRS, buildNarrowArgs, buildWorktreeArgs } from "./argv.js";
+
+export {
+  AF_UNIX_DENY_INSTRUCTIONS,
+  SECCOMP_CHILD_FD,
+  SECCOMP_PROGRAM_FILENAME,
+  afUnixDenyProgram,
+} from "./seccomp.js";
+
+export {
+  type ExecutableCheck,
+  type SshReadRequest,
+  type SshRequestCheck,
+  SSH_EXECUTABLE,
+  SSH_FIXED_OPTIONS,
+  buildSshArgv,
+  checkSshExecutable,
+  checkSshRequest,
+  sshEnvironment,
+} from "./ssh-broker.js";
 
 export { type WrappedCommand, ContainmentRefused, wrap, wrapPolicy } from "./wrap.js";
 

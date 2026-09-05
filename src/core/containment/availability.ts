@@ -11,6 +11,14 @@ export interface ContainmentAvailability {
   readonly tool?: "bwrap";
   readonly version?: string;
   readonly reason?: string;
+  /**
+   * Whether the AF_UNIX syscall filter could actually be installed on this host.
+   *
+   * `available` requires it. A host that can start a sandbox but cannot load the filter would give
+   * a boundary that hides host sockets by mount masking alone, which an audit has already shown is
+   * not enough — so that host reports unavailable rather than silently degrading.
+   */
+  readonly seccomp?: boolean;
 }
 
 /**
@@ -52,10 +60,31 @@ export function bwrapProbe(): ContainmentAvailability {
       const detail = (run.stderr ?? run.error?.message ?? "").toString().trim().slice(0, 160);
       return {
         available: false,
+        seccomp: false,
         reason: `bwrap ${version} is present but a policy probe failed (unprivileged user namespaces disabled?): ${detail}`,
       };
     }
-    return { available: true, tool: "bwrap", version };
+
+    // And confirm this bwrap can carry a syscall filter at all. Mount masking alone is not the
+    // boundary this authority claims, so a build without `--seccomp` has no containment as far as
+    // this is concerned.
+    //
+    // Deliberately a CAPABILITY check rather than a loaded-filter check: loading one needs a file
+    // to read it from, and there is no governed place to put that file before a run exists. The
+    // load itself is still enforced, and still fails closed, at the two points that matter --
+    // `wrap()` refuses when the filter cannot be prepared, and `bwrap` refuses to start when it
+    // cannot read the program. Neither degrades to running without it.
+    const help = spawnSync("bwrap", ["--help"], { encoding: "utf8", timeout: 5_000 });
+    const carriesSeccomp = /--seccomp\b/.test(`${help.stdout ?? ""}${help.stderr ?? ""}`);
+    if (!carriesSeccomp) {
+      return {
+        available: false,
+        seccomp: false,
+        reason: `bwrap ${version} does not support --seccomp, so the AF_UNIX filter cannot be installed`,
+      };
+    }
+
+    return { available: true, tool: "bwrap", version, seccomp: true };
   } catch (error) {
     return { available: false, reason: `containment probe error: ${error instanceof Error ? error.message : String(error)}` };
   }

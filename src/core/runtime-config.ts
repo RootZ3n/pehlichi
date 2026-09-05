@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, join, normalize, sep } from 'node:path';
 
 import type { AgentProfile } from './profile.js';
+import { checkGrantableWorkspace } from './containment/grantable.js';
 
 export const CAPABILITY_PACK_TOOLS = {
   'work-orders': ['wo_list', 'wo_get', 'wo_transition'],
@@ -28,6 +29,14 @@ export interface AgentCapsule {
 
 export interface DeploymentCapsule {
   readonly schemaVersion: 1;
+  /**
+   * WHICH DEPLOYMENT THIS IS.
+   *
+   * Required so a deployment capsule cannot be read as belonging to an agent that did not write it.
+   * Without it, a valid capsule and a valid deployment from two different agents formed a valid
+   * pair, and the agent received the other's writable allocation -- demonstrated, not hypothesised.
+   */
+  readonly identity: string;
   readonly environment: {
     readonly port: string;
     readonly host: string;
@@ -96,17 +105,18 @@ function assertExactKeys(value: unknown, expected: readonly string[], field: str
 }
 
 /**
- * The declared writable allocation, checked structurally rather than against a list of names.
+ * The declared writable allocation, checked against the reviewed vocabulary.
  *
- * Every rule here exists to stop the allocation being widened after review:
- *   - absolute, and normalised — a relative or `..`-bearing path means something different
- *     depending on where the process happens to be standing;
- *   - no `$`, backtick or `~` — a path assembled from the environment is a path the reviewer of
- *     this file never saw, and containment decided by an environment variable is not containment;
- *   - at least two segments — `/` and a single top-level directory are refused outright, so a
- *     typo cannot hand an agent the lab;
- *   - unique, and at least one — an empty set would silently authorise nothing and then be
- *     "fixed" by widening something else.
+ * IT WAS STRUCTURAL AND THAT WAS NOT ENOUGH. The previous rule accepted anything absolute,
+ * normalised and at least two segments deep, which an independent audit walked through: `/etc` was
+ * refused for being too broad while `/etc/foo` was accepted, because it has two segments. A
+ * structural rule describes the shape of an allocation; only a list describes which allocations
+ * were reviewed.
+ *
+ * Membership is exact equality against the canonical vocabulary, and the descendant, prefix,
+ * trailing-separator, dot-segment and lookalike cases all fall out of that rather than needing
+ * their own rules. The normalisation checks are kept in front of it so a refusal says WHY rather
+ * than only that the string was not on a list.
  */
 function assertWritableWorkspaces(value: unknown): asserts value is readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
@@ -121,9 +131,8 @@ function assertWritableWorkspaces(value: unknown): asserts value is readonly str
     if (entry.split('/').some((part, index) => index > 0 && (part === '' || part === '.' || part === '..'))) {
       throw new Error(`writable workspace is not normalised: ${entry}`);
     }
-    if (entry.split('/').filter((part) => part.length > 0).length < 2) {
-      throw new Error(`writable workspace is too broad: ${entry}`);
-    }
+    const reviewed = checkGrantableWorkspace(entry);
+    if (!reviewed.ok) throw new Error(`writable workspace is not reviewed: ${reviewed.reason}`);
     if (seen.has(entry)) throw new Error(`writable workspace declared twice: ${entry}`);
     seen.add(entry);
   }
@@ -241,7 +250,7 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
   assertExactKeys(capsuleValue.providerDefaults, ['model', 'baseUrl'], 'capsule.providerDefaults');
   const capsule = capsuleValue as unknown as AgentCapsule;
   assertExactKeys(deploymentValue, [
-    'schemaVersion', 'environment', 'defaults', 'namespaces', 'memoryAmbient', 'routingTargets',
+    'schemaVersion', 'identity', 'environment', 'defaults', 'namespaces', 'memoryAmbient', 'routingTargets',
     'baseToolCeiling', 'capabilityPackCeiling', 'secretEnvironmentReferences', 'containment',
   ], 'deployment');
   assertExactKeys(deploymentValue.containment, ['writableWorkspaces'], 'deployment.containment');
@@ -261,7 +270,8 @@ function validateCapsules(capsuleValue: unknown, deploymentValue: unknown): {
   assertUniqueStrings(capsule.skillTags, 'skillTags', (item) => SAFE_ID.test(item));
   assertUniqueStrings(capsule.baseToolNames, 'baseToolNames', (item) => TOOL_NAME.test(item));
   assertPacks(capsule.requestedCapabilityPacks, 'requestedCapabilityPacks');
-  if (deployment.schemaVersion !== 1 || !Number.isInteger(deployment.defaults?.port)
+  if (deployment.schemaVersion !== 1 || !isString(deployment.identity) || !SAFE_ID.test(deployment.identity)
+      || !Number.isInteger(deployment.defaults?.port)
       || deployment.defaults.port < 1 || deployment.defaults.port > 65535
       || !isString(deployment.defaults?.host) || !isString(deployment.defaults?.workspace)
       || !isString(deployment.environment?.port) || !ENVIRONMENT_NAME.test(deployment.environment.port)
@@ -294,10 +304,46 @@ export function readAgentCapsules(repositoryRoot: string): {
 } {
   const capsuleText = readFileSync(join(repositoryRoot, 'capsule', 'agent.json'), 'utf8');
   const deploymentText = readFileSync(join(repositoryRoot, 'deployment', 'agent.env.json'), 'utf8');
-  return validateCapsules(
+  const validated = validateCapsules(
     parseAuthorityJson(capsuleText, 'capsule/agent.json'),
     parseAuthorityJson(deploymentText, 'deployment/agent.env.json'),
   );
+  assertIdentityBinding(repositoryRoot, validated.capsule, validated.deployment);
+  return validated;
+}
+
+/**
+ * THE IDENTITY TRUST CHAIN.
+ *
+ *   governed manifest -> package.json `name` -> deployment.identity -> capsule.identity.id
+ *
+ * Every link is file content that is itself governed. Nothing is inferred from a directory name, a
+ * repository path, an environment variable, a branch, or a process argument: those describe where
+ * the code happens to be sitting, not which deployment it is, and an auditor moving a checkout
+ * would change them all.
+ *
+ * The package name is the repository's own governed identity -- runtime parity binds it to the
+ * declared name for that slot -- which is what makes the BOTH-swapped case catchable. Swapping the
+ * capsule alone, the deployment alone, or the pair together all fail here, because the pair still
+ * has to agree with the repository it is sitting in.
+ */
+function assertIdentityBinding(repositoryRoot: string, capsule: AgentCapsule, deployment: DeploymentCapsule): void {
+  const capsuleId = capsule.identity.id;
+  if (deployment.identity !== capsuleId) {
+    throw new Error('capsule/deployment identity mismatch: the pair does not describe one agent');
+  }
+  let packageName: unknown;
+  try {
+    packageName = (JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { name?: unknown }).name;
+  } catch (error) {
+    throw new Error(`repository identity unreadable: ${(error as Error).message}`);
+  }
+  if (!isString(packageName) || !SAFE_ID.test(packageName)) {
+    throw new Error('repository identity is missing or malformed');
+  }
+  if (packageName !== capsuleId) {
+    throw new Error('capsule/deployment pair does not belong to this repository');
+  }
 }
 
 export function loadAgentRuntimeConfiguration(repositoryRoot: string, profile: AgentProfile): AgentRuntimeConfiguration {

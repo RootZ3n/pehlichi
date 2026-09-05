@@ -19,8 +19,14 @@ import { resolve } from 'node:path';
 
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import { processScratchDir } from '../temp-authority.js';
-import { agentContainmentConfig } from '../containment-config.js';
-import { planFor } from '../containment/policy.js';
+import { sshBrokerPolicy } from '../containment/policy.js';
+import {
+  type SshReadRequest,
+  buildSshArgv,
+  checkSshExecutable,
+  checkSshRequest,
+  sshEnvironment,
+} from '../containment/ssh-broker.js';
 import { wrap } from '../containment/wrap.js';
 
 const obj = (
@@ -63,7 +69,7 @@ export interface LabRunResult {
 }
 
 /** Runs `ssh <host> <remoteCommand>` and returns the outcome. Injectable for tests. */
-export type LabRunner = (host: string, remoteCommand: string) => LabRunResult;
+export type LabRunner = (request: SshReadRequest) => LabRunResult;
 
 /** The lab SSH host (user@host or a ~/.ssh/config alias). Unset ⇒ the tool is not configured. */
 export function labSshHost(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -124,44 +130,78 @@ export function validateLabCwd(cwd: string | undefined, root: string): { ok: tru
 }
 
 /**
- * The default runner: ssh in BatchMode (never prompts), inheriting the process env (finds ~/.ssh).
+ * The default runner: THE governed SSH read operation, through the broker.
  *
- * CONTAINMENT. The local `ssh` client runs inside the lab's execution boundary: the host is bound
- * read-only, this run's governed scratch is the only writable path, and the network is kept because
- * an ssh client without a network is not contained, it is broken.
+ * WHAT CHANGED AND WHY. This used to spawn the bare name `ssh` and let the containment authority
+ * recognise it as a network client, which bought shared networking and an exemption from the
+ * AF_UNIX syscall filter. An independent audit put a private executable named `ssh` earlier in PATH
+ * and this path ran it, under exactly that exempt policy. A rule keyed to a command name is a rule
+ * the caller chooses.
  *
- * WHAT THIS DOES AND DOES NOT COVER — stated plainly, because the distinction matters. Containment
- * confines the local client. It does NOT govern the command on the far end; that remains governed
- * only by `validateLabCommand` above, which is why that allowlist is still the load-bearing control
- * for this tool.
+ * Now: the executable is an absolute root-owned constant, never resolved through PATH; the argv is
+ * built by the broker from a three-field closed request and contains no caller-supplied option; the
+ * environment is an allowlist rather than the inherited one; and the policy comes from
+ * `sshBrokerPolicy()`, which cannot be reached by naming anything.
  *
- * OBSERVABLE CHANGE: ssh can no longer write to `~/.ssh/known_hosts`. For a host already known this
- * is invisible. For a NEW host the connection fails — where before it would fail anyway, because
- * BatchMode refuses the trust prompt. There is no fallback to an uncontained ssh.
+ * THE EXEMPTION IS GONE, not narrowed. This operation now runs WITH the AF_UNIX filter, because
+ * `IdentityAgent=none` means the client needs no agent socket — verified by running the real client
+ * under the real filter. There is no longer any command shape that obtains an unfiltered sandbox.
+ *
+ * STILL TRUE, and still the load-bearing control on the far side: containment confines the local
+ * client. The remote command is governed by `validateLabCommand` above and by nothing else.
  */
-export function defaultLabRunner(host: string, remoteCommand: string): LabRunResult {
-  const scratch = processScratchDir();
-  const argv = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCommand];
+/**
+ * Run one validated read-only command in one lab directory on the declared host.
+ *
+ * Every failure returns; none of them falls back to a generic spawn, a shell, PATH resolution, or an
+ * unfiltered sandbox. There is no second attempt anywhere in this function.
+ */
+export function runLabRead(request: SshReadRequest): LabRunResult {
+  const shaped = checkSshRequest(request);
+  if (!shaped.ok) return { code: -1, stdout: '', stderr: '', error: `lab_shell refused the request: ${shaped.reason}` };
 
-  const decision = planFor(
-    { command: 'ssh', args: argv, writableRoot: scratch, tempRoot: scratch },
-    agentContainmentConfig(),
-  );
+  const executable = checkSshExecutable();
+  if (!executable.ok) return { code: -1, stdout: '', stderr: '', error: `lab_shell refused the executable: ${executable.reason}` };
+
+  const scratch = processScratchDir();
+  const decision = sshBrokerPolicy({ writableRoot: scratch, tempRoot: scratch });
   if (!decision.allowed) {
     return { code: -1, stdout: '', stderr: '', error: `containment refused [${decision.denial.code}]: ${decision.denial.reason}` };
   }
-  const contained = wrap(decision, 'ssh', argv);
 
-  const res = spawnSync(contained.binary, [...contained.args], {
-    encoding: 'utf8',
-    timeout: SSH_TIMEOUT_MS,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  const argv = buildSshArgv(request);
+  const contained = wrap(decision, executable.path, argv);
+  let res;
+  try {
+    res = spawnSync(contained.binary, [...contained.args], {
+      encoding: 'utf8',
+      timeout: SSH_TIMEOUT_MS,
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: [...contained.stdio] as never,
+      env: sshEnvironment(operatorHome()),
+    });
+  } finally {
+    contained.dispose();
+  }
   if (res.error !== undefined && res.error !== null) {
     const code = (res.error as NodeJS.ErrnoException).code;
-    return { code: -1, stdout: '', stderr: '', error: code === 'ENOENT' ? 'ssh not found on PATH' : res.error.message };
+    return { code: -1, stdout: '', stderr: '', error: code === 'ENOENT' ? 'the reviewed ssh executable could not be run' : res.error.message };
   }
   return { code: res.status ?? -1, stdout: capOutput(res.stdout ?? ''), stderr: capOutput(res.stderr ?? '') };
+}
+
+/**
+ * The home the reviewed client reads its keys and known_hosts from.
+ *
+ * Taken from the process rather than from a request: it is not a caller-selectable field, and the
+ * host is bound read-only inside containment so nothing there can be written by the run.
+ */
+function operatorHome(): string {
+  const home = process.env.HOME;
+  if (home === undefined || home.length === 0 || !home.startsWith('/')) {
+    throw new Error('lab_shell has no usable home for the reviewed ssh client');
+  }
+  return home;
 }
 
 export const labShellToolSpecs: ToolSpec[] = [
@@ -187,7 +227,7 @@ export interface LabShellOptions {
 }
 
 export function createLabShellToolHandlers(opts: LabShellOptions = {}): Map<string, ToolHandler> {
-  const run: LabRunner = opts.run ?? defaultLabRunner;
+  const run: LabRunner = opts.run ?? runLabRead;
   const getHost = opts.host ?? (() => labSshHost());
   const getRoot = opts.root ?? (() => labRoot());
   const handlers = new Map<string, ToolHandler>();
@@ -204,8 +244,7 @@ export function createLabShellToolHandlers(opts: LabShellOptions = {}): Map<stri
     const c = validateLabCwd(typeof args.cwd === 'string' ? args.cwd : undefined, root);
     if (!c.ok) return { ok: false, output: '', error: c.error };
 
-    const remote = `cd '${c.dir}' && ${command.trim()}`;
-    const r = run(host, remote);
+    const r = run({ host, directory: c.dir, command: command.trim() });
     if (r.error !== undefined) return { ok: false, output: '', error: `lab_shell failed: ${r.error}` };
     const body = [r.stdout.trim(), r.stderr.trim()].filter((s) => s.length > 0).join('\n');
     if (r.code !== 0) return { ok: false, output: body || '(no output)', error: `command exited ${r.code}` };

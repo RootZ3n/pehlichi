@@ -128,7 +128,21 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // authority: execute_code and lab_shell no longer spawn a bare child process, and the vendored
 // boundary at src/core/containment/ joined the closed inventory. The shape changed because the
 // governed surface genuinely grew, which is the anchor doing its job.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '52661e5cd673d3f23fde79e81d5383a0025759383d9cb096d2f35e3f91a8025e';
+// Moved again by the remediation of the independent audit's three blocking findings: a required
+// deployment identity bound to the capsule and to the repository's governed package identity, an
+// exact reviewed workspace vocabulary replacing the segment-count rule that accepted /etc/foo, and
+// a seccomp filter denying AF_UNIX because mount masking cannot hide a socket that can be created
+// anywhere.
+//
+//   old 0ab0f6e1d36ffc8c0c81fd2c46b16121eb0530729d4bcdb11e93564d6d587ae6
+//   new c355ca6c7c7106c598282bfc9c9a2e197e9891f54e57ca15f53ffa27a68e3ec9
+// Moved again by the re-audit remediation of F-2: the name-keyed SSH exception was removed, the
+// one networked operation became a broker with a closed request schema and an absolute root-owned
+// executable, and every policy -- including that one -- now carries the AF_UNIX syscall filter.
+//
+//   old c355ca6c7c7106c598282bfc9c9a2e197e9891f54e57ca15f53ffa27a68e3ec9
+//   new 9f6a98e7141896977b0bb23fa8490027099a2c1a5dedfbb6f205153a0cbba8f0
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9f6a98e7141896977b0bb23fa8490027099a2c1a5dedfbb6f205153a0cbba8f0';
 
 interface Inventory {
   schemaVersion: 3;
@@ -504,7 +518,7 @@ test('package runtime closure is fixed, classified, and byte-identical when exec
 
 test('capsule/deployment differences are closed declarative data and do not redefine the runtime boundary', () => {
   const expectedCapsule = ['baseToolNames', 'identity', 'personalityPath', 'providerDefaults', 'requestedCapabilityPacks', 'schemaVersion', 'skillTags', 'skinPath'];
-  const expectedDeployment = ['baseToolCeiling', 'capabilityPackCeiling', 'defaults', 'environment', 'memoryAmbient', 'namespaces', 'routingTargets', 'schemaVersion', 'secretEnvironmentReferences'];
+  const expectedDeployment = ['baseToolCeiling', 'capabilityPackCeiling', 'containment', 'defaults', 'environment', 'identity', 'memoryAmbient', 'namespaces', 'routingTargets', 'schemaVersion', 'secretEnvironmentReferences'];
   const boundary = JSON.parse(readFileSync(join(currentRoot, 'trio/boundary-manifest.json'), 'utf8')) as any;
   const inventory = loadTrustedManifests(currentRoot).inventory;
   assert.deepEqual([...inventory.configurationData].sort(), [...boundary.configurationData].sort());

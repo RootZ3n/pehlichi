@@ -96,12 +96,14 @@
     "src/core/bridges/registry.ts",
     "src/core/checkpoint.ts",
     "src/core/containment-config.ts",
-    "src/core/containment/agents.ts",
     "src/core/containment/argv.ts",
     "src/core/containment/availability.ts",
+    "src/core/containment/grantable.ts",
     "src/core/containment/paths.ts",
     "src/core/containment/policy.ts",
     "src/core/containment/risk.ts",
+    "src/core/containment/seccomp.ts",
+    "src/core/containment/ssh-broker.ts",
     "src/core/containment/wrap.ts",
     "src/core/context-compressor.ts",
     "src/core/driver.ts",
@@ -276,13 +278,6 @@
       "effect": "validated-runtime-state"
     },
     {
-      "site": "src/core/containment-config.ts",
-      "targets": [
-        "capsule/agent.json"
-      ],
-      "effect": "validated-authority-data"
-    },
-    {
       "site": "src/core/external-runtime-integrity.ts",
       "targets": [
         "runtime/manifest.json",
@@ -374,16 +369,6 @@
         "pehlichi"
       ],
       "classification": "shared-protocol-service-catalog"
-    },
-    {
-      "site": "src/core/containment/agents.ts",
-      "tokens": [
-        "loony-luna",
-        "luna",
-        "mad-ptah",
-        "pehlichi",
-        "ptah"
-      ]
     },
     {
       "site": "src/core/runtime-config.ts",
@@ -527,6 +512,8 @@
       "src/core/bridges/http-bridge.ts",
       "src/core/bridges/registry.ts",
       "src/core/checkpoint.ts",
+      "src/core/containment/grantable.ts",
+      "src/core/containment/paths.ts",
       "src/core/context-compressor.ts",
       "src/core/driver.ts",
       "src/core/drivers/llamacpp.ts",

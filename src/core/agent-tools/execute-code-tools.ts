@@ -17,6 +17,10 @@
  *      regression, but it is a contract change and callers can see it.
  *   2. Executed code can no longer write outside the run's scratch directory. It never should have
  *      been able to; it could.
+ *   3. Executed code can no longer create a unix socket. An independent audit demonstrated
+ *      contained code connecting to a host listener created outside every declared workspace: the
+ *      network namespace does not cover unix sockets and mount masking cannot, since such a socket
+ *      can be anywhere. A seccomp filter refuses the address family at the syscall boundary.
  *
  * There is NO fallback. If the boundary is unavailable the tool refuses and says why. It does not
  * quietly run the code the old way, because "the sandbox was missing" is precisely the moment
@@ -88,20 +92,29 @@ export function createExecuteCodeToolHandlers(): Map<string, ToolHandler> {
         };
       }
 
+      // `contained.stdio` carries the AF_UNIX syscall filter on the descriptor bwrap was told to
+      // read it from. Spawning with anything else makes bwrap refuse to start, so a mistake here is
+      // a loud failure rather than a quiet run without the filter.
       const contained = wrap(decision, command, [tmpFile]);
-      const result = spawnSync(contained.binary, [...contained.args], {
-        encoding: 'utf8',
-        timeout,
-        maxBuffer: 8 * 1024 * 1024,
-        env: {
-          PATH: '/usr/local/bin:/usr/bin:/bin',
-          HOME: scratch,
-          TMPDIR: scratch,
-          TMP: scratch,
-          TEMP: scratch,
-          LANG: 'C.UTF-8',
-        },
-      });
+      let result;
+      try {
+        result = spawnSync(contained.binary, [...contained.args], {
+          encoding: 'utf8',
+          timeout,
+          maxBuffer: 8 * 1024 * 1024,
+          stdio: [...contained.stdio] as never,
+          env: {
+            PATH: '/usr/local/bin:/usr/bin:/bin',
+            HOME: scratch,
+            TMPDIR: scratch,
+            TMP: scratch,
+            TEMP: scratch,
+            LANG: 'C.UTF-8',
+          },
+        });
+      } finally {
+        contained.dispose();
+      }
 
       const stdout = capOutput(result.stdout ?? '');
       const stderr = capOutput(result.stderr ?? '');
