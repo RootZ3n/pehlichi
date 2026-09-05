@@ -14,6 +14,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
+
+import { STATE, classifyComponent, ownershipFacts } from './run-ownership.mjs';
 import path from 'node:path';
 
 // ─── Contract names ──────────────────────────────────────────────────────────
@@ -260,13 +262,28 @@ export function createRunDirectory(component, env = process.env) {
     throw new GovernedTempError('path_escapes_root', `${dir} resolves outside ${root}`);
   refuseForbiddenRoots('path_escapes_root', real);
 
-  // Sidecar with bootId for identity binding
+  /*
+    THE OWNERSHIP SIDECAR, written atomically.
+
+    It carries what it takes to prove the owner is alive later: the boot, the pid, the pid's START
+    TIME, and the lab unit the creating process belongs to. A pid on its own proves nothing -- pids
+    are reused -- so a reader that has only a pid must answer UNKNOWN, and UNKNOWN is never residue.
+
+    Written to a temporary name and renamed, so a reader never sees a half-written record and then
+    concludes something about it. `wx` on the temporary name keeps two runs from colliding, and the
+    target is refused if it somehow already exists rather than being silently replaced.
+  */
   const recordPath = path.join(componentDir, RECORDS_DIRNAME, `${runId}.json`);
-  fs.writeFileSync(recordPath, JSON.stringify({
+  if (fs.existsSync(recordPath)) throw new GovernedTempError('run_unsafe', `${recordPath} already exists`);
+  const pendingPath = `${recordPath}.pending-${process.pid}`;
+  const record = {
     marker: CHILD_MARKER, version: MARKER_VERSION, component, runId,
-    childPath: dir, root, hostname: os.hostname(), pid: process.pid,
-    bootId: readBootId(), createdAt: Date.now()
-  }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    childPath: dir, root, hostname: os.hostname(),
+    ...ownershipFacts(process.pid),
+    createdAt: Date.now()
+  };
+  fs.writeFileSync(pendingPath, JSON.stringify(record, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  fs.renameSync(pendingPath, recordPath);
 
   return { path: dir, runId, root, recordPath };
 }
@@ -484,30 +501,29 @@ function pidIsLive(pid) {
  * @returns {string[]} the run ids collected
  */
 export function reapDisprovenRuns(env = process.env) {
+  /*
+    ONLY A PROVABLY DEAD OWNER IS RESIDUE.
+
+    The previous rule removed anything whose boot did not match OR whose pid was not live -- which
+    also removed everything when the boot id could not be read at all, and trusted a bare pid to
+    say a run was alive. Both are now the shared classifier's problem, and it answers UNKNOWN
+    wherever the facts do not settle the question. UNKNOWN is retained, untouched, forever if need
+    be: an un-reaped directory costs disk, and a wrongly reaped one costs a running service.
+  */
   const root = resolveGovernedTempRoot(env);
-  const bootId = readBootId();
   const reaped = [];
   for (const component of ALLOWED_COMPONENTS) {
     const componentDir = path.join(root, component);
-    const recordsDir = path.join(componentDir, RECORDS_DIRNAME);
-    let names;
-    try { names = fs.readdirSync(recordsDir); } catch { continue; }
-    for (const name of names) {
-      if (!name.endsWith('.json')) continue;
-      const recordPath = path.join(recordsDir, name);
-      let record;
-      try { record = JSON.parse(fs.readFileSync(recordPath, 'utf8')); } catch { continue; }
-      if (record === null || typeof record !== 'object') continue;
-      if (record.marker !== CHILD_MARKER || record.version !== MARKER_VERSION) continue;
-      const sameBoot = bootId !== undefined && record.bootId === bootId;
-      if (sameBoot && pidIsLive(record.pid)) continue;
-      if (typeof record.childPath !== 'string') continue;
-      const real = canonicalizePath(record.childPath);
+    const verdicts = classifyComponent(root, component, RECORDS_DIRNAME);
+    for (const verdict of verdicts) {
+      if (verdict.state !== STATE.DEAD) continue;
+      const real = canonicalizePath(verdict.path);
       if (!isUnder(real, componentDir) || real === componentDir) continue;
       try { fs.rmSync(real, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }); } catch { /* best effort */ }
-      try { fs.rmSync(recordPath, { force: true }); } catch { /* best effort */ }
-      reaped.push(typeof record.runId === 'string' ? record.runId : name);
+      try { fs.rmSync(path.join(componentDir, RECORDS_DIRNAME, `${verdict.runId}.json`), { force: true }); } catch { /* best effort */ }
+      reaped.push(verdict.runId);
     }
   }
   return reaped;
 }
+

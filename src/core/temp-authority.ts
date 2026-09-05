@@ -52,6 +52,9 @@ import {
   resolveGovernedTempRoot as resolveCanonical,
   GovernedTempError,
 } from "../../scripts/trio/governed-temp-authority.mjs";
+import { classifyComponent, ownershipFacts } from "../../scripts/trio/run-ownership.mjs";
+// `readBootId` / `readStartTicks` used to be duplicated here. They are the shared authority's
+// now, because two implementations of "is this owner alive" is how the T16 defect survived.
 
 // ─── Contract names ──────────────────────────────────────────────────────────
 
@@ -220,26 +223,7 @@ export function mintRunId(component: TempComponent): string {
   return `${component}-${process.pid}-${randomUUID().slice(0, 8)}`;
 }
 
-function readBootId(): string | undefined {
-  try {
-    const raw = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
-    return raw.length > 0 ? raw : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
-function readStartTicks(pid: number): number | undefined {
-  try {
-    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const close = raw.lastIndexOf(")");
-    if (close < 0) return undefined;
-    const ticks = Number(raw.slice(close + 1).trim().split(/\s+/)[19]);
-    return Number.isFinite(ticks) ? ticks : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function recordPathFor(root: string, component: string, runId: string): string {
   return join(root, component, RECORDS_DIRNAME, `${runId}.json`);
@@ -286,8 +270,8 @@ export function createRunDirectory(
   if (!isUnder(real, root)) throw new TempAuthorityError("path_escapes_root", `${path} resolves to ${real}, outside ${root}`);
   refuseTmp("path_escapes_root", real);
 
-  const bootId = readBootId();
-  const ticks = readStartTicks(process.pid);
+  // The same evidence the .mjs authority records, from the same helper, so a run created on
+  // either path is classifiable by the one classifier. A pid alone is never enough.
   const record: OwnershipRecord = {
     marker: CHILD_MARKER,
     version: MARKER_VERSION,
@@ -296,9 +280,7 @@ export function createRunDirectory(
     childPath: path,
     root,
     hostname: hostname(),
-    ...(bootId !== undefined ? { bootId } : {}),
-    pid: process.pid,
-    ...(ticks !== undefined ? { processStartTicks: ticks } : {}),
+    ...ownershipFacts(process.pid),
     createdAt: Date.now(),
   };
   writeFileSync(recordPathFor(root, component, runId), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
@@ -382,42 +364,37 @@ export function reapDisprovenRuns(env: NodeJS.ProcessEnv = process.env): {
   readonly reaped: readonly string[];
   readonly retained: readonly string[];
 } {
+  /*
+    ONLY A PROVABLY DEAD OWNER IS RESIDUE, decided by the shared classifier.
+
+    The rule this replaces removed anything whose boot did not match or whose pid was not live --
+    which also removed everything when the boot id was unreadable, and trusted a bare pid to prove a
+    run alive. Both are now UNKNOWN, and UNKNOWN is retained. The classifier is the same module the
+    T16 regression consumes, so the reaper and the test cannot hold different ideas of ownership;
+    holding different ideas is how the previous defect went unnoticed.
+  */
   const root = resolveGovernedTempRoot(env);
-  const bootId = readBootId();
   const reaped: string[] = [];
   const retained: string[] = [];
   for (const component of TEMP_COMPONENTS) {
-    const recordsDir = join(root, component, RECORDS_DIRNAME);
-    let names: string[] = [];
-    try {
-      names = readdirSync(recordsDir).filter((n) => n.endsWith(".json")).sort();
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      const runId = name.slice(0, -".json".length);
-      const record = readOwnershipRecord(root, component, runId);
-      const childPath = record !== undefined ? resolve(record.childPath) : join(recordsDir, name);
-      let disproven = false;
-      if (record !== undefined && record.hostname === hostname() && isUnder(childPath, root) && resolve(record.root) === root) {
-        if (bootId !== undefined && record.bootId !== undefined && record.bootId !== bootId) disproven = true;
-        else if (bootId !== undefined && record.bootId !== undefined && !existsSync(`/proc/${record.pid}`)) disproven = true;
-        else if (bootId !== undefined && record.bootId !== undefined && record.processStartTicks !== undefined) {
-          const ticks = readStartTicks(record.pid);
-          if (ticks !== undefined && ticks !== record.processStartTicks) disproven = true;
-        }
+    for (const verdict of classifyComponent(root, component, RECORDS_DIRNAME)) {
+      if (verdict.state !== "DEAD") {
+        retained.push(verdict.path);
+        continue;
       }
-      if (disproven && record !== undefined) {
-        forceRemoveTree(childPath);
-        rmSync(recordPathFor(root, component, runId), { force: true });
-        reaped.push(childPath);
-      } else {
-        retained.push(childPath);
+      const childPath = resolve(verdict.path);
+      if (!isUnder(childPath, root)) {
+        retained.push(verdict.path);
+        continue;
       }
+      forceRemoveTree(childPath);
+      rmSync(recordPathFor(root, component, verdict.runId), { force: true });
+      reaped.push(childPath);
     }
   }
   return { reaped, retained };
 }
+
 
 // ─── The per-process governed scratch directory ──────────────────────────────
 

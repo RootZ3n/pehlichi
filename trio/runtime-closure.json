@@ -46,6 +46,7 @@
     "runtime/server/truth-gate.ts",
     "scripts/trio/external-identity.mjs",
     "scripts/trio/governed-temp-authority.mjs",
+    "scripts/trio/run-ownership.mjs",
     "src/core/agent-tools/brain-tools.ts",
     "src/core/agent-tools/browser-manager.ts",
     "src/core/agent-tools/browser-tools.ts",
@@ -242,6 +243,13 @@
       "targets": [
         "governed-temp-root/.pehverse-temp-root.json",
         "governed-temp-root/component/.runs/*.json"
+      ],
+      "effect": "validated-runtime-state"
+    },
+    {
+      "site": "scripts/trio/run-ownership.mjs",
+      "targets": [
+        ".runs/<runId>.json"
       ],
       "effect": "validated-runtime-state"
     },
@@ -499,6 +507,7 @@
     ],
     "governedCommon": [
       "scripts/trio/governed-temp-authority.mjs",
+      "scripts/trio/run-ownership.mjs",
       "src/core/agent-tools/circuit-breaker.ts",
       "src/core/agent-tools/error-classifier.ts",
       "src/core/agent-tools/infrastructure.ts",

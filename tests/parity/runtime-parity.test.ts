@@ -158,7 +158,16 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // Final position for this remediation, once the external-identity policy load was declared.
 //   old b7f1f57cd3acab5bc9882bc14e69e8375d63d07799f39b498768d02b3dcab387
 //   new 68f02ba777e8edc4c4597ea0e694e3eb087bf16e1115695bfb3ff079f49e2fd8
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '68f02ba777e8edc4c4597ea0e694e3eb087bf16e1115695bfb3ff079f49e2fd8';
+// Moved by the T16/reaper ownership repair: run ownership is now decided by a shared
+// LIVE/DEAD/UNKNOWN classifier over an atomic sidecar, so a live sibling service is no longer
+// residue by construction and only a provably dead owner may be collected.
+//
+//   old 68f02ba777e8edc4c4597ea0e694e3eb087bf16e1115695bfb3ff079f49e2fd8
+//   new 539c49596d5bbd7d04ba0654afe2420144ca4106227c7ca24a25771c8533b19d
+// Final position, once the ownership sidecar read was declared as validated runtime state.
+//   old 539c49596d5bbd7d04ba0654afe2420144ca4106227c7ca24a25771c8533b19d
+//   new c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8';
 
 interface Inventory {
   schemaVersion: 3;

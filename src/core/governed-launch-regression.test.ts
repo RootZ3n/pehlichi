@@ -22,6 +22,8 @@ import {
   TEMP_ROOT_ENV,
   processScratchDir,
 } from "./temp-authority.js";
+import { classifyComponent, classifyOwnership, readSidecar } from "../../scripts/trio/run-ownership.mjs";
+import { hostname as osHostname } from "node:os";
 
 // ─── F1: governed-launch wrapper prevents /tmp/tsx-* creation ─────────────────
 
@@ -777,15 +779,40 @@ test("T16 no lab-owned /tmp entry and no governed residue survive this suite", (
     "this suite changed the set of lab-owned entries on shared temporary storage");
   const root = GOVERNED_ROOT;
   for (const component of ["trio-agent", "trio-test"]) {
-    let entries: string[] = [];
-    try { entries = readdirSync(join(root, component)); } catch { continue; }
-    // Ancestors of this process are alive by construction and are not residue; everything
-    // else under a component directory is.
-    assert.deepEqual(entries.filter((n) => n !== ".runs" && !OWN_CHAIN.has(n)), [],
-      `${component} holds governed residue`);
-    const sidecars = readdirSync(join(root, component, ".runs"))
-      .filter((n) => !OWN_CHAIN.has(n.replace(/\.json$/, "")));
-    assert.deepEqual(sidecars, [], `${component} holds orphaned ownership records`);
+    /*
+      RESIDUE IS A PROVABLY DEAD OWNER, not "a directory I did not make".
+
+      The old rule excluded only OWN_CHAIN -- this process's ancestors -- so three legitimately
+      RUNNING lab services were reported as residue, every time, by construction: a sibling service
+      is never anyone's ancestor. The rule proved nothing about the directories, only about who was
+      looking. An independent re-audit confirmed it as a test defect.
+
+      The shared classifier answers LIVE, DEAD or UNKNOWN from the ownership sidecar, and only DEAD
+      is residue. UNKNOWN -- a partial or legacy record, an unreadable /proc, a pid that cannot be
+      tied to this run -- is retained untouched, because the cost of being wrong in that direction
+      is a stale directory, and in the other it is a running service.
+    */
+    const verdicts = classifyComponent(root, component);
+    const dead = verdicts.filter((v) => v.state === "DEAD").map((v) => `${v.runId} (${v.reason})`);
+    assert.deepEqual(dead, [], `${component} holds governed residue`);
+    /*
+      A sidecar is orphaned only if its run is. Same defect, same fix: the old rule excluded only
+      OWN_CHAIN, so a live sibling service's record was "orphaned" every time. A record whose run
+      directory is gone entirely is also not evidence of a leak on its own -- it is bookkeeping
+      whose owner may still be running -- so it is judged by the same classifier and only DEAD
+      counts.
+    */
+    const orphaned = readdirSync(join(root, component, ".runs"))
+      .filter((n) => n.endsWith(".json"))
+      .map((n) => n.replace(/\.json$/, ""))
+      .filter((runId) => {
+        const verdict = verdicts.find((v) => v.runId === runId);
+        if (verdict !== undefined) return verdict.state === "DEAD";
+        // No run directory at all: classify the record on its own evidence.
+        const record = readSidecar(join(root, component, ".runs", `${runId}.json`));
+        return classifyOwnership(record, join(root, component, runId)).state === "DEAD";
+      });
+    assert.deepEqual(orphaned, [], `${component} holds orphaned ownership records`);
   }
 });
 
@@ -951,9 +978,13 @@ test("T20 the reaper collects a disproven run and never a live one", async () =>
   const orphanDir = join(root, "trio-test", orphanId);
   const orphanRecord = join(root, "trio-test", ".runs", `${orphanId}.json`);
   mkdirSync(orphanDir, { mode: 0o700 });
+  // A COMPLETE record whose owner is provably dead: it names this host and this directory, and its
+  // boot is not the current one. Completeness matters now — an incomplete record is UNKNOWN, and
+  // UNKNOWN is never collected, which is the property that stopped live services being reaped.
   writeFileSync(orphanRecord, JSON.stringify({
     marker: "pehverse-governed-temp-child", version: 1, component: "trio-test", runId: orphanId,
-    childPath: orphanDir, root, pid: 1, bootId: "a-previous-boot", createdAt: 0,
+    childPath: orphanDir, root, hostname: osHostname(), pid: 1, processStartTicks: 1,
+    unit: "lab-ptah.service", bootId: "a-previous-boot", createdAt: 0,
   }), { mode: 0o600 });
   // A live run must survive the same pass.
   const live = await mintRun("trio-test");
