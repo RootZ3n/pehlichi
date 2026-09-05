@@ -142,7 +142,23 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //
 //   old c355ca6c7c7106c598282bfc9c9a2e197e9891f54e57ca15f53ffa27a68e3ec9
 //   new 9f6a98e7141896977b0bb23fa8490027099a2c1a5dedfbb6f205153a0cbba8f0
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9f6a98e7141896977b0bb23fa8490027099a2c1a5dedfbb6f205153a0cbba8f0';
+// Moved again by the F-1 remediation: the identity chain stopped being self-attesting. An external
+// record delivered by systemd from a root-owned file now names the exact package/capsule/deployment
+// digests this tree must have, and it is checked before any tool or containment policy exists.
+//
+//   old 9f6a98e7141896977b0bb23fa8490027099a2c1a5dedfbb6f205153a0cbba8f0
+//   new 01d11cd2ce7d8ea58c2f9cf9655fc9b20f3c57f1e085fa41f721237fb3c6d810
+// Moved once more within the same remediation: the first restart of the first agent refused the
+// real credential, because the check demanded mode 0400 while systemd materialises 0440 root:root
+// plus an ACL. Corrected to what must actually be true -- nothing world-accessible, nothing
+// group-writable. The sequential rollout is what surfaced it, on one agent, before the other two.
+//
+//   old 01d11cd2ce7d8ea58c2f9cf9655fc9b20f3c57f1e085fa41f721237fb3c6d810
+//   new b7f1f57cd3acab5bc9882bc14e69e8375d63d07799f39b498768d02b3dcab387
+// Final position for this remediation, once the external-identity policy load was declared.
+//   old b7f1f57cd3acab5bc9882bc14e69e8375d63d07799f39b498768d02b3dcab387
+//   new 68f02ba777e8edc4c4597ea0e694e3eb087bf16e1115695bfb3ff079f49e2fd8
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '68f02ba777e8edc4c4597ea0e694e3eb087bf16e1115695bfb3ff079f49e2fd8';
 
 interface Inventory {
   schemaVersion: 3;

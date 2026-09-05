@@ -105,11 +105,11 @@ test('3b. confinement is decided BEFORE availability, so no host repair can auth
   assert.equal(decision.allowed === false && decision.denial.code, 'WORKSPACE_NOT_DECLARED');
 });
 
-test('3c. the configuration this deployment actually loads is auto-mode with no override', () => {
-  const live = agentContainmentConfig();
-  assert.equal(live.mode, 'auto');
-  assert.equal(live.trustedLocalOverride, false);
-  for (const workspace of declared) assert.ok(live.writableWorkspaces.includes(workspace), workspace);
+test('3c. no containment policy exists without the external identity binding', () => {
+  // These suites run under an operator entry, which carries no systemd credential. That is exactly
+  // the "direct invocation outside the governed launcher" case, and it must produce no policy at
+  // all rather than a policy built from files the repository attests to about itself.
+  assert.throws(() => agentContainmentConfig(), /external identity refused/);
 });
 
 // ------------------------------------------------------------------ 4. a refusal carries no policy

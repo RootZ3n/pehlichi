@@ -338,6 +338,7 @@
       "src/core/effect-sinks.ts",
       "src/core/events.ts",
       "src/core/evidence-gate.test.ts",
+      "src/core/external-identity-hostile.test.ts",
       "src/core/external-runtime-integrity.ts",
       "src/core/gbrain-bridge.test.ts",
       "src/core/gbrain-bridge.ts",

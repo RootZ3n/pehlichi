@@ -10,6 +10,12 @@
  * capsule loader every other per-deployment difference already flows through. There is no second
  * authority path, no environment variable that can widen it, and no default: a deployment that does
  * not declare an allocation does not get one.
+ *
+ * AND THE CAPSULES ARE NOT SELF-ATTESTING ANY MORE. Before any policy is returned, the external
+ * record delivered by systemd is read and this repository is held against it: identity and the exact
+ * digests of package, capsule and deployment. A coherent foreign triple agrees with itself and
+ * disagrees with the record, which is what closes the substitution an independent re-audit
+ * demonstrated. No policy exists on the other side of a failed binding.
  */
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -19,6 +25,7 @@ import { containmentConfig } from './containment/policy.js';
 import type { ContainmentConfig } from './containment/policy.js';
 import { readAgentCapsules } from './runtime-config.js';
 import { resolveGovernedTempRoot } from './temp-authority.js';
+import { assertExternalBinding } from '../../scripts/trio/external-identity.mjs';
 
 /** Raised when this deployment cannot be located or does not declare an allocation. */
 export class ContainmentConfigurationUnavailable extends Error {
@@ -62,6 +69,9 @@ let cached: ContainmentConfig | undefined;
 export function agentContainmentConfig(env: NodeJS.ProcessEnv = process.env): ContainmentConfig {
   if (cached !== undefined) return cached;
   const root = repositoryRootFrom(dirname(fileURLToPath(import.meta.url)));
+  // The external gate, first and unconditionally. It throws; nothing here catches it, because a
+  // deployment that cannot prove which deployment it is must not receive a containment policy.
+  assertExternalBinding(root, env);
   const { deployment } = readAgentCapsules(root);
   const built = containmentConfig({
     writableWorkspaces: deployment.containment.writableWorkspaces,

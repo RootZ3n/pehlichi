@@ -37,6 +37,9 @@
  *
  * Part of the byte-identical Trio shared core.
  */
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
   ALLOWED_COMPONENTS,
   ENTRY_CLASSES,
@@ -44,6 +47,7 @@ import {
   assertGovernedChildEnvironment,
 } from './governed-temp-authority.mjs';
 import { runGoverned } from './governed-run.mjs';
+import { assertExternalBinding } from './external-identity.mjs';
 
 const ENTRY_PREFIX = '--entry=';
 
@@ -78,6 +82,29 @@ if (declaredEntry === undefined) {
   assertGovernedChildEnvironment(process.env);
 } else {
   assertCanonicalEntryEnvironment(process.env);
+}
+
+/*
+  THE EXTERNAL IDENTITY GATE, before anything is launched.
+
+  A service declares itself the top of a governed run, so it is the point where "which deployment is
+  this?" has to be answered by something outside the deployment. The record comes from systemd's
+  credential channel, sourced from a root-owned file no repository can edit, and it names the exact
+  digests this tree must have.
+
+  Only the service entry is gated. An operator entry is a human running a test in a checkout they
+  are already standing in; requiring a root-provisioned credential there would not add a trust root,
+  it would only stop the suites from running.
+*/
+if (declaredEntry === 'service') {
+  const repositoryRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+  try {
+    const bound = assertExternalBinding(repositoryRoot, process.env);
+    process.stderr.write(`governed-launch: external identity ${bound.agent} (schema ${bound.schemaVersion}) bound, digests matched\n`);
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+  }
 }
 
 await runGoverned({ component, command, args: commandArgs });

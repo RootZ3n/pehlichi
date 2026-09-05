@@ -44,6 +44,7 @@
     "runtime/server/skin.ts",
     "runtime/server/truth-agent-adapter.ts",
     "runtime/server/truth-gate.ts",
+    "scripts/trio/external-identity.mjs",
     "scripts/trio/governed-temp-authority.mjs",
     "src/core/agent-tools/brain-tools.ts",
     "src/core/agent-tools/browser-manager.ts",
@@ -226,6 +227,15 @@
         "truth-firewall/package.json"
       ],
       "effect": "integrity-policy"
+    },
+    {
+      "site": "scripts/trio/external-identity.mjs",
+      "targets": [
+        "package.json",
+        "capsule/agent.json",
+        "deployment/agent.env.json"
+      ],
+      "effect": "validated-authority-data"
     },
     {
       "site": "scripts/trio/governed-temp-authority.mjs",
