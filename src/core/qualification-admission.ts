@@ -92,6 +92,7 @@ export type QualificationRefusalReason =
   | 'SUBJECT_TREE_DIRTY'
   | 'SUBJECT_UNREADABLE'
   | 'TASK_MISMATCH'
+  | 'WORK_ORDER_MISMATCH'
   | 'FIXTURE_MISMATCH'
   | 'FIXTURE_FORBIDDEN'
   | 'FIXTURE_UNRESOLVABLE'
@@ -106,6 +107,14 @@ export interface QualificationRequest {
   readonly agentName: string;
   readonly agentRole: string;
   readonly taskId: string;
+  /**
+   * The work order this run believes it is executing.
+   *
+   * A narrowing check only. A caller that lies about it gains nothing -- the admission still
+   * binds the agent, the commit, the tree, the task and the fixture -- but a launcher that
+   * states the truth cannot spend an admission issued for different work.
+   */
+  readonly workOrderId?: string | undefined;
   readonly workspaceRoot: string;
   readonly toolNames: readonly string[];
   /** The presented admission, exactly as the issuer produced it. Absent means refused. */
@@ -353,6 +362,8 @@ export function qualifyRun(decision: AdmissionDecision, request: QualificationRe
   if (subject.dirty !== '') return refuse(category, state, 'SUBJECT_TREE_DIRTY', receiptRoot, identified);
 
   if (claims.taskId !== request.taskId) return refuse(category, state, 'TASK_MISMATCH', receiptRoot, identified);
+  if (request.workOrderId !== undefined && claims.workOrderId !== request.workOrderId)
+    return refuse(category, state, 'WORK_ORDER_MISMATCH', receiptRoot, identified);
 
   let fixtureRoot: string;
   let workspaceRoot: string;

@@ -234,6 +234,13 @@ export interface RunAgentOptions {
    * has already refused, and it can never admit production work.
    */
   readonly qualification?: string;
+  /**
+   * The work order this run believes it is executing, checked against the admission.
+   *
+   * Narrowing only: stating it cannot admit anything, and stating it wrongly refuses. Unset
+   * means the admission's own work order is recorded but not cross-checked.
+   */
+  readonly qualificationWorkOrder?: string;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -364,6 +371,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
     taskId: opts.taskId ?? '',
+    workOrderId: opts.qualificationWorkOrder,
     workspaceRoot: opts.workspaceRoot,
     toolNames: opts.toolNames ?? [],
     admission: opts.qualification,

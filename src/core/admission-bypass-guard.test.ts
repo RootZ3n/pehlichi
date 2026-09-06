@@ -128,8 +128,15 @@ test('the run options carry no admission input a caller could satisfy by asserti
     // Names that would carry an ADMISSION. `unattendedGrantedTools` grants tools inside a run
     // that was already admitted, which is a lane, not an authority, and is covered elsewhere.
     .filter((name) => /qualif|admiss|credential|authoriz/i.test(name) || /^(grant|token)/i.test(name));
-  assert.deepEqual(admissionFields, ['qualification'],
-    `RunAgentOptions carries admission-shaped inputs beyond the verified one: ${admissionFields.join(', ')}`);
+  // Two, and the second can only ever narrow: `qualificationWorkOrder` is compared for equality
+  // against the signed work order and can therefore cause a refusal and nothing else.
+  assert.deepEqual(admissionFields, ['qualification', 'qualificationWorkOrder'],
+    `RunAgentOptions carries admission-shaped inputs beyond the verified ones: ${admissionFields.join(', ')}`);
+  const verifierText = readFileSync(QUALIFICATION, 'utf8');
+  assert.match(verifierText, /request\.workOrderId !== undefined && claims\.workOrderId !== request\.workOrderId/,
+    'the stated work order is no longer checked against the signed one');
+  assert.equal(/workOrderId[^\n]*admitted:\s*true/.test(verifierText), false,
+    'the stated work order can reach an admission');
 
   // The loop must not decide anything about it itself; it hands it to the verifier whole.
   const runAgentBody = code(functionBody(readFileSync(LOOP, 'utf8'), 'export async function runAgent('));
