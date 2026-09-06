@@ -12,9 +12,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { governedMkdtemp } from './temp-authority.js';
 
 import {
   DEFAULT_TRANSPORT_POLICY, RunDeadline, backoffMs, classifyFailure, shouldRetry,
@@ -252,7 +253,9 @@ test('an error detail never carries anything key-shaped out of the transport', (
 // ── the provider profile ─────────────────────────────────────────────────────────────────────
 
 function withProfile<T>(record: unknown, run: () => T): T {
-  const dir = mkdtempSync(join(tmpdir(), 'profile-'));
+  // Through the governed temporary authority, never os.tmpdir(): a test that reaches for the
+  // system temp directory is a test that would pass on a deployment where the policy is broken.
+  const dir = governedMkdtemp('profile-');
   writeFileSync(join(dir, 'provider-profile'), typeof record === 'string' ? record : JSON.stringify(record));
   const previous = process.env['CREDENTIALS_DIRECTORY'];
   process.env['CREDENTIALS_DIRECTORY'] = dir;
