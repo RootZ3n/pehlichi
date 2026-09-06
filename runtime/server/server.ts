@@ -66,6 +66,7 @@ import {
 import { createRestrictedEvidenceVault } from '../../src/core/agent-tools/restricted-evidence.js';
 import { TEMP_ROOT_ENV,assertGovernedTempSafety } from '../../src/core/temp-authority.js';
 import { loadReleaseProvenance } from './provenance.js';
+import { bearerMatches, resolveChatToken } from '../../src/core/chat-credential.js';
 
 function resolveApiKey(): string | undefined {
   if (process.env.AGENT_API_KEY) return process.env.AGENT_API_KEY;
@@ -575,7 +576,19 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   // H1: endpoint auth. A configured token gates /chat; an injected driver (tests /
   // embedding) keeps its explicit write posture, while the production listen path with
   // NO token is forced read-only so an unauthenticated caller cannot drive writes.
-  const chatToken = opts.chatToken ?? process.env.IKBI_CHAT_TOKEN;
+  /*
+    The chat token. In a release this is read once, at startup, from the verified systemd credential
+    directory and never returned to the environment — so it is not inherited by spawned tools and
+    not readable from /proc/<pid>/environ. Off the release path the environment is still accepted,
+    because the source rollback deployment has no credential to read.
+
+    There is deliberately NO fallback in release mode: a release that cannot read its credential
+    must fail to start, not quietly serve an unauthenticated /chat.
+  */
+  const chatCredential = opts.chatToken !== undefined
+    ? { token: opts.chatToken, source: 'injected' as const }
+    : resolveChatToken(config.repositoryRoot);
+  const chatToken = chatCredential.token;
   const hasChatToken = typeof chatToken === 'string' && chatToken.length > 0;
   const isInjected = opts.driver !== undefined;
   // Write posture: allowWrites controls tool access; chatToken controls endpoint auth.
@@ -810,7 +823,11 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   const chatAuthorized = (req: IncomingMessage): boolean => {
     if (!hasChatToken) return true;
     const header = req.headers['authorization'];
-    return typeof header === 'string' && header === `Bearer ${chatToken}`;
+    /*
+      Constant time. `===` on strings short-circuits at the first differing byte, which leaks the
+      length of the shared prefix to anyone who can time the response.
+    */
+    return chatToken !== undefined && bearerMatches(header, chatToken);
   };
 
   const server = createHttpServer(async (req, res) => {

@@ -25,7 +25,6 @@ import {
   BOUND_FILES,
   CREDENTIAL_NAME,
   CREDENTIAL_ROOT,
-  IDENTITY_SCHEMA_VERSION,
   type IdentityRecord,
   assertRepositoryBinding,
   fileDigest,
