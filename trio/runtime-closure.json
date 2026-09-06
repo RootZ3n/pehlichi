@@ -257,6 +257,16 @@
       "effect": "validated-runtime-state"
     },
     {
+      "site": "scripts/trio/identity-schema.mjs",
+      "targets": [
+        "package.json",
+        "capsule/agent.json",
+        "deployment/agent.env.json",
+        "RELEASE.json"
+      ],
+      "effect": "validated-authority-data"
+    },
+    {
       "site": "scripts/trio/run-ownership.mjs",
       "targets": [
         ".runs/<runId>.json"
@@ -333,6 +343,13 @@
         "personality"
       ],
       "effect": "presentation-only"
+    },
+    {
+      "site": "src/core/qualification-admission.ts",
+      "targets": [
+        "trio/governance/qualification-issuer.json"
+      ],
+      "effect": "validated-authority-data"
     },
     {
       "site": "src/core/runtime-config.ts",

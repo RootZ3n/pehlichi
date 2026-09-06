@@ -214,7 +214,17 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       the executed-closure digest an external lease pins grew from four files to eight so it
 //       covers the modules that actually decide a request -- a boundary change, re-anchored on
 //       purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dee2ec72f25c4ecd9fb93c268c5b14631f898a5f4737a6c25019eef704dc0781';
+//   old dee2ec72f25c4ecd9fb93c268c5b14631f898a5f4737a6c25019eef704dc0781
+//   new 983b822e15cf800c1f77b5e06d8ff77e4ddd05bd36aeed1ce5859492f6bf9416  (the qualification
+//       admission's read of its own committed trust anchor was never declared as a runtime policy
+//       load. The check has been red since that module landed, and re-anchoring here is the
+//       correction, not a new boundary: the load always happened, only the declaration was absent)
+//   old 983b822e15cf800c1f77b5e06d8ff77e4ddd05bd36aeed1ce5859492f6bf9416
+//   new dd159e5a0e1de11db0692cfe1b647c113b92dd8b677c1649880ac9cad9fa85fb  (and the same
+//       for the identity schema's read of the four files a deployment identity binds -- the
+//       assertion reports one undeclared site at a time, so the second only became visible once
+//       the first was declared)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dd159e5a0e1de11db0692cfe1b647c113b92dd8b677c1649880ac9cad9fa85fb';
 
 interface Inventory {
   schemaVersion: 3;
