@@ -54,6 +54,22 @@ const REQUIRED_KEYS: readonly string[] = Object.freeze([
   'notBefore', 'expiresAt', 'renewalSeconds',
 ]);
 
+/**
+ * Fields a lease MAY carry. Absent means the Phase-1 behaviour, unchanged.
+ *
+ * `localStatusPolicy` is what makes external activation possible without a repository edit, and it
+ * lives in the lease rather than in the code so that turning it on is a root-owned act and turning
+ * it off again is another one. `principalIssuer` names the key whose assertions this deployment
+ * will accept as request principals -- delivering the anchor here rather than committing it means
+ * revoking every principal at once is a lease change, not a release.
+ */
+const OPTIONAL_KEYS: readonly string[] = Object.freeze([
+  'localStatusPolicy', 'principalIssuer', 'principalIssuerGeneration', 'principalLedgerRoot',
+]);
+
+/** How the committed local status participates. Absent ⇒ REQUIRE_LOCAL_PRODUCTION. */
+export type LocalStatusPolicy = 'REQUIRE_LOCAL_PRODUCTION' | 'EXTERNAL_ACTIVATION';
+
 /** The governance document whose bytes the authorization pins. */
 const POLICY_PATH = 'trio/governance/boundary-manifest.json';
 
@@ -105,6 +121,13 @@ export interface OrdinaryRequest {
 /** The narrowing a verified authorization imposes. */
 export interface OrdinaryGrant {
   readonly generation: number;
+  /** How the committed local status participated in this decision. */
+  readonly localStatusPolicy: LocalStatusPolicy;
+  /** The principal issuer this deployment trusts, if its lease names one. */
+  readonly principalIssuer?: {
+    readonly id: string; readonly keyId: string; readonly publicKeyPem: string;
+    readonly generation: number; readonly ledgerRoot?: string | undefined;
+  };
   readonly lane: string;
   readonly workspacePolicyId: string;
   readonly expiresAt: string;
@@ -118,6 +141,10 @@ export type OrdinaryDecision =
 
 interface Authorization {
   readonly schema: string;
+  readonly localStatusPolicy?: LocalStatusPolicy;
+  readonly principalIssuer?: { readonly id: string; readonly keyId: string; readonly publicKeyPem: string };
+  readonly principalIssuerGeneration?: number;
+  readonly principalLedgerRoot?: string;
   readonly generation: number;
   readonly agent: string;
   readonly role: string;
@@ -217,9 +244,26 @@ function subjectIdentity(): { commit: string; tree: string; dirty: string } {
 
 function malformed(record: Record<string, unknown>): string | undefined {
   const keys = Object.keys(record).sort();
-  const wanted = [...REQUIRED_KEYS].sort();
-  if (keys.length !== wanted.length || keys.some((k, i) => k !== wanted[i]))
-    return 'the authorization has missing or unknown fields';
+  for (const key of REQUIRED_KEYS) if (!keys.includes(key)) return `the authorization is missing ${key}`;
+  for (const key of keys)
+    if (!REQUIRED_KEYS.includes(key) && !OPTIONAL_KEYS.includes(key))
+      return `the authorization carries an unknown field ${key}`;
+  const policy = (record as { localStatusPolicy?: unknown }).localStatusPolicy;
+  if (policy !== undefined && policy !== 'REQUIRE_LOCAL_PRODUCTION' && policy !== 'EXTERNAL_ACTIVATION')
+    return 'localStatusPolicy is not a recognised policy';
+  const anchor = (record as { principalIssuer?: unknown }).principalIssuer;
+  if (anchor !== undefined) {
+    if (anchor === null || typeof anchor !== 'object' || Array.isArray(anchor))
+      return 'principalIssuer is not an object';
+    const a = anchor as Record<string, unknown>;
+    if (typeof a['id'] !== 'string' || typeof a['keyId'] !== 'string' || typeof a['publicKeyPem'] !== 'string')
+      return 'principalIssuer is missing id, keyId or publicKeyPem';
+    if (String(a['publicKeyPem']).includes('PRIVATE KEY'))
+      return 'principalIssuer carries private key material';
+  }
+  const generation = (record as { principalIssuerGeneration?: unknown }).principalIssuerGeneration;
+  if (generation !== undefined && (!Number.isInteger(generation) || (generation as number) < 1))
+    return 'principalIssuerGeneration is not a positive integer';
   const a = record as unknown as Authorization;
   if (typeof a.generation !== 'number' || !Number.isInteger(a.generation) || a.generation < 1)
     return 'generation is not a positive integer';
@@ -254,21 +298,50 @@ function malformed(record: Record<string, unknown>): string | undefined {
  * already knows how to handle.
  */
 export function admitOrdinaryWork(decision: AdmissionDecision, request: OrdinaryRequest): OrdinaryDecision {
-  if (!decision.admitted) return decision;
-  const state = decision.state;
+  /*
+    EXTERNAL ACTIVATION.
+
+    Phase 1 required BOTH a local PRODUCTION manifest and this lease, which made external
+    activation impossible without editing the repository -- the exact self-authorization the
+    boundary exists to prevent. A lease may now carry `localStatusPolicy: EXTERNAL_ACTIVATION`,
+    which says: the authority outside this tree has looked at THIS commit, tree, policy digest and
+    closure and activated it, so the committed status is descriptive rather than decisive.
+
+    A copied repository gains nothing from this. Activation is not read from the repository at all,
+    and a tree that edits its own manifest changes its policy digest, which no lease names. The
+    local status can still narrow; it can no longer grant, and it can no longer veto an authority
+    that outranks it.
+
+    Absent the field, the Phase-1 conjunction is unchanged -- so nothing changes until a
+    root-owned record says so.
+  */
+  const state: OperationalState = decision.admitted ? decision.state
+    : (decision.refusal.state === 'UNKNOWN' ? 'PRE_PRODUCTION' : decision.refusal.state);
   const category: WorkCategory = request.lane === 'converse' ? 'ordinary-work' : 'agent-run';
   const base = { subject: request.agentName, lane: request.lane };
 
+  // The record is read FIRST, because whether a local refusal is final depends on what the
+  // external authority says about this deployment -- and that question cannot be answered from
+  // inside the repository being asked about.
   let record: Record<string, unknown>;
   try {
     record = readOrdinaryAuthorizationRecord(process.env) as Record<string, unknown>;
   } catch (error) {
+    // No readable external authority: a local refusal stands exactly as it did, unchanged, so the
+    // qualification path downstream still sees the refusal it knows how to handle.
+    if (!decision.admitted) return decision;
     const code = (error as { code?: string }).code ?? 'unknown';
     const reason: OrdinaryRefusalReason = code === 'missing_credential' || code === 'no_credential_channel'
       ? 'NO_AUTHORIZATION_PRESENTED'
       : code === 'malformed_record' ? 'MALFORMED_AUTHORIZATION' : 'CHANNEL_REFUSED';
     return refuse(category, state, reason, { ...base, channel: code });
   }
+
+  const declaredPolicy = (record as { localStatusPolicy?: unknown }).localStatusPolicy;
+  const externallyActivated = declaredPolicy === 'EXTERNAL_ACTIVATION';
+  // A local refusal is final unless a root-owned lease has explicitly activated THIS deployment.
+  // Absent the field the Phase-1 conjunction is unchanged, so nothing moves until root says so.
+  if (!decision.admitted && !externallyActivated) return decision;
 
   const fingerprint = createHash('sha256').update(JSON.stringify(record)).digest('hex').slice(0, 16);
   const identified = { ...base, fingerprint };
@@ -342,6 +415,15 @@ export function admitOrdinaryWork(decision: AdmissionDecision, request: Ordinary
     state,
     ordinaryGrant: {
       generation: auth.generation,
+      localStatusPolicy: auth.localStatusPolicy ?? 'REQUIRE_LOCAL_PRODUCTION',
+      ...(auth.principalIssuer !== undefined
+        ? { principalIssuer: {
+            id: auth.principalIssuer.id, keyId: auth.principalIssuer.keyId,
+            publicKeyPem: auth.principalIssuer.publicKeyPem,
+            generation: auth.principalIssuerGeneration ?? 1,
+            ledgerRoot: auth.principalLedgerRoot,
+          } }
+        : {}),
       lane: request.lane,
       workspacePolicyId: auth.workspacePolicyId,
       expiresAt: auth.expiresAt,

@@ -119,11 +119,17 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/external-runtime-integrity.ts': ['dynamic-code'],
   'src/core/gbrain-bridge.ts': ['child-process'],
   'src/core/lab-transcript.ts': ['filesystem-mutation'],
+  // The one authorization decision both lanes call. `filesystem-mutation` because every decision
+  // leaves a durable receipt, written before the caller can reach a model or a tool.
+  'src/core/lane-authorization.ts': ['filesystem-mutation'],
   'src/core/loop.ts': ['tool-invocation'],
   // Pre-model ordinary authorization. `child-process` because the subject's own commit and tree
   // are read from git rather than taken from a caller; `filesystem-mutation` because the refusal
   // and admission receipts are durable writes, and both happen before a model or a tool.
   'src/core/ordinary-admission.ts': ['child-process', 'filesystem-mutation'],
+  // Per-request principal verification. `filesystem-mutation` because a SINGLE_USE assertion is
+  // spent by an atomic exclusive create before it authorises anything.
+  'src/core/request-principal.ts': ['filesystem-mutation'],
   // Pre-model qualification checking. `child-process` because the subject's own commit and
   // tree are read from git rather than taken from the caller; `filesystem-mutation` because
   // consuming a nonce and writing a refusal receipt are both durable writes, and both must

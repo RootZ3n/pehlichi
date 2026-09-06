@@ -200,7 +200,15 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //   new c220ee643ac91a6f2edd7f421befb00af5efa8a66f151d680588037b8b9c283d  (external ordinary
 //       authorization: one new governed module, and the anchored scripts/trio identity reader
 //       grew a second credential on the same channel -- a boundary change, re-anchored on purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'c220ee643ac91a6f2edd7f421befb00af5efa8a66f151d680588037b8b9c283d';
+//   old c220ee643ac91a6f2edd7f421befb00af5efa8a66f151d680588037b8b9c283d
+//   new 24d49c6f81359919c0532d0e2ce3e1f9ee49f192bdaa83283a124f29b1c28c4c  (per-request
+//       principals: the shared lane-authorization decision and the principal verifier joined
+//       the governed common runtime -- a boundary change, re-anchored on purpose)
+//   old 24d49c6f81359919c0532d0e2ce3e1f9ee49f192bdaa83283a124f29b1c28c4c
+//   new cccd6d2126d4d4eef0b84a555a6ebad2369e2d163d5f0505899beb1a76cc7d72  (the restart-readiness
+//       preflight joined the anchored scripts/trio directory -- a boundary change, re-anchored
+//       on purpose; it reports drift and grants nothing)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'cccd6d2126d4d4eef0b84a555a6ebad2369e2d163d5f0505899beb1a76cc7d72';
 
 interface Inventory {
   schemaVersion: 3;

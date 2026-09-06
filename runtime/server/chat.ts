@@ -5,7 +5,7 @@ import { loadSkin, type Skin } from './skin.js';
 import { TruthSessionGate } from './truth-gate.js';
 import { admitRunWork } from '../../src/core/operational-admission.js';
 import { agentProfile } from '../../src/profiles/agent.js';
-import { admitOrdinaryWork } from '../../src/core/ordinary-admission.js';
+import { authorizeLaneRequest } from '../../src/core/lane-authorization.js';
 import { OperationalWorkRefused } from '../../src/core/loop.js';
 
 export interface ChatMessage {
@@ -42,6 +42,14 @@ export class ChatSession {
    * has to predate the model's first opportunity to change anything.
    */
   private truth: TruthSessionGate;
+  /**
+   * The authenticated principal this session's client presented, if any.
+   *
+   * Held per session rather than per message only because the transport delivers it once; it is
+   * re-verified on every turn, so a revoked or expired principal stops working mid-session rather
+   * than surviving until the session ends.
+   */
+  private requestPrincipal: string | undefined;
 
   constructor(opts?: {
     apiKey?: string;
@@ -59,7 +67,10 @@ export class ChatSession {
     /** Agent identity. The one thing that legitimately differs between the three. */
     agent?: string;
     sessionId?: string;
+    /** The signed request principal presented by this session's client. */
+    requestPrincipal?: string;
   }) {
+    this.requestPrincipal = opts?.requestPrincipal;
     this.personality = opts?.personality ?? loadPersonality();
     this.skin = opts?.skin ?? loadSkin();
     this.systemPrompt = buildPersonalityPrompt(this.personality);
@@ -80,6 +91,11 @@ export class ChatSession {
       content: this.systemPrompt,
       timestamp: Date.now(),
     });
+  }
+
+  /** Refresh the principal for the next turn. Adapters call this per request. */
+  setRequestPrincipal(assertion: string | undefined): void {
+    this.requestPrincipal = assertion;
   }
 
   getPersonality(): Personality {
@@ -107,14 +123,20 @@ export class ChatSession {
     // The SAME external ordinary authorization the agent lane consults, differing only in the lane
     // it declares. Giving the two lanes different effective authority is how one of them quietly
     // becomes the soft way in; the record decides which lanes it covers.
-    const admission = admitOrdinaryWork(admitRunWork('ordinary-work'), {
+    // The SAME authorization function the agent lane calls. Lane-specific PARSING is fine -- this
+    // one arrives as an HTTP header rather than an in-process option -- but the enforcement
+    // decision is made in exactly one place, so the two lanes cannot drift apart.
+    const laneRequest = {
       // The agent's own validated profile, not the personality YAML: the authorization binds an
       // identity, and a display name from a data file is not one.
       agentName: agentProfile.name,
       agentRole: agentProfile.role,
-      lane: 'converse',
-    });
-    if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
+      lane: 'converse' as const,
+      requestedCapabilities: [] as readonly string[],
+      principalAssertion: this.requestPrincipal,
+    };
+    const lane = authorizeLaneRequest(admitRunWork('ordinary-work'), laneRequest);
+    if (!lane.authorized) throw new OperationalWorkRefused(lane.refusal);
 
     // The caller's callback receives transport liveness and never a model delta. Deltas
     // are still consumed below so the request shape and the accumulated content are

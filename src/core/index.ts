@@ -178,6 +178,31 @@ export {
  * here or anywhere in this repository, and no signing key: the authority is a root-owned record
  * delivered on the systemd credential channel.
  */
+/**
+ * The one authorization decision both lanes compute, and the per-request principal it consumes.
+ *
+ * Verification and narrowing only. No issuer key and no minting function exists in this
+ * repository; the trusted issuer is named by the externally delivered service lease.
+ */
+export {
+  authorizeLaneRequest,
+  laneReceipt,
+  writeLaneReceipt,
+  type LaneRequest,
+  type LaneDecision,
+  type LaneAuthorization,
+  type LaneRefusalCode,
+} from "./lane-authorization.js";
+
+export {
+  verifyRequestPrincipal,
+  type TrustedPrincipalIssuer,
+  type PrincipalRequest,
+  type PrincipalDecision,
+  type VerifiedPrincipal,
+  type PrincipalRefusalReason,
+} from "./request-principal.js";
+
 export {
   admitOrdinaryWork,
   closureDigest,
@@ -186,6 +211,7 @@ export {
   type OrdinaryGrant,
   type OrdinaryDecision,
   type OrdinaryRefusalReason,
+  type LocalStatusPolicy,
 } from "./ordinary-admission.js";
 
 export {

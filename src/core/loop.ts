@@ -10,8 +10,8 @@ import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
-import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
-import { admitOrdinaryWork } from "./ordinary-admission.js";
+import { admitRunWork, describeRefusal, type AdmissionDecision, type AdmissionRefusal } from "./operational-admission.js";
+import { authorizeLaneRequest, type LaneDecision } from "./lane-authorization.js";
 import { qualifyRun, type QualificationGrant } from "./qualification-admission.js";
 import { renderRunSummary, type RunSummary } from "./result-render.js";
 // The loop's decisions live here, apart from its effects. Production uses these; so do the
@@ -243,6 +243,15 @@ export interface RunAgentOptions {
    * means the admission's own work order is recorded but not cross-checked.
    */
   readonly qualificationWorkOrder?: string;
+  /**
+   * The AUTHENTICATED REQUEST PRINCIPAL, exactly as the client presented it.
+   *
+   * Signed outside this repository by the issuer the service lease names. It answers "who is
+   * asking", which the shared chat bearer never could: that token authenticates possession of one
+   * secret shared by every client, and authentication is not authorization. Absent, a privileged
+   * request is refused -- there is no anonymous fallback.
+   */
+  readonly requestPrincipal?: string;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -388,12 +397,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   // `admitOrdinaryWork` can only NARROW: a local refusal passes through it untouched, so the
   // qualification path below is unchanged, while a local PRODUCTION manifest is no longer
   // sufficient on its own. That inversion is what closes the copied-manifest admission.
-  const admission = qualifyRun(admitOrdinaryWork(admitRunWork('agent-run'), {
+  // local status -> external activation -> authenticated principal -> capability intersection,
+  // decided by the SAME function the conversational lane calls, then the single-use qualification
+  // path for a measured run. Two enforcement paths for one policy is how the softer one becomes
+  // the way in, so there is only one.
+  const lane = laneDecision(authorizeLaneRequest(admitRunWork('agent-run'), {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
     lane: 'agent-run',
-    toolNames: opts.toolNames ?? [],
-  }), {
+    requestedCapabilities: opts.toolNames ?? [],
+    principalAssertion: opts.requestPrincipal,
+  }), opts);
+  const admission = qualifyRun(lane, {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
     taskId: opts.taskId ?? '',
@@ -404,6 +419,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   });
   if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
   return executeAgentRun(confineToQualification(opts, admission.grant));
+}
+
+/**
+ * Bridge one lane decision into the admission shape the qualification path already understands.
+ * The receipt is written by the authorization function itself. A refusal is passed on unchanged,
+ * so a measured qualification run still sees exactly the refusal it knows how to handle.
+ */
+function laneDecision(decision: LaneDecision, _opts: RunAgentOptions): AdmissionDecision {
+  if (!decision.authorized) return { admitted: false, refusal: decision.refusal };
+  return { admitted: true, state: decision.authorization.state };
 }
 
 /**
