@@ -144,7 +144,12 @@ export function parseIdentityRecord(text, options = {}) {
   const releaseTree = options.releaseTree === true;
   try {
     if (releaseTree) return assertSchema3(parsed);
-    if (parsed?.schemaVersion === RELEASE_SCHEMA_VERSION) return assertSchema3(parsed);
+    /*
+      Off the release path, schema 1 and ONLY schema 1. A schema-3 record makes claims about a
+      release — its id, root, closure, manifest — that a source checkout has no way to honour, so
+      accepting one here would mean admitting a record whose most important assertions went
+      unchecked. Each tree accepts exactly the schema it can actually verify.
+    */
     return assertSchema1(parsed);
   } catch (error) {
     if (error instanceof IdentitySchemaRefused) {
