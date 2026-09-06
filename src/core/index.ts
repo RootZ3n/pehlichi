@@ -66,6 +66,18 @@ export {
 } from "./tools.js";
 
 export { resolveInWorkspace, ToolError } from "./workspace.js";
+
+/**
+ * The one projection from a run's structured close to the answer a caller delivers.
+ * Exported so a consumer renders through it rather than inventing a second, lossier join.
+ */
+export {
+  renderRunSummary,
+  summaryFields,
+  renderingPreservesFields,
+  type RunSummary,
+  type RenderedResult,
+} from "./result-render.js";
 export { ShadowWorkspace } from "./shadow.js";
 
 export { type AgentProfile } from "./profile.js";

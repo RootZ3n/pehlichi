@@ -192,7 +192,11 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //   new 048dc3ff95f5def32c63e2f1d2062eda5a6468087f77b10633d2ab8fb92d8eb0  (the qualification
 //       admission joined the governed common runtime, so the shape it anchors grew by one
 //       module and one committed trust anchor -- a boundary change, re-anchored on purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '048dc3ff95f5def32c63e2f1d2062eda5a6468087f77b10633d2ab8fb92d8eb0';
+//   old 048dc3ff95f5def32c63e2f1d2062eda5a6468087f77b10633d2ab8fb92d8eb0
+//   new a94a206dd2de8b9f70262cb7aa74ece2d49748a39c6318505d5fa55057803523  (the final-answer
+//       renderer joined the governed common runtime, so the shape grew by one module --
+//       a boundary change, re-anchored on purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'a94a206dd2de8b9f70262cb7aa74ece2d49748a39c6318505d5fa55057803523';
 
 interface Inventory {
   schemaVersion: 3;

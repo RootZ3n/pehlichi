@@ -368,6 +368,8 @@
       "src/core/receipt-store.ts",
       "src/core/report-store.test.ts",
       "src/core/report-store.ts",
+      "src/core/result-render.test.ts",
+      "src/core/result-render.ts",
       "src/core/run-ownership-hostile.test.ts",
       "src/core/runtime-capabilities.test.ts",
       "src/core/runtime-capabilities.ts",

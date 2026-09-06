@@ -36,6 +36,7 @@ import {
 } from '../../src/core/index.js';
 import { randomUUID } from 'node:crypto';
 import { createFullToolRegistry, type AgentToolConfig } from '../../src/core/agent-tools/index.js';
+import { renderRunSummary } from '../../src/core/result-render.js';
 import { createProcessRegistry } from '../../src/core/process-registry.js';
 import type { AgentProfile } from '../../src/core/profile.js';
 import { saveCheckpoint, loadLatestCheckpoint, clearCheckpoints } from '../../src/core/checkpoint.js';
@@ -557,7 +558,11 @@ function collectToolCalls(events: readonly AgentEvent[]): KernelToolCall[] {
 function summaryText(events: readonly AgentEvent[]): string {
   const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
   if (summary === undefined) return '(no summary)';
-  return [summary.rootCause, ...summary.changes, ...summary.verification].filter(Boolean).join('\n');
+  // The SAME renderer the library result uses. Two hand-rolled joins are how a delivered answer
+  // and a stored receipt come to disagree about what a run reported.
+  return renderRunSummary({
+    rootCause: summary.rootCause, changes: summary.changes, verification: summary.verification,
+  }).delivered;
 }
 
 /** Build the full agent tool suite for a kernel chat session (the kernel's tool source). */

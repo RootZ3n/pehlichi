@@ -12,6 +12,7 @@ import { createMemoryStore, type MemoryStore } from "lab-memory";
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
 import { qualifyRun, type QualificationGrant } from "./qualification-admission.js";
+import { renderRunSummary, type RunSummary } from "./result-render.js";
 // The loop's decisions live here, apart from its effects. Production uses these; so do the
 // pure component tests. A pure layer production does not use tests one implementation and
 // ships another.
@@ -283,6 +284,20 @@ export interface RunAgentResult {
   /** WHY the run went partial — 'budget' (out of steps, was progressing → safe to auto-continue),
    *  'failures' (stuck/no-progress governor), or 'injection' (security stop). Absent on a clean done. */
   readonly partialReason?: "budget" | "failures" | "injection";
+  /**
+   * The run's structured close, unprojected.
+   *
+   * `output` is this summary rendered for a human; this is the same content as data. A consumer
+   * that needs a commit SHA, a file list or a test result reads it from here and never parses
+   * it back out of the prose.
+   */
+  readonly summary?: RunSummary;
+  /** False when the summary omitted a field the run owed. Not a failure signal. */
+  readonly resultComplete?: boolean;
+  /** Exactly which owed fields were absent, so a caller can say so rather than guess. */
+  readonly missingFields?: readonly string[];
+  /** Receipt identifiers produced by this run, so an answer can be tied back to its evidence. */
+  readonly receiptIds?: readonly string[];
 }
 
 export interface RunAgentInShadowOptions extends Omit<RunAgentOptions, "workspaceRoot"> {
@@ -884,7 +899,27 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
           injectionFindings, // improvement #3: per-session count surfaced in the closing summary
         });
         emitter.emit({ kind: "done" });
-        return { ok: true, accomplished, output: action.summary.rootCause, injectionFindings, ...planResult(), ...tokenResult() };
+        // THE PUBLIC RESULT CARRIES THE WHOLE SUMMARY.
+        //
+        // This used to be `output: action.summary.rootCause`, which silently discarded
+        // `changes` and `verification` -- and with them, in one measured run, a commit SHA the
+        // model had correctly produced and the task had explicitly asked for. The renderer is
+        // pure and shared, so the delivered answer and the structured summary below cannot
+        // disagree, and a caller can verify that rather than trust it.
+        const runSummary: RunSummary = {
+          rootCause: action.summary.rootCause,
+          changes: action.summary.changes,
+          verification: action.summary.verification,
+          ...(action.summary.noChangeRequired !== undefined
+            ? { noChangeRequired: action.summary.noChangeRequired } : {}),
+        };
+        const rendered = renderRunSummary(runSummary);
+        return {
+          ok: true, accomplished, output: rendered.delivered, summary: runSummary,
+          resultComplete: rendered.complete, missingFields: rendered.missingFields,
+          receiptIds: receiptStore.recent(1000).map((receipt) => receipt.id),
+          injectionFindings, ...planResult(), ...tokenResult(),
+        };
       }
     }
 
