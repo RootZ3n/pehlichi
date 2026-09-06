@@ -38,6 +38,10 @@ const BOUND = { package: 'package.json', capsule: 'capsule/agent.json', deployme
 const CLOSURE_FILES = [
   'src/core/loop.ts', 'src/core/operational-admission.ts',
   'src/core/ordinary-admission.ts', 'src/core/qualification-admission.ts',
+  // The modules that DECIDE a request. A preflight that checked a narrower closure than the
+  // startup gate would report ready for a deployment the gate is about to refuse.
+  'src/core/lane-authorization.ts', 'src/core/request-principal.ts',
+  'src/core/delegated-authorization.ts', 'src/core/receipt-access.ts',
 ];
 const POLICY_PATH = 'trio/governance/boundary-manifest.json';
 

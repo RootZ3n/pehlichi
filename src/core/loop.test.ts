@@ -624,7 +624,8 @@ test("15. delegate_task spawns a REAL separate process and returns its JSON resu
     const handlers = createDelegateToolHandlers({ runnerPath: runner });
     const delegate = handlers.get("delegate_task");
     assert.ok(delegate);
-    const res = await delegate({ goal: "compile the module" }, { workspaceRoot: dir, labStoreRoot: dir, store: {} });
+    const res = await delegate({ goal: "compile the module" },
+      { workspaceRoot: dir, labStoreRoot: dir, store: {}, delegation: 'test-delegation-token' });
     assert.equal(res.ok, true);
     assert.match(res.output, /handled: compile the module/);
     // Proof it ran in a SEPARATE process: a different pid than this test process.
@@ -781,7 +782,8 @@ test("16. delegate_task enforces a timeout: a hung sub-agent is killed and repor
     const handlers = createDelegateToolHandlers({ runnerPath: runner, timeoutMs: 300 });
     const delegate = handlers.get("delegate_task");
     assert.ok(delegate);
-    const res = await delegate({ goal: "loop forever" }, { workspaceRoot: dir, labStoreRoot: dir, store: {} });
+    const res = await delegate({ goal: "loop forever" },
+      { workspaceRoot: dir, labStoreRoot: dir, store: {}, delegation: 'test-delegation-token' });
     assert.equal(res.ok, false);
     assert.match(res.error ?? "", /timed out/);
   } finally {

@@ -71,7 +71,14 @@ export type WorkCategory =
   | 'matrix-originated'
   | 'cli-originated'
   | 'role-pack-operation'
-  | 'model-route-operation';
+  | 'model-route-operation'
+  /**
+   * Reading the durable evidence this deployment produced.
+   *
+   * A distinct category rather than a reuse of `ordinary-work`: reading receipts starts no work
+   * and calls no model, so an authority scoped to it must not thereby be scoped to a chat turn.
+   */
+  | 'receipt-access';
 
 /**
  * Surfaces that are not work.
@@ -106,7 +113,23 @@ export type RefusalCode =
    * `ordinary-admission.ts`. Nothing in this module reads, mints or widens one, and the decision
    * below is still a property of the committed status alone.
    */
-  | 'ORDINARY_WORK_NOT_EXTERNALLY_AUTHORIZED';
+  | 'ORDINARY_WORK_NOT_EXTERNALLY_AUTHORIZED'
+  /**
+   * A request principal was absent, or was presented and did not verify. Named here so the
+   * refusal shape stays one type; decided entirely in `request-principal.ts`.
+   */
+  | 'REQUEST_PRINCIPAL_NOT_AUTHORIZED'
+  /**
+   * Delegated work was refused: no delegation derived from an authorised parent request covered
+   * it. Named here so the refusal shape stays one type; decided entirely in
+   * `delegated-authorization.ts`. Nothing in this module mints, reads or widens one.
+   */
+  | 'DELEGATED_WORK_NOT_AUTHORIZED'
+  /**
+   * Every ceiling intersected to nothing, for a request that asked for something. Named here so
+   * the refusal shape stays one type; decided in `lane-authorization.ts`.
+   */
+  | 'EFFECTIVE_CAPABILITY_EMPTY';
 
 /**
  * A refusal carries four fields and nothing else.

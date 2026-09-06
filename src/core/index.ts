@@ -188,11 +188,45 @@ export {
   authorizeLaneRequest,
   laneReceipt,
   writeLaneReceipt,
+  type LaneName,
   type LaneRequest,
   type LaneDecision,
   type LaneAuthorization,
   type LaneRefusalCode,
 } from "./lane-authorization.js";
+
+/*
+  DELEGATED AUTHORITY.
+
+  `verifyDelegation` and `cancelDelegationScope` are exported; `mintDelegation` deliberately is
+  NOT. Verifying and revoking are things an operator surface legitimately does. Minting is the one
+  operation that produces authority, it requires a completed parent authorization the caller never
+  holds, and an exported minter would be exactly the "internal trusted boolean" this phase exists
+  to remove. A test asserts the absence rather than assuming it.
+*/
+export {
+  verifyDelegation,
+  cancelDelegationScope,
+  MAX_DELEGATION_DEPTH,
+  type DelegationRequest,
+  type DelegationDecision,
+  type VerifiedDelegation,
+  type DelegationRefusalReason,
+} from "./delegated-authorization.js";
+
+/** Receipt-access scope: who may read which evidence, and what a receipt may ever carry out. */
+export {
+  receiptAccessScope,
+  withinScope,
+  projectReceipt,
+  scopedReceipts,
+  scopedSummary,
+  PUBLISHABLE_RECEIPT_KEYS,
+  FORBIDDEN_RECEIPT_MARKERS,
+  type ReceiptScope,
+  type AccessPrincipal,
+  type PublicReceiptFields,
+} from "./receipt-access.js";
 
 export {
   verifyRequestPrincipal,

@@ -252,6 +252,14 @@ export interface RunAgentOptions {
    * request is refused -- there is no anonymous fallback.
    */
   readonly requestPrincipal?: string;
+  /**
+   * The delegation a parent run handed down, verbatim.
+   *
+   * Only the delegated-shadow lane accepts one, and it is an alternative to a principal rather
+   * than an addition: presenting both is refused. A delegation can only narrow what its parent
+   * was already granted, and nothing in this package can widen or renew one.
+   */
+  readonly delegation?: string;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -308,6 +316,15 @@ export interface RunAgentResult {
   readonly missingFields?: readonly string[];
   /** Receipt identifiers produced by this run, so an answer can be tied back to its evidence. */
   readonly receiptIds?: readonly string[];
+  /**
+   * The VERIFIED principal this run was authorised as, and the request it was authorised under.
+   *
+   * Taken from the authorization decision, never from what the client claimed: a surface that
+   * recorded the presented identity would be recording an assertion, and an assertion that has
+   * not been checked is a claim about identity rather than an identity.
+   */
+  readonly principalId?: string;
+  readonly requestId?: string;
 }
 
 export interface RunAgentInShadowOptions extends Omit<RunAgentOptions, "workspaceRoot"> {
@@ -322,6 +339,11 @@ export interface ShadowRunResult {
   readonly shadowRoot: string;
   /** Always true: discard runs at the end of every shadow run. */
   readonly discarded: boolean;
+  /** The VERIFIED principal this delegated run was authorised as. Never a claimed one. */
+  readonly principalId?: string;
+  readonly requestId?: string;
+  /** How many delegations deep this run was. 0 when it presented a principal of its own. */
+  readonly depth?: number;
 }
 
 /**
@@ -331,9 +353,26 @@ export interface ShadowRunResult {
  * separate operator-gated step and is deliberately NOT performed here.
  */
 export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
-  const admission = admitRunWork('agent-run');
+  // The SAME function the agent and conversational lanes call. This lane used to consult the
+  // committed status gate alone, so a cron job and a delegated sub-agent started real work --
+  // a real driver, a real tool lane, a real model -- on the softer of two answers to one policy.
+  // It presents either its own authenticated principal or a delegation derived from a parent
+  // request that already presented one; there is no third way in and no bare local fallback.
+  const laneOutcome = authorizeLaneRequest(admitRunWork('agent-run'), {
+    agentName: opts.profile.name,
+    agentRole: opts.profile.role,
+    lane: 'delegated-shadow',
+    requestedCapabilities: opts.toolNames ?? [],
+    principalAssertion: opts.requestPrincipal,
+    delegationAssertion: opts.delegation,
+    ...(opts.seedFrom !== undefined ? { seedFrom: opts.seedFrom } : {}),
+  });
+  const admission = laneDecision(laneOutcome);
   if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
-  return executeAgentInShadow(opts);
+  const outcome = await executeAgentInShadow(confineToAuthorization(opts, laneOutcome));
+  if (!laneOutcome.authorized) return outcome;
+  const { requestId, principal, depth } = laneOutcome.authorization;
+  return { ...outcome, requestId, principalId: principal.id, depth };
 }
 
 /**
@@ -401,13 +440,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   // decided by the SAME function the conversational lane calls, then the single-use qualification
   // path for a measured run. Two enforcement paths for one policy is how the softer one becomes
   // the way in, so there is only one.
-  const lane = laneDecision(authorizeLaneRequest(admitRunWork('agent-run'), {
+  const laneOutcome = authorizeLaneRequest(admitRunWork('agent-run'), {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
     lane: 'agent-run',
     requestedCapabilities: opts.toolNames ?? [],
     principalAssertion: opts.requestPrincipal,
-  }), opts);
+    delegationAssertion: opts.delegation,
+  });
+  const lane = laneDecision(laneOutcome);
   const admission = qualifyRun(lane, {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
@@ -418,7 +459,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     admission: opts.qualification,
   });
   if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
-  return executeAgentRun(confineToQualification(opts, admission.grant));
+  const result = await executeAgentRun(
+    confineToQualification(confineToAuthorization(opts, laneOutcome), admission.grant));
+  if (!laneOutcome.authorized) return result;
+  const { requestId, principal } = laneOutcome.authorization;
+  return { ...result, requestId, principalId: principal.id };
 }
 
 /**
@@ -426,9 +471,37 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
  * The receipt is written by the authorization function itself. A refusal is passed on unchanged,
  * so a measured qualification run still sees exactly the refusal it knows how to handle.
  */
-function laneDecision(decision: LaneDecision, _opts: RunAgentOptions): AdmissionDecision {
+function laneDecision(decision: LaneDecision): AdmissionDecision {
   if (!decision.authorized) return { admitted: false, refusal: decision.refusal };
   return { admitted: true, state: decision.authorization.state };
+}
+
+/**
+ * Narrow a run to exactly what its authorization left standing.
+ *
+ * The intersection was already computed -- external identity, external activation, the presented
+ * principal or delegation, the work type and every capability ceiling -- and computing it without
+ * applying it would have been the most expensive kind of no-op: a receipt that says which tools
+ * survived, and a run that uses the ones the caller asked for anyway. The lane a run executes
+ * with is the intersection, never the request.
+ *
+ * The delegation carried forward is the one minted for CHILDREN of this request, already narrowed
+ * to what survived here. The delegation this run was admitted on is spent and is not passed on.
+ */
+function confineToAuthorization<T extends { readonly toolNames?: readonly string[]; readonly delegation?: string }>(
+  opts: T,
+  decision: LaneDecision,
+): T {
+  if (!decision.authorized) return opts;
+  const { effectiveCapabilities, childDelegation } = decision.authorization;
+  // The spent delegation is dropped rather than overwritten: a run must never carry the document
+  // it was admitted on into the tools it then runs.
+  const { delegation: _spent, ...rest } = opts;
+  return {
+    ...(rest as T),
+    toolNames: effectiveCapabilities,
+    ...(childDelegation !== undefined ? { delegation: childDelegation } : {}),
+  };
 }
 
 /**
@@ -511,6 +584,9 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
     store,
     receiptStore,
     ...(memoryStore !== undefined ? { memoryStore } : {}),
+    // What this run may delegate, and nothing more. Set by the authorization function, narrowed
+    // to what survived it, and absent when this run may delegate nothing.
+    ...(opts.delegation !== undefined ? { delegation: opts.delegation } : {}),
   };
 
   // Advertise the memory tools ONLY when memory is wired. With no memory store

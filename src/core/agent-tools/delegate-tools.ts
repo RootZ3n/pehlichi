@@ -61,6 +61,14 @@ export interface SubagentJob {
   readonly approvalPolicy: { readonly allowWrites: boolean };
   /** Explicit fail-closed lane for the child's deliberately small registry. */
   readonly toolNames: string[];
+  /**
+   * The delegation the child must present to be admitted at all.
+   *
+   * Travels on stdin with the rest of the job, never in argv and never in the environment, so it
+   * is not readable from `/proc/<pid>/cmdline` or inherited by anything the child spawns. Absent
+   * means the parent had nothing to delegate, and the child refuses rather than falling back.
+   */
+  readonly delegation?: string;
 }
 
 export interface DelegateConfig {
@@ -128,7 +136,7 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
   const childRegistryCeiling = new Set(['terminal', 'process', 'delegate_task']);
   const childLane = Object.freeze(parentLane.filter((name) => childRegistryCeiling.has(name)));
 
-  handlers.set('delegate_task', async (args): Promise<ToolResult> => {
+  handlers.set('delegate_task', async (args, ctx): Promise<ToolResult> => {
     const goal = args.goal as string;
     const context = (args.context as string) ?? '';
     const toolsets = (args.toolsets as string[]) ?? ['terminal', 'file', 'web'];
@@ -157,6 +165,18 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
       };
     }
 
+    // AUTHORITY (Phase 2): a sub-agent is admitted on a delegation derived from the parent's
+    // own authorization, or it is not admitted. Refusing here rather than spawning means an
+    // unauthorised delegation costs no process, no model call and no timeout.
+    if (ctx.delegation === undefined || ctx.delegation.length === 0) {
+      return {
+        ok: false,
+        output: '',
+        error: 'delegation refused: this run holds no delegable authority. A sub-agent runs on a '
+          + 'delegation derived from an authorised parent request; there is no unauthenticated path.',
+      };
+    }
+
     const job: SubagentJob = {
       goal,
       context,
@@ -164,6 +184,7 @@ export function createDelegateToolHandlers(config: DelegateConfig): Map<string, 
       delegatedFrom: [...chain, key],
       approvalPolicy: { allowWrites },
       toolNames: [...childLane],
+      delegation: ctx.delegation,
     };
     return runSubagent(nodePath, [...nodeArgs, config.runnerPath], JSON.stringify(job), timeoutMs);
   });

@@ -121,6 +121,7 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/lab-transcript.ts': ['filesystem-mutation'],
   // The one authorization decision both lanes call. `filesystem-mutation` because every decision
   // leaves a durable receipt, written before the caller can reach a model or a tool.
+  'src/core/delegated-authorization.ts': ['filesystem-mutation'],
   'src/core/lane-authorization.ts': ['filesystem-mutation'],
   'src/core/loop.ts': ['tool-invocation'],
   // Pre-model ordinary authorization. `child-process` because the subject's own commit and tree

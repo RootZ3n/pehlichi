@@ -50,6 +50,10 @@ import {
 import { loadSkin } from './skin.js';
 import { loadPersonality } from './personality.js';
 import { ChatSession } from './chat.js';
+import { agentProfile } from '../../src/profiles/agent.js';
+import { admitRunWork } from '../../src/core/operational-admission.js';
+import { authorizeLaneRequest } from '../../src/core/lane-authorization.js';
+import { receiptAccessScope, scopedReceipts, scopedSummary } from '../../src/core/receipt-access.js';
 import { bridgeRegistry } from '../../src/core/bridges/registry.js';
 import { listMemory } from 'lab-memory';
 import { ReceiptStore, type Receipt } from '../../src/core/receipt-store.js';
@@ -228,6 +232,15 @@ const MAX_AUTO_CONTINUES = (() => {
 /** The minimal converse lane the fast-path needs — a single tool-free model turn. */
 export interface ConverseLike {
   send(message: string): Promise<{ content: string; usage?: { in: number; out: number } }>;
+  /**
+   * Present the principal for the next turn.
+   *
+   * Required rather than optional on purpose: an optional seam is one a real implementation can
+   * quietly omit, and an omitted principal on the conversational lane is exactly the anonymous
+   * fallback this phase removes. An embedder or a test that supplies its own converse session
+   * must state what it does with the caller's identity.
+   */
+  setRequestPrincipal(assertion: string | undefined): void;
 }
 
 // ── Static web UI (served directly from this port) ───────────────────────────
@@ -820,6 +833,23 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
    * configured (open, but read-only on the production path). A configured token requires
    * an exact `Authorization: Bearer <token>` match.
    */
+  /*
+    THE REQUEST PRINCIPAL, as this transport carries it.
+
+    Parsing only. Whether the assertion means anything is decided by the one authorization
+    function, against an issuer named by the root-owned service lease -- never here, and never by
+    anything a client can influence. An absent header is passed on as absent rather than defaulted,
+    because a default would be exactly the anonymous fallback this phase removes.
+
+    Kept out of every log line and every error body: an assertion is a bearer document, and a
+    surface that echoes one back is a surface that hands it to whoever provoked the error.
+  */
+  const presentedPrincipal = (req: IncomingMessage): string | undefined => {
+    const header = req.headers['x-pehverse-principal'];
+    const value = Array.isArray(header) ? header[0] : header;
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
+  };
+
   const chatAuthorized = (req: IncomingMessage): boolean => {
     if (!hasChatToken) return true;
     const header = req.headers['authorization'];
@@ -1013,6 +1043,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
       const message = body.message as string;
       if (!message) return json(res, 400, { error: 'message is required' });
       const cs = converseFor(roomKeyOf(body));
+      cs.setRequestPrincipal(presentedPrincipal(req));
       try {
         const reply = await cs.send(message);
         return json(res, 200, {
@@ -1063,6 +1094,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
         const fpRoomKey = roomKeyOf(body);
         recordTurn(fpRoomKey, 'user', message);
         const cs = converseFor(fpRoomKey);
+        cs.setRequestPrincipal(presentedPrincipal(req));
         try {
           const reply = await cs.send(message);
           recordTurn(fpRoomKey, 'assistant', reply.content);
@@ -1102,6 +1134,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
       // H2: route to THIS room's session — no cross-room context bleed.
       const chatRoomKey = roomKeyOf(body);
       const roomSession = sessionFor(chatRoomKey, overrideWorkspace);
+      roomSession.setRequestPrincipal(presentedPrincipal(req));
 
       // SHARED LAB MEMORY: record the user turn and gather role-aware ambient recall of
       // what was said on OTHER faces/surfaces (the live session already holds this thread).
@@ -1194,6 +1227,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
           findingMetadata: response.findingMetadata,
           partial: response.partial,
           contentSummary: response.content?.slice(0, 200),
+          ...(response.principalId !== undefined ? { principalId: response.principalId } : {}),
         });
         // SHARED LAB MEMORY: record the assistant turn (substantive kernel reply).
         recordTurn(chatRoomKey, 'assistant', response.content ?? '', receipt.id);
@@ -1262,7 +1296,9 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
         recordTurn(streamRoomKey, 'user', message);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
         try {
-          const reply = await converseFor(streamRoomKey).send(message);
+          const streamConverse = converseFor(streamRoomKey);
+          streamConverse.setRequestPrincipal(presentedPrincipal(req));
+          const reply = await streamConverse.send(message);
           recordTurn(streamRoomKey, 'assistant', reply.content);
           res.write(`data: ${JSON.stringify({ done: true, ok: true, partial: false, content: reply.content, toolCalls: 0, ...modeFields(requestedMode, selection.selected, selection.autoHeuristicUsed) })}\n\n`);
         } catch (err) {
@@ -1287,6 +1323,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
       // H2: route to THIS room's session — no cross-room context bleed.
       const streamRoomKey = roomKeyOf(body);
       const roomSession = sessionFor(streamRoomKey, overrideWorkspace);
+      roomSession.setRequestPrincipal(presentedPrincipal(req));
 
       // SHARED LAB MEMORY: record the user turn + gather role-aware ambient recall.
       recordTurn(streamRoomKey, 'user', message);
@@ -1327,6 +1364,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
           findingMetadata: response.findingMetadata,
           partial: response.partial,
           contentSummary: response.content?.slice(0, 200),
+          ...(response.principalId !== undefined ? { principalId: response.principalId } : {}),
         });
         recordTurn(streamRoomKey, 'assistant', response.content ?? '', streamReceipt.id);
         maybeReviewProposals(response.toolCalls);
@@ -1469,28 +1507,76 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
       });
     }
 
-    // ── RECEIPTS ENDPOINT ─────────────────────────────────────────────────────
+    /*
+      ── RECEIPTS ENDPOINT ─────────────────────────────────────────────────────────────────
+
+      This was anonymous. Anyone who could reach the port could list every turn the agent had
+      taken -- task ids, workspace ids, room keys, models, costs, content summaries, security
+      findings -- and a global total that answered "how busy is this agent" whether or not the
+      caller was entitled to a single receipt in it. Evidence exists to be audited, but an audit
+      surface with no caller identity is a disclosure, not an audit surface.
+
+      Reading evidence is now a lane, decided by the SAME authorization function the agent,
+      conversational and delegated lanes use, on the same documents, with the same intersection.
+      What is specific to reading is only the SCOPE, which lives in `receipt-access.ts`.
+
+      Four properties, each of which was absent:
+
+        - AUTHENTICATION BEFORE LOOKUP. Nothing is fetched, counted or summarised until the
+          principal verifies. A refusal cannot be distinguished from an empty store by timing what
+          the store did, because the store was not consulted.
+        - NO ENUMERATION OUTSIDE SCOPE. `?task=` and `?workspace=` are filtered by the same scope
+          as the listing, so "no such task" and "that task is not yours" are the identical answer.
+        - THE SUMMARY IS SCOPED. A total computed over every receipt describes the set a caller
+          was refused; this one describes only what the caller may see.
+        - THE PROJECTION IS AN ALLOWLIST. A field added to the store later is invisible here until
+          someone decides it may be published.
+
+      The read itself is audited: `authorizeLaneRequest` writes a durable lane receipt for the
+      admission or the refusal. It deliberately does NOT create a store receipt, so reading the
+      evidence never becomes evidence to read.
+    */
     if (req.method === 'GET' && url.pathname === '/receipts') {
+      const access = authorizeLaneRequest(admitRunWork('receipt-access'), {
+        agentName: agentProfile.name,
+        agentRole: agentProfile.role,
+        lane: 'receipts',
+        requestedCapabilities: [],
+        principalAssertion: presentedPrincipal(req),
+      });
+      if (!access.authorized) {
+        // One body for every refusal. Which document was missing, malformed, expired, revoked or
+        // simply not entitled is in the durable receipt, where an operator can read it; telling
+        // the caller would let it probe the difference.
+        return json(res, 401, { error: 'unauthorized: an authenticated request principal is required' });
+      }
+      const scope = receiptAccessScope(access.authorization.principal);
       const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
       const taskId = url.searchParams.get('task');
       const workspace = url.searchParams.get('workspace');
       const failuresOnly = url.searchParams.get('failures') === 'true';
-      let receipts: Receipt[];
+      let candidates: Receipt[];
       if (taskId) {
-        receipts = receiptStore.byTask(taskId);
+        candidates = receiptStore.byTask(taskId);
       } else if (workspace) {
-        receipts = receiptStore.byWorkspace(workspace);
+        candidates = receiptStore.byWorkspace(workspace);
       } else if (failuresOnly) {
-        receipts = receiptStore.failures();
+        candidates = receiptStore.failures();
       } else {
-        receipts = receiptStore.recent(limit);
+        // Scope first, THEN take the caller's page: slicing before filtering would silently
+        // shorten an in-scope page by however many out-of-scope receipts happened to be newer.
+        candidates = receiptStore.recent(Number.MAX_SAFE_INTEGER);
       }
+      const visible = scopedReceipts(scope, candidates as unknown as Record<string, unknown>[]);
+      const page = taskId || workspace || failuresOnly
+        ? visible
+        : visible.slice(0, Number.isFinite(limit) && limit > 0 ? limit : 20);
       return json(res, 200, {
         agent: agentName,
-        count: receipts.length,
-        summary: receiptStore.summary(),
+        count: page.length,
+        summary: scopedSummary(visible),
         ttlMs: 60 * 60 * 1000,
-        receipts,
+        receipts: page,
       });
     }
 

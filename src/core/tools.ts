@@ -71,6 +71,16 @@ export interface ToolContext {
   readonly memoryStore?: any;
   /** Receipt store for audit trail logging (reasonix infrastructure). */
   readonly receiptStore?: ReceiptStore;
+  /**
+   * The delegation this run may hand to a CHILD run, already narrowed to what survived this
+   * run's own authorization.
+   *
+   * A handler that spawns or starts a sub-agent presents this and nothing else; it is not the
+   * document this run was admitted on, and there is no function reachable from a handler that
+   * could mint, renew or widen one. Absent means this run may delegate nothing, and a handler
+   * that tries is refused before it starts anything.
+   */
+  readonly delegation?: string;
 }
 
 export type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;

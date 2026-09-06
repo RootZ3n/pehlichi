@@ -123,6 +123,9 @@ export interface KernelChatResponse {
   readonly injectionDetected?: boolean;
   /** Number of quarantined tool outputs observed during this turn. */
   readonly injectionFindings?: number;
+  /** The VERIFIED principal this turn was authorised as. Never the presented assertion. */
+  readonly principalId?: string;
+  readonly requestId?: string;
   readonly findingMetadata?: readonly {
     readonly evidenceId: string;
     readonly sha256: string;
@@ -252,6 +255,15 @@ export class KernelChatSession {
   private history: Message[] = [];
   /** Monotonic turn counter — the checkpoint iteration (H6). */
   private turnCount = 0;
+  /**
+   * The request principal presented for the CURRENT turn, verbatim.
+   *
+   * Set by the transport that parsed it and consulted by the kernel run below; never persisted,
+   * never checkpointed, never logged, and never threaded into the conversation history. A session
+   * is long-lived and a principal is per request, so this is deliberately mutable state that the
+   * transport writes on every turn rather than a constructor option that would outlive its scope.
+   */
+  private requestPrincipal: string | undefined;
   /**
    * REVERSIBILITY (P0.3): a LIFO journal of every file edit this session made, recorded
    * from kernel `diff` events (write_file/patch now report before/after). `undo()` reverts
@@ -390,6 +402,11 @@ export class KernelChatSession {
    *   turn only (e.g. the shared-lab-memory ambient header). Absent → byte-for-byte the
    *   prior behavior. It never enters `history`, so it can change every turn without growing.
    */
+  /** Present the principal for the next turn. Absent means the next turn is refused. */
+  setRequestPrincipal(assertion: string | undefined): void {
+    this.requestPrincipal = assertion;
+  }
+
   async send(
     userMessage: string,
     onEvent?: (e: AgentEvent) => void,
@@ -455,6 +472,9 @@ export class KernelChatSession {
       plan: false,
       ...(this.opts.approvalCallback !== undefined ? { approvalCallback: this.opts.approvalCallback } : {}),
       toolNames: this.opts.toolNames,
+      // The SAME authorization the conversational lane presents, on the same contract. Absent, the
+      // kernel refuses before a driver or a tool is reached.
+      ...(this.requestPrincipal !== undefined ? { requestPrincipal: this.requestPrincipal } : {}),
       ...(this.opts.memoryStoreRoot !== undefined ? { memoryStoreRoot: this.opts.memoryStoreRoot } : {}),
       ...(this.opts.requireEvidence === true ? { requireEvidence: true } : {}), // P0.1: prove, don't assert.
       contextWindow: this.opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW, // P1.1: compact long transcripts.
@@ -512,6 +532,8 @@ export class KernelChatSession {
       toolCalls,
       events,
       tokenUsage: this.tokenMonitor.summary(),
+      ...(result.principalId !== undefined ? { principalId: result.principalId } : {}),
+      ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
       injectionDetected: (result.injectionFindings ?? 0) > 0,
       injectionFindings: result.injectionFindings ?? 0,
       findingMetadata: events

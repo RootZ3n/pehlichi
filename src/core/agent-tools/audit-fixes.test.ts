@@ -23,7 +23,17 @@ import { defaultApprovalPolicy } from '../approval-policy.js';
 import { resolveInWorkspace, ToolError } from '../workspace.js';
 import type { ToolContext } from '../tools.js';
 
-const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
+/*
+  A delegated sub-agent is admitted on a delegation derived from its parent's authorization, so a
+  tool context that can delegate carries one. The token here is opaque to the handler -- it checks
+  only that it HAS one -- and is verified for real inside the child's own `runAgentInShadow`
+  against the deployment's root-owned lease. A context WITHOUT one is exercised separately, and
+  must refuse before a process is spawned.
+*/
+const DELEGABLE = 'test-delegation-token';
+
+const ctx = (dir: string): ToolContext =>
+  ({ workspaceRoot: dir, labStoreRoot: dir, store: {}, delegation: DELEGABLE });
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // ── C2: search_files must NOT execute shell metacharacters in the pattern ──────

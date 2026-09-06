@@ -127,6 +127,15 @@ export interface AgentToolConfig {
   enableWorkOrders?: boolean;
   /** Ptah occasio bridge: file a detection as a work order + route it through the trio. */
   enableOccasio?: boolean;
+  /**
+   * The request principal a SCHEDULED run presents.
+   *
+   * A cron job has no parent request, so it has no delegation to inherit: it is work this
+   * deployment starts on its own behalf, and after Phase 2 that needs its own externally issued
+   * principal like any other work. Absent, scheduled jobs refuse before reaching a model rather
+   * than running on the committed status gate alone.
+   */
+  requestPrincipal?: string;
 }
 
 /**
@@ -152,6 +161,9 @@ function defaultCronExecute(config: AgentToolConfig): (prompt: string) => Promis
       sinks: [(e) => events.push(e)],
       toolNames: config.authorizedToolNames ?? [],
       plan: false,
+      // Scheduled work is not delegated work: there is no parent request to derive from, so it
+      // presents its own principal or it is refused.
+      ...(config.requestPrincipal !== undefined ? { requestPrincipal: config.requestPrincipal } : {}),
     });
     const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
     return summary

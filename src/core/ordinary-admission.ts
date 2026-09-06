@@ -85,6 +85,14 @@ const CLOSURE_FILES: readonly string[] = Object.freeze([
   'src/core/ordinary-admission.ts',
   'src/core/qualification-admission.ts',
   'src/core/loop.ts',
+  // The modules that actually DECIDE a request belong in the digest an external authority pins.
+  // Leaving them out meant a lease could name a closure that did not include the authorization
+  // function, the principal verifier or the delegation verifier -- the three files an attacker
+  // would edit first.
+  'src/core/lane-authorization.ts',
+  'src/core/request-principal.ts',
+  'src/core/delegated-authorization.ts',
+  'src/core/receipt-access.ts',
 ]);
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -114,7 +122,7 @@ export type OrdinaryRefusalReason =
 export interface OrdinaryRequest {
   readonly agentName: string;
   readonly agentRole: string;
-  readonly lane: 'agent-run' | 'converse';
+  readonly lane: 'agent-run' | 'converse' | 'delegated-shadow' | 'receipts';
   readonly toolNames?: readonly string[];
 }
 
@@ -317,7 +325,8 @@ export function admitOrdinaryWork(decision: AdmissionDecision, request: Ordinary
   */
   const state: OperationalState = decision.admitted ? decision.state
     : (decision.refusal.state === 'UNKNOWN' ? 'PRE_PRODUCTION' : decision.refusal.state);
-  const category: WorkCategory = request.lane === 'converse' ? 'ordinary-work' : 'agent-run';
+  const category: WorkCategory = request.lane === 'converse' ? 'ordinary-work'
+    : request.lane === 'receipts' ? 'receipt-access' : 'agent-run';
   const base = { subject: request.agentName, lane: request.lane };
 
   // The record is read FIRST, because whether a local refusal is final depends on what the

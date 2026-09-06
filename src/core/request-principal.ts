@@ -68,7 +68,7 @@ export interface TrustedPrincipalIssuer {
 export interface PrincipalRequest {
   readonly agent: string;
   readonly codeRoot: string;
-  readonly lane: 'agent-run' | 'converse';
+  readonly lane: 'agent-run' | 'converse' | 'delegated-shadow' | 'receipts';
   readonly workType: string;
   /** The assertion exactly as the client presented it. Absent means refused. */
   readonly assertion?: string | undefined;

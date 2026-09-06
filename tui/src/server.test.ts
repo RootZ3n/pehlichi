@@ -516,7 +516,10 @@ test('fast-path: a keyword-free /chat message routes to converse — the kernel 
     await withServer(
       {
         driver: explodingDriver, workspaceRoot: ws, labStoreRoot: store,
-        makeConverse: () => ({ async send(m: string) { return { content: `converse:${m}` }; } }),
+        makeConverse: () => ({
+          setRequestPrincipal() { /* the stub answers without a model; identity changes nothing here */ },
+          async send(m: string) { return { content: `converse:${m}` }; },
+        }),
       },
       async (base) => {
         const res = await fetch(`${base}/chat`, {
@@ -549,7 +552,10 @@ test('fast-path: a /chat message WITH a task keyword still drives the kernel+too
       {
         driver: new ScriptedDriver(actions), workspaceRoot: ws, labStoreRoot: store, allowWrites: true,
         // If routing wrongly sent this to converse, the canned reply would surface instead.
-        makeConverse: () => ({ async send() { return { content: 'WRONG: routed to converse' }; } }),
+        makeConverse: () => ({
+          setRequestPrincipal() { /* never reached: this case must route to the kernel lane */ },
+          async send() { return { content: 'WRONG: routed to converse' }; },
+        }),
       },
       async (base) => {
         const res = await fetch(`${base}/chat`, {

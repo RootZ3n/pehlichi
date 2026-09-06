@@ -16,6 +16,14 @@ export interface Receipt {
   readonly taskId?: string;
   readonly workspaceId?: string;
   readonly roomKey?: string;
+  /**
+   * The VERIFIED principal this turn was authorised as.
+   *
+   * Written from the authorization decision, never from what the client presented, and it is what
+   * scopes a later read: a receipt with no principal is visible only to an operator. Never the
+   * assertion itself, which would make the audit log a place to steal credentials from.
+   */
+  readonly principalId?: string;
   readonly provider?: string;
   readonly model?: string;
   readonly cost?: number;

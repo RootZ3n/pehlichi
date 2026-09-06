@@ -37,6 +37,11 @@ interface Job {
   readonly approvalPolicy?: { readonly allowWrites?: boolean };
   /** Explicit parent-narrowed lane; absence is invalid rather than unrestricted. */
   readonly toolNames?: string[];
+  /**
+   * The delegation derived from the parent's authorization. Absent means this process has no
+   * authority at all, and `runAgentInShadow` refuses before a driver or a tool is reached.
+   */
+  readonly delegation?: string;
 }
 
 const SUBAGENT_PROFILE: AgentProfile = {
@@ -143,6 +148,9 @@ async function main(): Promise<void> {
       // a fresh session would — writes gated off unless the parent explicitly granted
       // them. Without this the loop defaults to approve-everything.
       approvalCallback: defaultApprovalPolicy({ allowWrites }),
+      // The delegation this process was handed. It is verified by the same authorization
+      // function the agent and conversational lanes use, and it can only narrow.
+      ...(job.delegation !== undefined ? { delegation: job.delegation } : {}),
     });
     const summary = events.find((e): e is Extract<AgentEvent, { kind: 'summary' }> => e.kind === 'summary');
     const output = summary

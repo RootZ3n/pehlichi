@@ -19,6 +19,14 @@ export interface ChatResponse {
   thinkingVerb?: string;
   /** Real token usage from the provider (non-streaming responses expose it), for cost display. */
   usage?: { in: number; out: number };
+  /**
+   * The VERIFIED principal this turn was authorised as, and the request it was authorised under.
+   *
+   * From the authorization decision, never from the presented header: recording what a client
+   * claimed would make the audit trail a record of claims.
+   */
+  principalId?: string;
+  requestId?: string;
 }
 
 export type StreamCallback = (chunk: string) => void;
@@ -137,6 +145,7 @@ export class ChatSession {
     };
     const lane = authorizeLaneRequest(admitRunWork('ordinary-work'), laneRequest);
     if (!lane.authorized) throw new OperationalWorkRefused(lane.refusal);
+    const authorised = { principalId: lane.authorization.principal.id, requestId: lane.authorization.requestId };
 
     // The caller's callback receives transport liveness and never a model delta. Deltas
     // are still consumed below so the request shape and the accumulated content are
@@ -253,7 +262,7 @@ export class ChatSession {
         timestamp: Date.now(),
       });
 
-      return { content: authorized, thinkingVerb, ...(usage ? { usage } : {}) };
+      return { content: authorized, thinkingVerb, ...authorised, ...(usage ? { usage } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Even a transport failure goes through the boundary: an error path is exactly where

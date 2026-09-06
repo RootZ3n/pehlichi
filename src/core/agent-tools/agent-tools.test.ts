@@ -10,7 +10,17 @@ import { createCronToolHandlers } from "./cron-tools.js";
 import { createCoordinationToolHandlers } from "./coordination-tools.js";
 import type { ToolContext } from "../tools.js";
 
-const ctx = (dir: string): ToolContext => ({ workspaceRoot: dir, labStoreRoot: dir, store: {} });
+/*
+  A delegated sub-agent is admitted on a delegation derived from its parent's authorization, so a
+  tool context that can delegate carries one. The token here is opaque to the handler -- it checks
+  only that it HAS one -- and is verified for real inside the child's own `runAgentInShadow`
+  against the deployment's root-owned lease. A context WITHOUT one is exercised separately, and
+  must refuse before a process is spawned.
+*/
+const DELEGABLE = 'test-delegation-token';
+
+const ctx = (dir: string): ToolContext =>
+  ({ workspaceRoot: dir, labStoreRoot: dir, store: {}, delegation: DELEGABLE });
 
 // ── Blocker 4: DELEGATE RUNNER PATH RESOLVES UNDER tsx AND COMPILED ────────────
 
@@ -95,6 +105,28 @@ test("B7. delegatedFrom chain is propagated to the spawned job (parent goal appe
     const res = await delegate({ goal: "child" }, ctx(dir));
     assert.equal(res.ok, true);
     assert.match(res.output, /chain=\["root","child"\]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("delegation is refused, without spawning, when the run holds no delegable authority", async () => {
+  const dir = governedMkdtemp("delegation-unauthorised-");
+  // A runner path that cannot exist: if the handler ever spawned, the failure would be a spawn
+  // failure and the assertion below would not match. Refusing BEFORE the spawn is the property.
+  const handlers = createDelegateToolHandlers({ runnerPath: "/nonexistent/never-spawned" });
+  const delegate = handlers.get("delegate_task")!;
+  try {
+    for (const context of [
+      { workspaceRoot: dir, labStoreRoot: dir, store: {} },
+      { workspaceRoot: dir, labStoreRoot: dir, store: {}, delegation: '' },
+    ]) {
+      const res = await delegate({ goal: "do something" }, context);
+      assert.equal(res.ok, false);
+      assert.match(res.error ?? "", /delegation refused/);
+      assert.match(res.error ?? "", /no unauthenticated path/);
+      assert.equal(/spawn|ENOENT/.test(res.error ?? ""), false, "a process was spawned before refusing");
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
