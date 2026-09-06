@@ -11,6 +11,8 @@ import {
   toProviderTools,
   toWireMessages,
   type FetchLike,
+  toWireToolName,
+  fromWireToolName,
 } from "./mimo.js";
 
 // All tests here are OFFLINE: canned provider JSON fixtures + a fake fetch.
@@ -236,4 +238,41 @@ test("a REAL function tool-call still executes (no regression) even with knownTo
     TOOLS,
   );
   assert.deepEqual(action, { kind: "tool", tool: "read", args: { path: "x" } });
+});
+
+// ── wire-safe tool names: the lab's namespace vs the wire's rules ────────────────────────────
+
+test('a dotted tool name is made wire-safe, and mapped back', () => {
+  /*
+    OpenAI-style function calling specifies ^[a-zA-Z0-9_-]{1,64}$. Three lab tools are namespaced
+    with a dot; GLM and MiMo accept them and DeepSeek refuses the WHOLE request, so an agent with
+    its full lane could not make a single call. The translation belongs at the boundary between the
+    lab's namespace and the wire's rules, not in a rename across skills, prompts and authority.
+  */
+  assert.equal(toWireToolName('bridge.health'), 'bridge_health');
+  assert.equal(toWireToolName('read_file'), 'read_file', 'a compliant name must pass through untouched');
+  assert.equal(toWireToolName('a-b_9'), 'a-b_9');
+  const offered = ['bridge.health', 'bridge.list', 'read_file'];
+  assert.equal(fromWireToolName('bridge_health', offered), 'bridge.health');
+  assert.equal(fromWireToolName('read_file', offered), 'read_file');
+  // An unknown name is returned unchanged so the lane check refuses it, which is where an unknown
+  // tool belongs — inventing a mapping would be guessing what the model meant.
+  assert.equal(fromWireToolName('not_a_tool', offered), 'not_a_tool');
+});
+
+test('every name a provider is offered satisfies the wire contract', () => {
+  const spec = (name: string): ToolSpec => ({ name, description: 'd', parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } });
+  const wire = toProviderTools(['bridge.health', 'bridge.list', 'bridge.request', 'read_file', 'terminal'].map(spec));
+  for (const entry of wire) {
+    const name = (entry.function as { name: string }).name;
+    assert.match(name, /^[a-zA-Z0-9_-]{1,64}$/, `${name} would be refused by a strict provider`);
+  }
+});
+
+test('a name collision on the wire is refused, not silently merged', () => {
+  const spec = (name: string): ToolSpec => ({ name, description: 'd', parameters: { type: 'object', properties: {}, required: [], additionalProperties: false } });
+  // Two tools that map to one wire name would merge into a single function the model can call,
+  // and the runtime would have no way to know which one it meant.
+  assert.throws(() => toProviderTools([spec('bridge.health'), spec('bridge_health')]),
+    /both become bridge_health/);
 });

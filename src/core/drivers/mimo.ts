@@ -238,7 +238,17 @@ export class MimoDriver implements UsageReportingDriver {
     // H4: record the REAL token usage the provider reported, so the session's
     // TokenMonitor reflects actual consumption instead of staying at zero.
     if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);
-    return completionToAction(parsed, ctx.tools.map((t) => t.name));
+    /*
+      Map the provider's chosen name back before the action is formed. The provider only ever saw
+      wire-safe names, so a tool call naming `bridge_health` means the runtime's `bridge.health`
+      and must be recognised as such rather than refused as unknown.
+    */
+    const offered = ctx.tools.map((t) => t.name);
+    const restored: ParsedCompletion = {
+      ...parsed,
+      toolCalls: parsed.toolCalls.map((call) => ({ ...call, name: fromWireToolName(call.name, offered) })),
+    };
+    return completionToAction(restored, offered);
   }
 }
 
@@ -258,11 +268,58 @@ export function parseUsage(json: unknown): TokenUsage | undefined {
 // ── pure helpers (offline-testable) ──────────────────────────────────────────
 
 /** Map our ToolSpec[] into the provider's tool/function format. */
+/*
+  WIRE-SAFE TOOL NAMES.
+
+  OpenAI-style function calling specifies `^[a-zA-Z0-9_-]{1,64}$` for a function name. Three of the
+  lab's tools are namespaced with a dot -- `bridge.health`, `bridge.list`, `bridge.request` -- which
+  GLM and MiMo accept and DeepSeek does not: it refuses the whole request with
+  "Invalid 'tools[34].function.name'", so an agent with its full lane cannot make a single call.
+
+  The lab's namespace is not the wire's business and the wire's rules are not the lab's, so the
+  translation happens here, at the boundary between them, rather than by renaming tools across
+  skills, prompts, authority records and memory. Every provider gets a compliant name; the runtime
+  keeps the one it has always used.
+*/
+const WIRE_SAFE_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/** The name a provider is given for one tool. Deterministic, and reversible via `fromWireToolName`. */
+export function toWireToolName(name: string): string {
+  return WIRE_SAFE_NAME.test(name) ? name : name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+}
+
+/**
+ * Map a provider's chosen name back to the runtime's.
+ *
+ * A provider may only choose from the names it was offered, so the reverse map is built from the
+ * exact lane that was sent. An unknown name is returned unchanged and refused downstream by the
+ * lane check, which is where an unknown tool belongs.
+ */
+export function fromWireToolName(wire: string, offered: readonly string[]): string {
+  if (offered.includes(wire)) return wire;
+  const match = offered.find((name) => toWireToolName(name) === wire);
+  return match ?? wire;
+}
+
 export function toProviderTools(tools: readonly ToolSpec[]): Array<Record<string, unknown>> {
+  /*
+    A collision would silently merge two tools into one, so it is refused rather than resolved:
+    a lane that cannot be represented on the wire is a configuration error, not a runtime one.
+  */
+  const seen = new Map<string, string>();
+  for (const t of tools) {
+    const wire = toWireToolName(t.name);
+    const previous = seen.get(wire);
+    if (previous !== undefined && previous !== t.name) {
+      throw new MimoError(
+        `tool names ${previous} and ${t.name} both become ${wire} on the wire; rename one`);
+    }
+    seen.set(wire, t.name);
+  }
   return tools.map((t) => ({
     type: "function",
     function: {
-      name: t.name,
+      name: toWireToolName(t.name),
       description: t.description,
       parameters: t.parameters ?? { type: "object", properties: {}, additionalProperties: true },
     },
