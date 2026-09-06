@@ -411,8 +411,21 @@ export function writeLaneReceipt(decision: LaneDecision, request: LaneRequest): 
     if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) return;
     mkdirSync(target, { recursive: true });
     const body = laneReceipt(decision, request);
+    /*
+      The REQUEST ID is in the filename, and it has to be.
+
+      The name used to be a timestamp, the lane and the outcome. Three agents share one receipt
+      directory, and a live run caught them answering the same kind of request in the same
+      millisecond: identical name, last writer wins, and two decisions vanished with nothing to
+      indicate anything had been lost. Evidence that silently drops rows under concurrency is worse
+      than no evidence, because the gap is invisible.
+
+      The id is unique per decision, so no two receipts can name the same file however close
+      together they happen or however many processes are writing.
+    */
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    writeFileSync(join(target, `${stamp}-lane-${request.lane}-${String(body.decision)}.json`),
+    const id = String(body.requestId ?? 'no-request-id');
+    writeFileSync(join(target, `${stamp}-lane-${request.lane}-${String(body.decision)}-${id}.json`),
       `${JSON.stringify(body, null, 1)}\n`);
   } catch {
     // Deliberately silent: evidence, never a decision.
