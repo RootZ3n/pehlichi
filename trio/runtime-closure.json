@@ -345,6 +345,13 @@
       "effect": "presentation-only"
     },
     {
+      "site": "src/core/provider-profile.ts",
+      "targets": [
+        "provider-profile"
+      ],
+      "effect": "validated-authority-data"
+    },
+    {
       "site": "src/core/qualification-admission.ts",
       "targets": [
         "trio/governance/qualification-issuer.json"

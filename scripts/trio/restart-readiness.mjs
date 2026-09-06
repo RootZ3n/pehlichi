@@ -42,6 +42,8 @@ const CLOSURE_FILES = [
   // startup gate would report ready for a deployment the gate is about to refuse.
   'src/core/lane-authorization.ts', 'src/core/request-principal.ts',
   'src/core/delegated-authorization.ts', 'src/core/receipt-access.ts',
+  // The provider the agent talks to and the clocks it talks under are pinned too.
+  'src/core/provider-profile.ts', 'src/core/transport-policy.ts', 'src/core/drivers/transport.ts',
 ];
 const POLICY_PATH = 'trio/governance/boundary-manifest.json';
 

@@ -93,6 +93,11 @@ const CLOSURE_FILES: readonly string[] = Object.freeze([
   'src/core/request-principal.ts',
   'src/core/delegated-authorization.ts',
   'src/core/receipt-access.ts',
+  // Which endpoint receives the conversation, and how long it may take, are authority questions:
+  // a tampered profile reader redirects every turn, and a tampered policy makes a run unbounded.
+  'src/core/provider-profile.ts',
+  'src/core/transport-policy.ts',
+  'src/core/drivers/transport.ts',
 ]);
 
 const FULL_SHA = /^[0-9a-f]{40}$/;

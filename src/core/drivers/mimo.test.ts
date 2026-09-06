@@ -181,9 +181,18 @@ test("next(): a canned tool-call response drives a tool action (offline, fake fe
   assert.deepEqual(action, { kind: "tool", tool: "read", args: { path: "app.sh" } });
   // the request carried the MiMo conventions
   const body = JSON.parse(f.seen().body) as Record<string, unknown>;
-  assert.deepEqual(body["thinking"], { type: "disabled" });
   assert.equal(body["model"], "mimo-v2.5");
   assert.equal(body["max_completion_tokens"], 12288);
+  /*
+    NO PROVIDER-SPECIFIC FIELD unless a provider asked for one.
+
+    This assertion used to require `thinking: {type:"disabled"}` on every request -- a MiMo
+    parameter that the driver sent to whatever endpoint it was pointed at, including GLM and
+    DeepSeek, where it is at best ignored and at worst a malformed request. Provider extras now
+    travel with the root-owned provider profile, so a deployment with no profile sends none.
+  */
+  assert.equal("thinking" in body, false, "a provider-specific field was sent without a provider asking");
+  assert.equal("stream" in body, false, "streaming was requested without being negotiated");
 });
 
 // ── step 2c-fix: textual tool-call detection (Half 1) ─────────────────────────

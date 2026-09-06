@@ -224,7 +224,14 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       for the identity schema's read of the four files a deployment identity binds -- the
 //       assertion reports one undeclared site at a time, so the second only became visible once
 //       the first was declared)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dd159e5a0e1de11db0692cfe1b647c113b92dd8b677c1649880ac9cad9fa85fb';
+//   old dd159e5a0e1de11db0692cfe1b647c113b92dd8b677c1649880ac9cad9fa85fb
+//   new 4cff8aea33d8c381115b696289a7659e4738f2e085f200b8cfc1686f9f2e6c2d  (the provider
+//       profile, the transport policy and the transport itself joined the governed common runtime.
+//       Which endpoint receives the conversation and how long a run may take are authority
+//       questions -- a tampered profile reader redirects every turn -- so all three are pinned by
+//       the executed-closure digest an external lease names. A boundary change, re-anchored on
+//       purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '4cff8aea33d8c381115b696289a7659e4738f2e085f200b8cfc1686f9f2e6c2d';
 
 interface Inventory {
   schemaVersion: 3;

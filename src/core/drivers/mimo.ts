@@ -21,15 +21,19 @@
 import type { DriverAction, DriverContext, Message, ToolSpec, TokenUsage, UsageReportingDriver } from "../driver.js";
 import type { Phase } from "../events.js";
 import { CircuitBreaker, getCircuit } from "../agent-tools/circuit-breaker.js";
-import { withRetry, type RetryConfig } from "../agent-tools/retry.js";
+import { type RetryConfig } from "../agent-tools/retry.js";
 import { classifyError } from "../agent-tools/error-classifier.js";
 import { parseToolArguments } from "../agent-tools/tool-arg-repair.js";
+
+import { randomUUID } from "node:crypto";
+
+import { providerProfile } from "../provider-profile.js";
+import { DEFAULT_TRANSPORT_POLICY, type AttemptRecord, type TransportPolicy } from "../transport-policy.js";
+import { performCompletion, TransportError, type FetchLike as TransportFetch } from "./transport.js";
 
 const DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEFAULT_MODEL = "mimo-v2.5";
 const DEFAULT_MAX_COMPLETION_TOKENS = 12_288;
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
-const MAX_ERROR_DETAIL = 300;
 
 /** Minimal fetch signature (matches global fetch); injectable so tests stay offline. */
 export type FetchLike = (
@@ -97,15 +101,29 @@ export class MimoDriver implements UsageReportingDriver {
   readonly baseUrl: string;
   readonly model: string;
   readonly keyed: boolean;
+  /** Which provider this driver is actually talking to, for evidence. Never the key. */
+  readonly provider: string;
+  private readonly authStyle: "bearer" | "api-key";
+  private readonly streamingRequested: boolean;
+  private readonly requestExtras: Readonly<Record<string, unknown>>;
+  private readonly transportPolicy: TransportPolicy;
+  private readonly runId: string;
+  /** Transport attempts recorded for this driver, drained alongside the usage. */
+  private pendingAttempts: AttemptRecord[] = [];
+
+  /** Return and clear the transport attempts recorded since the last call. */
+  drainAttempts(): AttemptRecord[] {
+    const drained = this.pendingAttempts;
+    this.pendingAttempts = [];
+    return drained;
+  }
   private readonly apiKey: string | undefined;
   private readonly maxCompletionTokens: number;
   private readonly temperature: number | undefined;
-  private readonly requestTimeoutMs: number;
   private readonly fetchImpl: FetchLike;
   /** Circuit breaker for provider health protection (reasonix infrastructure). */
   private readonly breaker: CircuitBreaker | undefined;
   /** Retry policy for transient failures (reasonix infrastructure). */
-  private readonly retryConfig: Partial<RetryConfig> | undefined;
   /** H4: token usage accumulated since the last drain (real numbers from the API). */
   private pendingUsage: TokenUsage[] = [];
 
@@ -117,30 +135,46 @@ export class MimoDriver implements UsageReportingDriver {
   }
 
   constructor(opts: MimoDriverOptions = {}) {
-    const key = opts.apiKey ?? process.env["MIMO_API_KEY"];
+    /*
+      THE PROVIDER COMES FROM OUTSIDE THE REPOSITORY.
+
+      A root-owned profile on the credential channel names the provider, the endpoint, the model and
+      the key. Explicit options still win, because tests and embedders supply their own; what is
+      gone is the compiled-in default silently becoming the live answer, and the key arriving
+      through the process environment where every tool subprocess would inherit it.
+    */
+    const profile = providerProfile();
+    const key = opts.apiKey ?? profile?.apiKey ?? process.env["MIMO_API_KEY"];
     this.apiKey = key !== undefined && key.length > 0 ? key : undefined;
     this.keyed = this.apiKey !== undefined;
-    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
-    this.model = opts.model ?? DEFAULT_MODEL;
+    this.baseUrl = (opts.baseUrl ?? profile?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.model = opts.model ?? profile?.model ?? DEFAULT_MODEL;
+    this.provider = profile?.provider ?? (this.baseUrl.includes("xiaomimimo") ? "xiaomi" : "unknown");
+    this.authStyle = profile?.authStyle ?? (this.baseUrl.includes("xiaomimimo") ? "api-key" : "bearer");
+    this.streamingRequested = profile?.streaming ?? false;
+    /*
+      Provider-specific request fields travel with the PROFILE, not with the code. `thinking:
+      {type:"disabled"}` was hard-coded and sent to every endpoint this driver was ever pointed at
+      -- a MiMo parameter posted to GLM and DeepSeek, which is at best ignored and at worst a
+      malformed request. A provider declares its own extras or gets none.
+    */
+    this.requestExtras = profile?.requestExtras ?? {};
+    this.transportPolicy = DEFAULT_TRANSPORT_POLICY;
+    this.runId = `run-${randomUUID()}`;
     this.maxCompletionTokens = opts.maxCompletionTokens ?? DEFAULT_MAX_COMPLETION_TOKENS;
     this.temperature = opts.temperature;
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.fetchImpl = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
     // Circuit breaker: opt-in via options (reasonix infrastructure)
     if (opts.circuitBreaker) {
       const config = typeof opts.circuitBreaker === "object" ? opts.circuitBreaker : undefined;
       this.breaker = getCircuit(`mimo-${this.baseUrl}`, config ?? {});
     }
-    // Retry: opt-in via options (reasonix infrastructure)
-    if (opts.retry) {
-      this.retryConfig = typeof opts.retry === "object" ? opts.retry : {};
-    }
   }
 
   async next(ctx: DriverContext): Promise<DriverAction> {
     const body = {
-      // extraBody-style provider param FIRST; engine-controlled fields follow.
-      thinking: { type: "disabled" },
+      // Provider-declared extras FIRST; engine-controlled fields follow and are never overridden.
+      ...this.requestExtras,
       model: this.model,
       messages: toWireMessages(ctx.messages),
       max_completion_tokens: this.maxCompletionTokens,
@@ -153,59 +187,52 @@ export class MimoDriver implements UsageReportingDriver {
       throw new MimoError("circuit breaker open: mimo provider is temporarily unavailable");
     }
 
-    // Execute the API call, optionally with retry for transient failures
-    const doFetch = async (): Promise<ParsedCompletion> => {
-      const signal = AbortSignal.timeout(this.requestTimeoutMs);
-      const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
+    /*
+      One request, through the shared transport policy.
+
+      Retry, backoff, the five separate clocks and the attempt records all live there, so every
+      driver answers those questions the same way. `effectsObserved` comes from the turn: once a
+      tool result is in the conversation this turn has already had effects, and replaying it would
+      propose them again.
+    */
+    let parsed: ParsedCompletion;
+    try {
+      const result = await performCompletion({
+        runId: this.runId,
+        requestId: `req-${randomUUID()}`,
+        url: `${this.baseUrl}/chat/completions`,
         headers: {
           "content-type": "application/json",
-          // MiMo uses api-key header; DeepSeek/others use Bearer auth.
           ...(this.apiKey !== undefined
-            ? (this.baseUrl.includes("xiaomimimo")
+            ? (this.authStyle === "api-key"
               ? { "api-key": this.apiKey }
               : { "authorization": "Bearer " + this.apiKey })
             : {}),
         },
-        body: JSON.stringify(body),
-        signal,
+        payload: body,
+        provider: this.provider,
+        endpoint: this.baseUrl,
+        configuredModel: this.model,
+        driver: "MimoDriver",
+        streamingRequested: this.streamingRequested,
+        policy: this.transportPolicy,
+        fetchImpl: this.fetchImpl as unknown as TransportFetch,
+        effectsObserved: ctx.messages.some((m) => m.role === "tool"),
+        onAttempt: (record) => { this.pendingAttempts.push(record); },
       });
-
-      if (!res.ok) {
-        const detail = sanitizeDetail(await res.text().catch(() => ""), MAX_ERROR_DETAIL);
-        // Use error classifier to enrich the error with actionable metadata
-        const classified = classifyError(null, res.status, detail);
-        const err = new MimoError(`mimo HTTP ${res.status}: ${detail}`);
-        // Attach classification metadata for upstream consumers
-        (err as any).classified = classified;
-        throw err;
-      }
-
-      let json: unknown;
-      try {
-        json = await res.json();
-      } catch (cause) {
-        throw new MimoError(`malformed JSON from mimo: ${messageOf(cause)}`);
-      }
-
-      return parseChatCompletion(json);
-    };
-
-    let parsed: ParsedCompletion;
-    try {
-      if (this.retryConfig) {
-        parsed = await withRetry(doFetch, this.retryConfig);
-      } else {
-        parsed = await doFetch();
-      }
-      // Record success with circuit breaker
+      parsed = parseChatCompletion(result.json);
       this.breaker?.success();
     } catch (err) {
-      // Record failure with circuit breaker
       this.breaker?.failure();
+      if (err instanceof TransportError) {
+        for (const record of err.attempts) this.pendingAttempts.push(record);
+        const error = new MimoError(`${this.provider} ${err.failure}: ${err.detail ?? err.message}`);
+        (error as unknown as { classified: unknown }).classified =
+          classifyError(null, err.status ?? 0, err.detail ?? "");
+        throw error;
+      }
       if (err instanceof MimoError) throw err;
-      const aborted = err instanceof Error && err.name === "TimeoutError";
-      throw new MimoError(`${aborted ? "timeout" : "network error"} calling mimo: ${messageOf(err)}`);
+      throw new MimoError(`network error calling ${this.provider}: ${messageOf(err)}`);
     }
 
     // H4: record the REAL token usage the provider reported, so the session's
@@ -441,15 +468,6 @@ function asPhase(v: unknown): Phase {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function sanitizeDetail(raw: string, max: number): string {
-  let out = "";
-  for (const ch of raw) {
-    const code = ch.codePointAt(0) ?? 0;
-    out += code < 0x20 || code === 0x7f ? " " : ch;
-  }
-  return out.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function messageOf(err: unknown): string {
