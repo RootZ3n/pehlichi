@@ -475,7 +475,25 @@
       "trees": [
         "dist"
       ],
-      "digest": "0f33f98eb58d0204eb739c93d57f6e277382abd75b1029269c975c2a73ec417c"
+      "digest": "4d2930bbe25902fa2377d29211edc198ca8c1554440186db3fbf8d3e845dc5dc",
+      "provenance": {
+        "sourceRepository": "../../lab-utilities/lab-memory",
+        "sourceCommit": "307fbecc45595ce144eb2d2363fe721b3e7f5dac",
+        "buildCommand": "tsc -p tsconfig.json",
+        "reproduced": "byte-identical rebuild from a clean detached worktree at the recorded commit; 48/48 emitted files matched",
+        "supersedes": {
+          "digest": "0f33f98eb58d0204eb739c93d57f6e277382abd75b1029269c975c2a73ec417c",
+          "sourceCommit": "af14f4a",
+          "delta": "two commits: 7153f57 removed the implicit default store/vault roots so an unset MEMORY_STORE_ROOT or LABMEM_VAULT now refuses instead of writing persistent state into an immutable release tree; 307fbec corrected a stale doc comment, which tsc emits into dist and which is the only difference in that commit's runtime bytes",
+          "authorityDirection": "narrowing: two silent fallbacks became explicit refusals; nothing gained authority"
+        },
+        "reviewedOn": "2026-09-06",
+        "sourcePaths": [
+          "src",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
     },
     {
       "specifier": "labmem",
@@ -502,7 +520,25 @@
       "trees": [
         "dist"
       ],
-      "digest": "21ed0a2edcb2e02660bbf457e33004b41a521d85f4ea31cf22e766dd19752208"
+      "digest": "a4fc2392e6e6838bec32c47c65fe6f659bb12d141d19073245146f900a0d2cf7",
+      "provenance": {
+        "sourceRepository": "../../lab-utilities/lab-store",
+        "sourceCommit": "c9e6da0ea272702e13afd7059e65ea4845671b39",
+        "sourcePaths": [
+          "src",
+          "package.json",
+          "tsconfig.json"
+        ],
+        "buildCommand": "tsc -p tsconfig.json",
+        "reproduced": "byte-identical rebuild from a clean detached worktree at the recorded commit; 28/28 emitted files matched",
+        "supersedes": {
+          "digest": "21ed0a2edcb2e02660bbf457e33004b41a521d85f4ea31cf22e766dd19752208",
+          "sourceCommit": "3e6b98b",
+          "delta": "one commit, c9e6da0: the implicit default store root -- the package directory -- was removed, so an unset LAB_STORE_ROOT now refuses instead of writing persistent state into an immutable release tree; the singleton became lazily bound and `defaultStoreRoot` became `resolveDefaultStoreRoot`",
+          "authorityDirection": "narrowing: a silent fallback became an explicit refusal; nothing gained authority"
+        },
+        "reviewedOn": "2026-09-06"
+      }
     },
     {
       "specifier": "playwright",

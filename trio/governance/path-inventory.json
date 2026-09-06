@@ -312,6 +312,7 @@
       "src/core/bridges/registry.ts",
       "src/core/chat-credential.ts",
       "src/core/checkpoint.ts",
+      "src/core/client-principal-delivery.test.ts",
       "src/core/containment-config.ts",
       "src/core/containment-wiring.test.ts",
       "src/core/containment/VENDORED.md",

@@ -659,6 +659,48 @@ test('external dependencies have explicit lock/platform/local-content integrity 
     if (item.kind !== 'local-runtime-tree') continue;
     const dependencyRoot = realpathSync(resolve(currentRoot, item.root!));
     assert.equal(localDependencyDigest(dependencyRoot, item), item.digest, `${item.specifier}: local shipped runtime changed without acknowledgement`);
+
+    /*
+      AN ACKNOWLEDGEMENT MUST SAY WHERE THE BYTES CAME FROM, not merely that somebody saw them.
+
+      A digest on its own answers "are these the bytes we last looked at?" and nothing else, so the
+      only way to make it pass again is to write down whatever is there now -- which is exactly the
+      move that turns an integrity check into a formality. `lab-memory` drifted, and re-blessing the
+      new hash would have been indistinguishable from accepting a tampered tree.
+
+      When a declaration carries a `provenance` block it must instead name the source commit those
+      bytes were built from, and that commit must STILL be what is checked out, in a clean tree. So
+      a rebuild from an unreviewed commit now fails twice and says which: the digest moved, and the
+      acknowledged source is no longer the source. This only strengthens the check -- a declaration
+      without the block is verified exactly as before.
+    */
+    const provenance = (item as { provenance?: Record<string, unknown> }).provenance;
+    if (provenance === undefined) continue;
+    assert.equal(typeof provenance.sourceCommit, 'string', `${item.specifier}: provenance names no source commit`);
+    assert.match(String(provenance.sourceCommit), /^[0-9a-f]{40}$/,
+      `${item.specifier}: the acknowledged source commit is not a full commit id`);
+    assert.equal(typeof provenance.buildCommand, 'string', `${item.specifier}: provenance names no build command`);
+    assert.equal(typeof provenance.reproduced, 'string', `${item.specifier}: provenance records no reproduction`);
+    const head = spawnSync('git', ['-C', dependencyRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+    assert.equal(head.status, 0, `${item.specifier}: the dependency root is not a readable repository`);
+    assert.equal(head.stdout.trim(), provenance.sourceCommit,
+      `${item.specifier}: the shipped runtime no longer sits on its acknowledged source commit`);
+    /*
+      Cleanliness is asserted on the BUILD INPUTS, not on the whole tree.
+
+      `lab-store` keeps agent checkpoints in a data directory beside its source, and the running
+      services write there constantly. A whole-tree check would have called that "uncommitted
+      source drift" every time an agent took a checkpoint -- an assertion that cries wolf is one
+      that gets switched off. What must be committed is whatever the shipped bytes were built
+      from, and the declaration names exactly that.
+    */
+    const sourcePaths = provenance.sourcePaths;
+    assert.ok(Array.isArray(sourcePaths) && sourcePaths.length > 0 && sourcePaths.every((p) => typeof p === 'string'),
+      `${item.specifier}: provenance names no build inputs`);
+    const dirty = spawnSync('git', ['-C', dependencyRoot, 'status', '--porcelain', '--', ...sourcePaths as string[]],
+      { encoding: 'utf8' });
+    assert.equal(dirty.stdout.trim(), '',
+      `${item.specifier}: the acknowledged build inputs have uncommitted changes`);
   }
   assert.ok(loadTrustedManifests(currentRoot).shared.includes('tui/pnpm-lock.yaml'));
   assert.ok(loadTrustedManifests(currentRoot).shared.includes('tui/package.json'));
