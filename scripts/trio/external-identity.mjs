@@ -26,6 +26,11 @@
 import { closeSync, fstatSync, lstatSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import {
+  IdentitySchemaRefused, LEGACY_SCHEMA_VERSION, RELEASE_SCHEMA_VERSION,
+  assertReleaseBinding, assertSchema1, assertSchema3, isReleaseTree,
+  BOUND_FILES as SCHEMA_BOUND_FILES, CONTAINMENT_VERSION_FILE,
+} from './identity-schema.mjs';
 
 /** The credential name. IDENTICAL for all three services; only the root-owned source differs. */
 export const CREDENTIAL_NAME = 'agent-identity';
@@ -33,7 +38,15 @@ export const CREDENTIAL_NAME = 'agent-identity';
 /** systemd materialises credentials here. Nothing under it is creatable by the service account. */
 export const CREDENTIAL_ROOT = '/run/credentials';
 
-export const IDENTITY_SCHEMA_VERSION = 1;
+/**
+ * The schema an ACTIVATED RELEASE must present. Re-exported from the shared specification so this
+ * module and every other in-release consumer cannot drift apart — the drift between this gate and
+ * the external validator is exactly what failed the r-20260906T020222Z activation.
+ */
+export const IDENTITY_SCHEMA_VERSION = RELEASE_SCHEMA_VERSION;
+
+/** The schema the pre-release source deployment still presents. Off the release path only. */
+export { LEGACY_SCHEMA_VERSION };
 
 /** The record is small and fixed; anything larger is not one. */
 const MAX_RECORD_BYTES = 4096;
@@ -105,8 +118,18 @@ const SAFE_ID = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 
-/** Validate the record's shape. Closed in both directions: nothing missing, nothing extra. */
-export function parseIdentityRecord(text) {
+/**
+ * Validate the record's shape against the closed specification for the tree we are running from.
+ *
+ * `releaseTree` decides WHICH specification, and it is derived from the tree itself — never from a
+ * caller. In a release the answer is schema 3 and nothing else; off the release path schema 1 is
+ * still accepted so the source rollback deployment stays restartable during the transition.
+ *
+ * The two are not equivalent and this code does not treat them as such. Schema 3 additionally binds
+ * the release identity, closure, manifest, boundary anchor, packaging profile and data roots. The
+ * external validator refuses schema 1 outright, so a release can never actually run on it.
+ */
+export function parseIdentityRecord(text, options = {}) {
   if (text.length === 0) throw new ExternalIdentityRefused('empty_record', 'the record is empty');
   if (text.length > MAX_RECORD_BYTES) throw new ExternalIdentityRefused('oversized_record', `${text.length} bytes`);
   assertNoDuplicateKeys(text);
@@ -118,29 +141,17 @@ export function parseIdentityRecord(text) {
     throw new ExternalIdentityRefused('malformed_record', `not valid JSON: ${error.message}`);
   }
 
-  assertExactKeys(parsed, ['schemaVersion', 'agent', 'package', 'capsule', 'deployment', 'containment'], 'record');
-  if (parsed.schemaVersion !== IDENTITY_SCHEMA_VERSION) {
-    throw new ExternalIdentityRefused('unsupported_schema', `schemaVersion ${JSON.stringify(parsed.schemaVersion)}`);
-  }
-  if (typeof parsed.agent !== 'string' || !SAFE_ID.test(parsed.agent)) {
-    throw new ExternalIdentityRefused('malformed_record', 'agent is not a safe identifier');
-  }
-  assertExactKeys(parsed.package, ['name', 'sha256'], 'record.package');
-  assertExactKeys(parsed.capsule, ['sha256'], 'record.capsule');
-  assertExactKeys(parsed.deployment, ['sha256'], 'record.deployment');
-  assertExactKeys(parsed.containment, ['version'], 'record.containment');
-  if (typeof parsed.package.name !== 'string' || !SAFE_ID.test(parsed.package.name)) {
-    throw new ExternalIdentityRefused('malformed_record', 'package.name is not a safe identifier');
-  }
-  for (const [where, value] of [['package', parsed.package.sha256], ['capsule', parsed.capsule.sha256], ['deployment', parsed.deployment.sha256]]) {
-    if (typeof value !== 'string' || !DIGEST.test(value)) {
-      throw new ExternalIdentityRefused('malformed_record', `${where}.sha256 is not a sha256 digest`);
+  const releaseTree = options.releaseTree === true;
+  try {
+    if (releaseTree) return assertSchema3(parsed);
+    if (parsed?.schemaVersion === RELEASE_SCHEMA_VERSION) return assertSchema3(parsed);
+    return assertSchema1(parsed);
+  } catch (error) {
+    if (error instanceof IdentitySchemaRefused) {
+      throw new ExternalIdentityRefused(error.code, error.message.replace(/^identity record refused \[[a-z_]+\]: /, ''));
     }
+    throw error;
   }
-  if (typeof parsed.containment.version !== 'string' || !VERSION.test(parsed.containment.version)) {
-    throw new ExternalIdentityRefused('malformed_record', 'containment.version is not a version');
-  }
-  return parsed;
 }
 
 /**
@@ -155,7 +166,7 @@ export function parseIdentityRecord(text) {
  * The descriptor is opened once, read once, and closed in a `finally`. Nothing is cached and nothing
  * is handed onward.
  */
-export function readCredentialRecord(env = process.env) {
+export function readCredentialRecord(env = process.env, options = {}) {
   const directory = env.CREDENTIALS_DIRECTORY;
   if (typeof directory !== 'string' || directory.length === 0) {
     throw new ExternalIdentityRefused('no_credential_channel',
@@ -208,7 +219,7 @@ export function readCredentialRecord(env = process.env) {
     const buffer = Buffer.alloc(stat.size);
     const read = readSync(fd, buffer, 0, stat.size, 0);
     if (read !== stat.size) throw new ExternalIdentityRefused('truncated_record', `read ${read} of ${stat.size} bytes`);
-    return parseIdentityRecord(buffer.toString('utf8'));
+    return parseIdentityRecord(buffer.toString('utf8'), options);
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
@@ -291,11 +302,25 @@ export function assertRepositoryBinding(repositoryRoot, record) {
  * that the digests matched. Never the record itself.
  */
 export function assertExternalBinding(repositoryRoot, env = process.env) {
-  const record = readCredentialRecord(env);
+  /*
+    Which specification applies is decided by the TREE, not the caller. A release carries
+    RELEASE.json; a source checkout does not, and cannot be talked into pretending it does by any
+    environment variable, argument or path this function accepts.
+  */
+  const releaseTree = isReleaseTree(repositoryRoot);
+  const record = readCredentialRecord(env, { releaseTree });
+
+  // Common to both schemas: the record's digests must match this tree's actual bytes.
   assertRepositoryBinding(repositoryRoot, record);
+
+  // Schema 3 additionally binds the release itself.
+  if (releaseTree) assertReleaseBinding(repositoryRoot, record, fileDigest);
+
   return Object.freeze({
     agent: record.agent,
     schemaVersion: record.schemaVersion,
+    releaseTree,
+    ...(releaseTree ? { releaseId: record.release.id } : {}),
     boundFiles: Object.freeze(Object.values(BOUND_FILES)),
     digestsMatched: true,
   });
