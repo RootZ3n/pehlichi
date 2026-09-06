@@ -167,13 +167,15 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // Final position, once the ownership sidecar read was declared as validated runtime state.
 //   old 539c49596d5bbd7d04ba0654afe2420144ca4106227c7ca24a25771c8533b19d
 //   new c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8
-// Moved by the fail-closed data roots: `src/core/data-roots.ts` is new governed source, and the
-// resolvers that used to fall back to a repository path or the package's own directory now refuse.
-// The fallbacks were the bug -- inside a deployed release the package directory IS the release --
-// so removing them is a boundary change, and the anchor is supposed to say so.
-//   old c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8
-//   new 9f0775a221121657d3c98e96b0463ca1254f4f131d7b9c1032ec79b69c3501f0
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9f0775a221121657d3c98e96b0463ca1254f4f131d7b9c1032ec79b69c3501f0';
+// Unmoved by the fail-closed data roots, and the attempt to move it is worth recording.
+// `build-provenance.mjs` prints a `boundaryShapeSha256` which is NOT this anchor: it hashes the
+// bare shape object, from `trio/governance/path-inventory.json`, while the anchor hashes
+// {anchorVersion, inventorySchemaVersion, shape, anchored file bytes} from `trio/path-inventory.json`.
+// Two digests, similar names, different inputs. Taking the generator's number for this constant
+// broke the anchor in all three repositories until T22 refused it -- which is the test doing
+// exactly its job. src/core/data-roots.ts changed `governedCommon`, which the anchor shape does
+// not include, so the trusted boundary genuinely did not move.
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8';
 
 interface Inventory {
   schemaVersion: 3;
