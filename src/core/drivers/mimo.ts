@@ -110,6 +110,8 @@ export class MimoDriver implements UsageReportingDriver {
   private readonly runId: string;
   /** Transport attempts recorded for this driver, drained alongside the usage. */
   private pendingAttempts: AttemptRecord[] = [];
+  /** The reasoning from this driver's most recent completion, returned on the next request. */
+  private lastReasoning: string | undefined;
 
   /** Return and clear the transport attempts recorded since the last call. */
   drainAttempts(): AttemptRecord[] {
@@ -176,7 +178,7 @@ export class MimoDriver implements UsageReportingDriver {
       // Provider-declared extras FIRST; engine-controlled fields follow and are never overridden.
       ...this.requestExtras,
       model: this.model,
-      messages: toWireMessages(ctx.messages),
+      messages: withReasoning(toWireMessages(ctx.messages), this.lastReasoning),
       max_completion_tokens: this.maxCompletionTokens,
       ...(this.temperature !== undefined ? { temperature: this.temperature } : {}),
       ...(ctx.tools.length > 0 ? { tools: toProviderTools(ctx.tools) } : {}),
@@ -238,6 +240,7 @@ export class MimoDriver implements UsageReportingDriver {
     // H4: record the REAL token usage the provider reported, so the session's
     // TokenMonitor reflects actual consumption instead of staying at zero.
     if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);
+    this.lastReasoning = parsed.reasoningContent;
     /*
       Map the provider's chosen name back before the action is formed. The provider only ever saw
       wire-safe names, so a tool call naming `bridge_health` means the runtime's `bridge.health`
@@ -332,6 +335,39 @@ export function toProviderTools(tools: readonly ToolSpec[]): Array<Record<string
  * user turn labelled as tool output — robust across strict endpoints. The
  * response protocol is injected as a system message right after the first one.
  */
+/*
+  RETURNING A THINKING MODEL'S REASONING.
+
+  The loop does not replay a provider's assistant message; it reconstructs one from the parsed
+  action ("call read_file({...})"). That is deliberate and works everywhere except thinking mode on
+  DeepSeek, which refuses any continuation of an assistant turn whose reasoning was not passed back:
+
+    400 The `reasoning_content` in the thinking mode must be passed back to the API.
+
+  Measured, not assumed: replaying one refused request verbatim reproduces the 400 every time, and
+  the same request with the reasoning restored on its last assistant message returns 200. GLM and
+  MiMo both accept the field and ignore it, so this is not gated on a provider name — a message
+  that carries the reasoning it was given is simply a more faithful message.
+
+  It attaches to the LAST assistant message because that is the turn being continued, and it is the
+  provider's own text rather than a placeholder: echoing something the model did not think would be
+  a fabrication in the transcript the model reads back.
+*/
+export function withReasoning(
+  wire: Array<Record<string, string>>,
+  reasoning: string | undefined,
+): Array<Record<string, string>> {
+  if (reasoning === undefined || reasoning.length === 0) return wire;
+  for (let i = wire.length - 1; i >= 0; i -= 1) {
+    const entry = wire[i];
+    if (entry !== undefined && entry["role"] === "assistant") {
+      wire[i] = { ...entry, reasoning_content: reasoning };
+      break;
+    }
+  }
+  return wire;
+}
+
 export function toWireMessages(messages: readonly Message[]): Array<Record<string, string>> {
   const wire: Array<Record<string, string>> = [];
   let protocolInjected = false;
@@ -356,6 +392,15 @@ export interface ParsedCompletion {
   readonly finishReason: string;
   /** H4: real token usage from the provider response, when present. */
   readonly usage?: TokenUsage;
+  /**
+   * The provider's own reasoning trace, when it emitted one.
+   *
+   * A thinking model that produced reasoning on one turn may REQUIRE it back on the next:
+   * DeepSeek refuses the follow-up outright with "The `reasoning_content` in the thinking mode
+   * must be passed back to the API". It is carried here so the driver can return it rather than
+   * silently dropping it.
+   */
+  readonly reasoningContent?: string;
 }
 
 /** Validate the provider JSON and extract content / tool calls / finish reason. */
@@ -375,7 +420,9 @@ export function parseChatCompletion(json: unknown): ParsedCompletion {
 
   const toolCalls = parseToolCalls(message.tool_calls);
   const usage = parseUsage(json);
+  const reasoning = message.reasoning_content;
   return {
+    ...(typeof reasoning === "string" && reasoning.length > 0 ? { reasoningContent: reasoning } : {}),
     content: typeof rawContent === "string" ? rawContent : "",
     toolCalls,
     finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown",

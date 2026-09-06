@@ -13,6 +13,7 @@ import {
   type FetchLike,
   toWireToolName,
   fromWireToolName,
+  withReasoning,
 } from "./mimo.js";
 
 // All tests here are OFFLINE: canned provider JSON fixtures + a fake fetch.
@@ -275,4 +276,42 @@ test('a name collision on the wire is refused, not silently merged', () => {
   // and the runtime would have no way to know which one it meant.
   assert.throws(() => toProviderTools([spec('bridge.health'), spec('bridge_health')]),
     /both become bridge_health/);
+});
+
+test("a thinking model's reasoning is carried out of the completion", () => {
+  const parsed = parseChatCompletion({ choices: [{ finish_reason: 'stop',
+    message: { content: 'BLUE', reasoning_content: 'The user asked for a colour.' } }] });
+  assert.equal(parsed.reasoningContent, 'The user asked for a colour.');
+  assert.equal(parsed.content, 'BLUE');
+  // Absent or empty reasoning stays absent rather than becoming an empty string, so the driver
+  // never sends a field claiming the model thought nothing.
+  assert.equal(parseChatCompletion(completion({ content: 'x' }, 'stop')).reasoningContent, undefined);
+  assert.equal(parseChatCompletion({ choices: [{ finish_reason: 'stop',
+    message: { content: 'x', reasoning_content: '' } }] }).reasoningContent, undefined);
+});
+
+test('the reasoning is returned on the assistant turn being continued', () => {
+  /*
+    DeepSeek refuses a continuation whose assistant turn dropped its reasoning:
+    400 "The `reasoning_content` in the thinking mode must be passed back to the API".
+    It attaches to the LAST assistant message because that is the turn being continued.
+  */
+  const wire = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: 'first' },
+    { role: 'user', content: 'TOOL RESULT:\nok' },
+    { role: 'assistant', content: 'second' },
+  ];
+  const out = withReasoning(wire, 'because');
+  assert.equal(out[3]?.['reasoning_content'], 'because', 'the continued turn must carry it');
+  assert.equal(out[1]?.['reasoning_content'], undefined, 'an earlier turn must not be rewritten');
+  assert.equal(out[3]?.['content'], 'second', 'the content must be untouched');
+});
+
+test('no reasoning means no field, and no assistant turn means no change', () => {
+  const wire = () => [{ role: 'user', content: 'u' }];
+  assert.deepEqual(withReasoning(wire(), undefined), wire());
+  assert.deepEqual(withReasoning(wire(), ''), wire());
+  // A conversation with no assistant turn yet is left exactly as it was.
+  assert.deepEqual(withReasoning(wire(), 'because'), wire());
 });
