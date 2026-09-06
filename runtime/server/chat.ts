@@ -15,6 +15,14 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  /**
+   * The provider's own reasoning for an assistant turn, when it emitted one.
+   *
+   * A thinking model may REQUIRE it back: DeepSeek refuses any continuation of an assistant turn
+   * whose reasoning was dropped, with "The `reasoning_content` in the thinking mode must be passed
+   * back to the API". It is kept on the turn so the next request can return it.
+   */
+  reasoningContent?: string;
 }
 
 export interface ChatResponse {
@@ -194,9 +202,17 @@ export class ChatSession {
     const thinkingVerb = verbs[Math.floor(Math.random() * verbs.length)] ?? 'thinking';
 
     // Build the API request
+    /*
+      Each assistant turn carries the reasoning that produced it back to the provider. The turn the
+      user sees is the FIREWALL-AUTHORIZED text, not the model's raw answer, so the reasoning cannot
+      be recovered from the content — it has to be kept alongside it. GLM and MiMo accept the field
+      and ignore it, so this is not gated on a provider name.
+    */
     const wireMessages = this.messages.map(m => ({
       role: m.role,
       content: m.content,
+      ...(m.reasoningContent !== undefined && m.reasoningContent.length > 0
+        ? { reasoning_content: m.reasoningContent } : {}),
     }));
 
     const headers: Record<string, string> = {
@@ -258,10 +274,11 @@ export class ChatSession {
       });
 
       const parsed = result.json as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       let content = parsed.choices?.[0]?.message?.content ?? '';
+      const reasoningContent = parsed.choices?.[0]?.message?.reasoning_content;
       let usage: { in: number; out: number } | undefined;
       if (parsed.usage) usage = { in: parsed.usage.prompt_tokens ?? 0, out: parsed.usage.completion_tokens ?? 0 };
       // Deltas are delivered to the caller only when bytes genuinely arrived over time. Emitting
@@ -283,6 +300,7 @@ export class ChatSession {
         role: 'assistant',
         content: authorized,
         timestamp: Date.now(),
+        ...(reasoningContent !== undefined && reasoningContent.length > 0 ? { reasoningContent } : {}),
       });
 
       return { content: authorized, thinkingVerb, ...authorised, ...(usage ? { usage } : {}) };

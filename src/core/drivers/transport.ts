@@ -113,6 +113,12 @@ export async function readSseCompletion(
   let firstByteAt = 0;
   let chunks = 0;
   let content = '';
+  /*
+    A thinking model streams its reasoning as its own delta field, and a provider may REQUIRE that
+    reasoning back on the next request. Dropping it here would silently defeat the round-trip on
+    every streamed turn, which is most of them.
+  */
+  let reasoning = '';
   let finishReason: string | undefined;
   let model: string | undefined;
   let usage: unknown;
@@ -146,6 +152,7 @@ export async function readSseCompletion(
       const delta = choice['delta'] as Record<string, unknown> | undefined;
       if (delta === undefined) continue;
       if (typeof delta['content'] === 'string') content += delta['content'];
+      if (typeof delta['reasoning_content'] === 'string') reasoning += delta['reasoning_content'];
       const calls = delta['tool_calls'] as Array<Record<string, unknown>> | undefined;
       for (const call of calls ?? []) {
         const index = typeof call['index'] === 'number' ? call['index'] : 0;
@@ -169,6 +176,7 @@ export async function readSseCompletion(
       message: {
         role: 'assistant',
         content,
+        ...(reasoning.length > 0 ? { reasoning_content: reasoning } : {}),
         ...(toolCalls.size > 0
           ? {
               tool_calls: [...toolCalls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => ({

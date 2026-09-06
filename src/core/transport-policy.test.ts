@@ -306,3 +306,28 @@ test('describing a profile can never describe its key', () => {
   assert.equal(described?.configuredModel, 'm');
   assert.equal(describe(undefined), undefined);
 });
+
+test('a streamed reasoning trace is aggregated and returned', async () => {
+  /*
+    A thinking model streams its reasoning as its own delta field. Dropping it would silently defeat
+    the round-trip on every streamed turn — which is most of them — and the provider would refuse
+    the next request.
+  */
+  const read = await readSseCompletion(sse([
+    'data: {"choices":[{"delta":{"reasoning_content":"I should "}}]}\n',
+    'data: {"choices":[{"delta":{"reasoning_content":"say blue."}}]}\n',
+    'data: {"choices":[{"delta":{"content":"BLUE"},"finish_reason":"stop"}]}\n',
+  ]), { idleMs: 1000, signal: new AbortController().signal });
+  const message = (read.json as { choices: Array<{ message: { content: string; reasoning_content?: string } }> })
+    .choices[0]?.message;
+  assert.equal(message?.reasoning_content, 'I should say blue.');
+  assert.equal(message?.content, 'BLUE', 'content and reasoning must stay separate');
+});
+
+test('no streamed reasoning means no field at all', async () => {
+  const read = await readSseCompletion(sse([
+    'data: {"choices":[{"delta":{"content":"BLUE"},"finish_reason":"stop"}]}\n',
+  ]), { idleMs: 1000, signal: new AbortController().signal });
+  const message = (read.json as { choices: Array<{ message: { reasoning_content?: string } }> }).choices[0]?.message;
+  assert.equal(message?.reasoning_content, undefined);
+});
