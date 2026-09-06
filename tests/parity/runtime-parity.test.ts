@@ -231,7 +231,12 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       questions -- a tampered profile reader redirects every turn -- so all three are pinned by
 //       the executed-closure digest an external lease names. A boundary change, re-anchored on
 //       purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'd8d9f71dd1a340e4cd68a15e884165989ebbe425a82710d529a6ab5090229d1c';
+//   old d8d9f71dd1a340e4cd68a15e884165989ebbe425a82710d529a6ab5090229d1c
+//   new 46ce8c72af756eda1891e703063f3b3f3a57e545751243a4a4c309f1aa0a865a  (the truth gate
+//       stopped declaring every bound repository on every turn and now names only the ones a turn
+//       actually affected. `truth-gate.ts` is an anchored file, so correcting what it asserts moves
+//       the shape -- a boundary change, re-anchored on purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '46ce8c72af756eda1891e703063f3b3f3a57e545751243a4a4c309f1aa0a865a';
 
 interface Inventory {
   schemaVersion: 3;

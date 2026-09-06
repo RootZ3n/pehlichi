@@ -312,7 +312,22 @@ export class TruthSessionGate {
       workspace: this.workspace,
       candidateNarrative: input.candidateNarrative,
       hostEvents: events,
-      trustedRepositories: this.bindings,
+      /*
+        AFFECTED REPOSITORIES, and only the affected ones.
+
+        The gate binds every repository it can attest at construction, and then declared all of
+        them on every turn — including a tool-free conversational turn that read nothing and
+        changed nothing. The firewall's rule is that every AFFECTED repository must verify
+        completely, so a chat message like "what is 17 times 23" was refused with
+        "repository-scope-incomplete": it had claimed to affect trees it never touched, and those
+        trees cannot verify completely because their vendor directories are ignored and oversized.
+
+        A turn with no host events affects no repository, and saying so is accuracy rather than
+        leniency: the rule is unchanged and still applies to every repository a turn does touch.
+        What stops is asserting an involvement that did not happen — which was making the firewall
+        refuse correct answers for a reason that had nothing to do with them.
+      */
+      trustedRepositories: events.length > 0 ? this.bindings : [],
       // Claims the *runtime* is willing to stand behind, never the model's. `file_modified`
       // is its own measurement of the repository; the verification entries are proposals
       // the protocol settles by running the repository's policy-owned scripts itself, so
