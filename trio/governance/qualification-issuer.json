@@ -1,0 +1,8 @@
+{
+  "schema": "trio-qualification-issuer/1",
+  "issuer": "pehverse-qualification-issuer",
+  "algorithm": "ed25519",
+  "keyId": "0e57721e15ffb2f4eaaf73744565c69c",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAre3rt1b+oH0drebWr1Jq6Jk580cehHT9lIYLSplz/PI=\n-----END PUBLIC KEY-----\n",
+  "note": "Public half only. The private half lives outside every subject repository, in the qualification audit tree. This repository can verify and narrow an admission; it cannot mint or widen one."
+}

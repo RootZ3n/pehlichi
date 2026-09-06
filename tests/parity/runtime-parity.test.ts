@@ -188,7 +188,11 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //   new 85a1dcaf41790cc33401a5f4d33542551da4a91645021340000f41bfdd870c68  (a source tree accepts schema 1 only)
 //   old 85a1dcaf41790cc33401a5f4d33542551da4a91645021340000f41bfdd870c68
 //   new 9168344616975f157c2dad2812a361b5479135eb52b9813dfe40cc278a872ed7  (the .d.mts declaration is anchored too)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9168344616975f157c2dad2812a361b5479135eb52b9813dfe40cc278a872ed7';
+//   old 9168344616975f157c2dad2812a361b5479135eb52b9813dfe40cc278a872ed7
+//   new 048dc3ff95f5def32c63e2f1d2062eda5a6468087f77b10633d2ab8fb92d8eb0  (the qualification
+//       admission joined the governed common runtime, so the shape it anchors grew by one
+//       module and one committed trust anchor -- a boundary change, re-anchored on purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '048dc3ff95f5def32c63e2f1d2062eda5a6468087f77b10633d2ab8fb92d8eb0';
 
 interface Inventory {
   schemaVersion: 3;

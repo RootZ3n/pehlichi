@@ -45,6 +45,7 @@ function sources(): { path: string; text: string }[] {
 
 const ADMISSION = join(here, 'operational-admission.ts');
 const LOOP = join(here, 'loop.ts');
+const QUALIFICATION = join(here, 'qualification-admission.ts');
 
 /** Strip comments and string literals so a guard is not satisfied or tripped by prose. */
 function code(text: string): string {
@@ -110,11 +111,44 @@ test('the shadow entry point is gated the same way', () => {
   assert.match(body, /if\s*\(\s*!\s*admission\.admitted\s*\)\s*throw/);
 });
 
-test('the run options carry no admission input at all', () => {
+test('the run options carry no admission input a caller could satisfy by asserting it', () => {
   const text = code(readFileSync(LOOP, 'utf8'));
   for (const field of ['operationalPurpose', 'operationalAuthority', 'purpose', 'authority', 'bypass', 'override'])
     assert.equal(new RegExp(`readonly\\s+${field}\\??\\s*:`).test(text), false,
       `RunAgentOptions accepts \`${field}\`, which makes admission caller-controlled`);
+
+  // `qualification` IS a caller-supplied input, and saying otherwise would make this guard a
+  // reassurance. What makes it not the bypass that was removed is that a caller cannot satisfy
+  // it by asserting anything: it is an opaque document minted outside this repository, and the
+  // only code that reads it verifies a signature against a committed anchor before anything
+  // else. So the guard is not "no input" -- it is "no input this repository can forge".
+  const options = text.slice(text.indexOf('export interface RunAgentOptions'));
+  const admissionFields = [...options.slice(0, options.indexOf('\n}')).matchAll(/readonly\s+(\w+)\??\s*:/g)]
+    .map((m) => m[1] ?? '')
+    // Names that would carry an ADMISSION. `unattendedGrantedTools` grants tools inside a run
+    // that was already admitted, which is a lane, not an authority, and is covered elsewhere.
+    .filter((name) => /qualif|admiss|credential|authoriz/i.test(name) || /^(grant|token)/i.test(name));
+  assert.deepEqual(admissionFields, ['qualification'],
+    `RunAgentOptions carries admission-shaped inputs beyond the verified one: ${admissionFields.join(', ')}`);
+
+  // The loop must not decide anything about it itself; it hands it to the verifier whole.
+  const runAgentBody = code(functionBody(readFileSync(LOOP, 'utf8'), 'export async function runAgent('));
+  assert.equal(/opts\.qualification\s*(===|!==|\?\?|\|\|)/.test(runAgentBody), false,
+    'runAgent inspects the qualification instead of handing it to the verifier');
+
+  // And the verifier must never be able to admit without a signature, an external anchor and a
+  // single-use consumption -- in that order, before it returns an admission.
+  const verifier = code(readFileSync(QUALIFICATION, 'utf8'));
+  assert.match(verifier, /edVerify\(/, 'the verifier no longer checks a signature');
+  assert.match(verifier, /createPublicKey\(/, 'the verifier no longer resolves an external public key');
+  assert.equal(/createPrivateKey|generateKeyPair|createSign\(/.test(verifier), false,
+    'the repository has grown the ability to mint an admission');
+  // The RETURN site, not the type union that declares its shape.
+  const admitAt = verifier.indexOf('admitted: true,');
+  assert.notEqual(admitAt, -1, 'the verifier no longer admits anything');
+  const before = verifier.slice(0, admitAt);
+  for (const required of ['edVerify(', 'consume(', 'subjectIdentity('])
+    assert.ok(before.includes(required), `the verifier admits before reaching ${required}`);
 });
 
 test('the decision function has no branch a caller value can steer to an admission', () => {

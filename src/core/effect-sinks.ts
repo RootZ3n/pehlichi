@@ -120,6 +120,11 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/gbrain-bridge.ts': ['child-process'],
   'src/core/lab-transcript.ts': ['filesystem-mutation'],
   'src/core/loop.ts': ['tool-invocation'],
+  // Pre-model qualification checking. `child-process` because the subject's own commit and
+  // tree are read from git rather than taken from the caller; `filesystem-mutation` because
+  // consuming a nonce and writing a refusal receipt are both durable writes, and both must
+  // happen before anything reaches a model or a tool.
+  'src/core/qualification-admission.ts': ['child-process', 'filesystem-mutation'],
   'src/core/scenario.ts': ['child-process', 'filesystem-mutation'],
   'src/core/shadow.ts': ['filesystem-mutation'],
   'src/core/subagent-entry.ts': ['filesystem-mutation'],

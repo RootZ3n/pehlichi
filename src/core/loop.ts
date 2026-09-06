@@ -11,6 +11,7 @@ import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
+import { qualifyRun, type QualificationGrant } from "./qualification-admission.js";
 // The loop's decisions live here, apart from its effects. Production uses these; so do the
 // pure component tests. A pure layer production does not use tests one implementation and
 // ships another.
@@ -222,6 +223,17 @@ export interface RunAgentOptions {
   readonly evidenceRecorder?: RestrictedEvidenceRecorder;
   /** Owner-bound background-process capability. Kernel sessions inject a persistent scope. */
   readonly processScope?: ProcessScope;
+  /**
+   * A QUALIFICATION ADMISSION, exactly as an external issuer produced it.
+   *
+   * This is not the caller-supplied authority that was removed. It is an opaque signed
+   * document this repository can verify and narrow but cannot mint, whose every deciding
+   * field -- agent, commit, tree, task, fixture, tool set, validity window, nonce -- is bound
+   * into the signature. Absent, altered, expired, replayed or issued for different work, it
+   * refuses exactly like presenting nothing. It is consulted ONLY after the committed status
+   * has already refused, and it can never admit production work.
+   */
+  readonly qualification?: string;
 }
 
 /** A request to approve (or refuse) a single tool call, handed to an ApprovalCallback. */
@@ -348,9 +360,29 @@ export class OperationalWorkRefused extends Error {
  * answer.
  */
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
-  const admission = admitRunWork('agent-run');
+  const admission = qualifyRun(admitRunWork('agent-run'), {
+    agentName: opts.profile.name,
+    agentRole: opts.profile.role,
+    taskId: opts.taskId ?? '',
+    workspaceRoot: opts.workspaceRoot,
+    toolNames: opts.toolNames ?? [],
+    admission: opts.qualification,
+  });
   if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
-  return executeAgentRun(opts);
+  return executeAgentRun(confineToQualification(opts, admission.grant));
+}
+
+/**
+ * Narrow a run to exactly what its qualification bought.
+ *
+ * A production admission produces no grant and changes nothing. A qualification grant replaces
+ * the workspace with the fixture the admission names and the lane with the intersection of what
+ * was asked for and what was granted -- so the model and the tools see the fixture and nothing
+ * else, whatever the caller passed in.
+ */
+function confineToQualification(opts: RunAgentOptions, grant: QualificationGrant | undefined): RunAgentOptions {
+  if (grant === undefined) return opts;
+  return { ...opts, workspaceRoot: grant.fixtureRoot, toolNames: grant.toolNames };
 }
 
 /**

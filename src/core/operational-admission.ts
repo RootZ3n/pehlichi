@@ -89,7 +89,17 @@ export type NonWorkSurface =
   | 'matrix-connectivity'
   | 'identity-display';
 
-export type RefusalCode = 'OPERATIONAL_WORK_NOT_AUTHORIZED' | 'OPERATIONAL_STATUS_UNREADABLE';
+export type RefusalCode =
+  | 'OPERATIONAL_WORK_NOT_AUTHORIZED'
+  | 'OPERATIONAL_STATUS_UNREADABLE'
+  /**
+   * A qualification admission was absent, or was presented and did not verify.
+   *
+   * Named here so the refusal shape stays one type, but decided entirely in
+   * `qualification-admission.ts`. Nothing in this module mints, reads or widens one; the
+   * decision below is still a property of the committed status alone.
+   */
+  | 'QUALIFICATION_NOT_ADMITTED';
 
 /**
  * A refusal carries four fields and nothing else.

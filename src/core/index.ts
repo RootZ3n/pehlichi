@@ -153,6 +153,20 @@ export {
   type NonWorkSurface,
 } from "./operational-admission.js";
 
+/**
+ * The qualification admission: verification and narrowing only.
+ *
+ * `qualifyRun` decides; there is deliberately no minting function here or anywhere in this
+ * repository, so no caller can obtain an admission from inside the subject it would admit.
+ */
+export {
+  qualifyRun,
+  type QualificationRequest,
+  type QualificationGrant,
+  type QualifiedDecision,
+  type QualificationRefusalReason,
+} from "./qualification-admission.js";
+
 export {
   runAgent,
   runAgentInShadow,
