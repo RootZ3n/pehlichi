@@ -208,7 +208,13 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //   new cccd6d2126d4d4eef0b84a555a6ebad2369e2d163d5f0505899beb1a76cc7d72  (the restart-readiness
 //       preflight joined the anchored scripts/trio directory -- a boundary change, re-anchored
 //       on purpose; it reports drift and grants nothing)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'cccd6d2126d4d4eef0b84a555a6ebad2369e2d163d5f0505899beb1a76cc7d72';
+//   old cccd6d2126d4d4eef0b84a555a6ebad2369e2d163d5f0505899beb1a76cc7d72
+//   new dee2ec72f25c4ecd9fb93c268c5b14631f898a5f4737a6c25019eef704dc0781  (delegated
+//       authority and receipt access: two new governed modules joined the common runtime, and
+//       the executed-closure digest an external lease pins grew from four files to eight so it
+//       covers the modules that actually decide a request -- a boundary change, re-anchored on
+//       purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dee2ec72f25c4ecd9fb93c268c5b14631f898a5f4737a6c25019eef704dc0781';
 
 interface Inventory {
   schemaVersion: 3;
