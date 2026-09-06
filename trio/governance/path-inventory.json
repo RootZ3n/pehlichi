@@ -328,6 +328,7 @@
       "src/core/containment/wrap.ts",
       "src/core/context-compaction.test.ts",
       "src/core/context-compressor.ts",
+      "src/core/data-roots.ts",
       "src/core/driver.ts",
       "src/core/drivers/llamacpp.test.ts",
       "src/core/drivers/llamacpp.ts",
