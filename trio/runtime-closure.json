@@ -97,6 +97,7 @@
     "src/core/bridges/host.ts",
     "src/core/bridges/http-bridge.ts",
     "src/core/bridges/registry.ts",
+    "src/core/chat-credential.ts",
     "src/core/checkpoint.ts",
     "src/core/containment-config.ts",
     "src/core/containment/argv.ts",
