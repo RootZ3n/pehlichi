@@ -236,7 +236,12 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       stopped declaring every bound repository on every turn and now names only the ones a turn
 //       actually affected. `truth-gate.ts` is an anchored file, so correcting what it asserts moves
 //       the shape -- a boundary change, re-anchored on purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '46ce8c72af756eda1891e703063f3b3f3a57e545751243a4a4c309f1aa0a865a';
+//   new 96a27e98e35b0dbb979ec642998f05b1bef3d400b4b72103905c53fe76673cca  (the `terminal` tool
+//       now plans and wraps through the vendored containment authority before it spawns, so a
+//       provider-chosen shell command runs with the network unshared and only the workspace
+//       visible. `src/core/tools.ts` is inside the executed closure, so closing that bypass moves
+//       the shape -- a boundary change, re-anchored on purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '96a27e98e35b0dbb979ec642998f05b1bef3d400b4b72103905c53fe76673cca';
 
 interface Inventory {
   schemaVersion: 3;

@@ -153,6 +153,50 @@ test('5b. neither wired file contains a fallback that runs the command uncontain
   }
 });
 
+test('5c. the model-controlled shell tool spawns only what wrap() returned', () => {
+  /*
+     Phase 3C measured what the `terminal` tool permitted before this: with an auditor-controlled
+     local sink and a synthetic canary outside the workspace, six of seven exfiltration routes
+     delivered the canary — curl, cat-into-curl, relative traversal, read-then-post, wget, python.
+     The positive control proved the sink reachable, so those were real deliveries.
+
+     It is a separate assertion from test 5 because `tools.ts` is not in agent-tools/ and because
+     this is the file a provider's chosen string actually reaches.
+  */
+  const source = readFileSync(join(here, 'tools.ts'), 'utf8');
+  const spawns = [...source.matchAll(/spawnSync\s*\(\s*([A-Za-z0-9_.]+)/g)].map((m) => m[1]);
+  assert.ok(spawns.length > 0, 'tools.ts should still spawn something');
+  for (const target of spawns) {
+    assert.equal(target, 'contained.binary', `tools.ts spawns ${target}, which did not come from wrap()`);
+  }
+  assert.match(source, /planFor\(/, 'the shell tool must obtain a decision from the authority');
+  assert.match(source, /wrap\(decision/, 'the shell tool must build its argv through wrap');
+  assert.equal(/trustedLocalOverride/.test(source), false, 'tools.ts must not mention the override');
+  assert.equal(/mode:\s*['"]off['"]/.test(source), false, 'tools.ts must not disable containment');
+});
+
+test('5d. the shell tool asks for the view that can never share the network', () => {
+  // `narrow` forces networkAllowed=false in the authority itself, whatever the command wants, so
+  // a model-chosen command cannot reach the network however it is spelled. The service's own
+  // provider connection is unaffected: that call is made by this process, not by a child.
+  const source = readFileSync(join(here, 'tools.ts'), 'utf8');
+  assert.match(source, /view:\s*"narrow"/, 'the shell tool must plan under the narrow view');
+});
+
+test('5e. a background command is planned exactly like a foreground one', () => {
+  /*
+     A background flag must not be a route to a shell that a foreground call could not reach. The
+     decision is taken before the branch, and the registry is handed the wrapped argv.
+  */
+  const source = readFileSync(join(here, 'tools.ts'), 'utf8');
+  const decisionAt = source.indexOf('const decision = containedShellPlan');
+  const backgroundAt = source.indexOf('args.background === true');
+  assert.ok(decisionAt > 0 && backgroundAt > 0, 'both the decision and the background branch must exist');
+  assert.ok(decisionAt < backgroundAt, 'containment must be decided before the background branch');
+  assert.match(source, /processes\.spawn\(\s*\n?\s*\[contained\.binary/,
+    'the background path must spawn the wrapped argv');
+});
+
 // ------------------------------------------------------------------ 6. the shared code names nobody
 
 test('6. the vendored authority names no deployment and branches on none', () => {

@@ -14,6 +14,12 @@
  * even if the model names it directly.
  */
 import { spawnSync } from "node:child_process";
+
+import { agentContainmentConfig } from "./containment-config.js";
+import { planFor } from "./containment/policy.js";
+import type { ContainmentDecision } from "./containment/policy.js";
+import { wrap } from "./containment/wrap.js";
+import { canonical, isWithin } from "./containment/paths.js";
 import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
@@ -194,25 +200,49 @@ const terminalTool = async (args: Record<string, unknown>, ctx: ToolContext, pro
   const env = buildTerminalEnv(cwd);
   const envKeys = Object.keys(env).sort();
 
-  // BACKGROUND mode (item 5): spawn async and return a session id immediately.
-  // The same locked cwd + from-empty env confine it exactly like a foreground run.
+  // Decide BEFORE spawning, foreground or background alike. A refusal is a value carrying no
+  // policy, and `wrap` throws if handed one, so there is no shape of code below this point that
+  // could run the command anyway.
+  const decision = containedShellPlan(cwd);
+  if (!decision.allowed) {
+    throw new ToolError(
+      `terminal refused by containment [${decision.denial.code}]: ${decision.denial.reason}`,
+    );
+  }
+  const contained = wrap(decision, SHELL_BINARY, ["-c", command]);
+
+  // BACKGROUND mode (item 5): spawn async and return a session id immediately. It runs under the
+  // SAME contained argv as a foreground run — a background command that escaped the boundary a
+  // foreground one could not would make the boundary a matter of which flag was passed.
   if (args.background === true) {
-    const sessionId = processes.spawn(command, { cwd, env }, Date.now());
-    return {
-      ok: true,
-      output: `started background process: session_id=${sessionId}\nUse the \`process\` tool (poll/wait/kill/write) to drive it.`,
-    };
+    try {
+      const sessionId = processes.spawn(
+        [contained.binary, ...contained.args].join(" "), { cwd, env }, Date.now());
+      return {
+        ok: true,
+        output: `started background process: session_id=${sessionId}\nUse the \`process\` tool (poll/wait/kill/write) to drive it.`,
+      };
+    } finally {
+      contained.dispose();
+    }
   }
 
   const start = Date.now();
-  const res = spawnSync(command, {
-    shell: true,
-    cwd, // locked — non-overridable by command/args
-    env: env as unknown as NodeJS.ProcessEnv, // complete env; Next requires NODE_ENV on ProcessEnv, assert through unknown (no behavior change)
-    timeout,
-    encoding: "utf8",
-    maxBuffer: MAX_SPAWN_BUFFER_BYTES,
-  });
+  let res;
+  try {
+    res = spawnSync(contained.binary, [...contained.args], {
+      cwd, // locked — non-overridable by command/args
+      env: env as unknown as NodeJS.ProcessEnv, // complete env; Next requires NODE_ENV on ProcessEnv, assert through unknown (no behavior change)
+      timeout,
+      encoding: "utf8",
+      maxBuffer: MAX_SPAWN_BUFFER_BYTES,
+      // `contained.stdio` carries the AF_UNIX syscall filter on the descriptor bwrap reads it from.
+      // Spawning with anything else makes bwrap refuse to start, so a mistake is loud.
+      stdio: [...contained.stdio] as never,
+    });
+  } finally {
+    contained.dispose();
+  }
   const durationMs = Date.now() - start;
 
   const out = capBytes(res.stdout ?? "", MAX_OUTPUT_BYTES);
@@ -359,6 +389,57 @@ function capBytes(s: string, cap: number): { text: string; originalBytes: number
     truncated: true,
   };
 }
+
+
+/*
+  MODEL-CONTROLLED SHELL RUNS UNDER CONTAINMENT.
+
+  The `terminal` tool hands a provider's chosen string to a shell. Until now the only thing between
+  that string and the host was a stripped environment, a locked cwd, and a regex over destructive
+  verbs — documented in this file as "SECONDARY, belt-and-suspenders only". Phase 3C measured what
+  that actually permits: with an auditor-controlled local sink and a synthetic canary in a file
+  outside the workspace, SIX of seven exfiltration routes succeeded — curl, cat-into-curl, relative
+  traversal, read-then-post, wget, python. The positive control proved the sink reachable, so those
+  were real deliveries and not a broken test.
+
+  `lab-containment` was already vendored, pinned and parity-tested in this repository; it was simply
+  never called from here. Only `execute_code` and `lab_shell` used it.
+
+  The NARROW view is used deliberately:
+
+    • `networkAllowed` is false unconditionally — the view forces it, whatever the command wants.
+    • `denyUnixSockets` is always true, so a host service cannot be reached around the namespace.
+    • only the roots named here are visible, so a read outside the workspace fails before any
+      question of transmitting it arises.
+
+  This does NOT touch the service's own provider connection. That call is made by this Node process
+  with `fetch`, not by a spawned child, so denying the network to every child separates trusted
+  transport from model-selected outbound access exactly as intended.
+
+  WRITES. A write target must lie inside a workspace the deployment declared, and an agent's own
+  repository deliberately is not one. So the workspace is bound writable when it is declared, and
+  read-only when it is not, rather than widening the reviewed allocation to make `terminal` more
+  convenient. Governed temporary space is writable either way.
+*/
+function containedShellPlan(cwd: string): ContainmentDecision {
+  const config = agentContainmentConfig();
+  const declared = config.writableWorkspaces.some((root) => isWithin(canonical(cwd), canonical(root)));
+  return planFor(
+    {
+      command: SHELL_BINARY,
+      args: [],
+      view: "narrow",
+      readonlyRoots: [cwd],
+      ...(declared ? { writableRoot: cwd } : {}),
+      cwd,
+      tempRoot: processScratchDir(),
+    },
+    config,
+  );
+}
+
+/** The one shell a contained terminal command runs under. Never taken from the environment. */
+const SHELL_BINARY = "/bin/sh";
 
 const DESTRUCTIVE = /\b(rm|rmdir|unlink|mv|dd|shred|chmod|chown|chgrp|truncate|mkfs)\b/;
 

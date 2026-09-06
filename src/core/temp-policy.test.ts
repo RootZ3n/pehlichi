@@ -1265,9 +1265,13 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
     ],
   }],
   ["src/core/tools.ts", {
-    reason: "the agent's shell tool surface spawns a caller-chosen executable",
+    reason:
+      "the agent's shell tool surface spawns a caller-chosen executable — now only ever as the argv " +
+      "`wrap` returns for a granted containment decision, so the command a provider chose runs inside " +
+      "bwrap with the network unshared, unix sockets denied by seccomp, and nothing but the workspace " +
+      "and the reviewed system directories visible",
     lineDigests: [
-      "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
+      "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
     ],
   }],
   ["src/core/tui-build.test.ts", {

@@ -516,11 +516,21 @@ test("14. background process: start via terminal, write+poll, kill, then wait re
   const procTool = registry.get("process");
   assert.ok(terminal && procTool, "terminal and process tools are registered");
   try {
+    /*
+      A background command is planned by containment exactly like a foreground one, so under an
+      operator entry — which carries no systemd credential — it refuses instead of spawning. That
+      is the point: a background flag must not be a way to reach a shell that a foreground call
+      could not. The lifecycle below is therefore driven through the process registry directly,
+      which is the layer this test is actually about.
+    */
+    await assert.rejects(
+      () => terminal.handler({ command: "cat", background: true }, ctx),
+      /external identity refused|refused by containment/,
+      "background terminal must not spawn without a containment policy");
+
     // `cat` echoes its stdin back — a long-lived process we can drive.
-    const started = await terminal.handler({ command: "cat", background: true }, ctx);
-    assert.equal(started.ok, true);
-    const sessionId = started.output.match(/session_id=(\S+)/)?.[1];
-    assert.ok(sessionId, "terminal returned a session_id");
+    const sessionId = processScope.spawn("cat", { cwd: workspace, env: { PATH: "/usr/bin:/bin" } }, Date.now());
+    assert.ok(sessionId, "the process registry started a session");
 
     // list shows it running
     const listed = await procTool.handler({ action: "list" }, ctx);
