@@ -35,6 +35,17 @@ import {
 /** The credential name. IDENTICAL for all three services; only the root-owned source differs. */
 export const CREDENTIAL_NAME = 'agent-identity';
 
+/**
+ * The ORDINARY-WORK AUTHORIZATION, delivered on the same channel as a SEPARATE credential.
+ *
+ * Deliberately not another section inside the identity record. Both identity schemas validate with
+ * exact key sets, so a new section would couple the root-owned record and this code so tightly that
+ * reverting one without the other refuses startup. A separate credential decouples them: code that
+ * does not read it is unaffected by its presence, and code that requires it fails closed on its
+ * absence. Rollback works in either order.
+ */
+export const ORDINARY_CREDENTIAL_NAME = 'ordinary-authorization';
+
 /** systemd materialises credentials here. Nothing under it is creatable by the service account. */
 export const CREDENTIAL_ROOT = '/run/credentials';
 
@@ -172,6 +183,18 @@ export function parseIdentityRecord(text, options = {}) {
  * is handed onward.
  */
 export function readCredentialRecord(env = process.env, options = {}) {
+  const canonical = assertCredentialChannel(env);
+  return parseIdentityRecord(readCredentialBytes(canonical, CREDENTIAL_NAME), options);
+}
+
+/**
+ * Validate the credential CHANNEL and return its canonical directory.
+ *
+ * Split out so the identity record and the ordinary-work authorization are read through exactly
+ * one implementation of this rule. Two copies of a channel check is how one of them comes to be
+ * the weaker one.
+ */
+export function assertCredentialChannel(env = process.env) {
   const directory = env.CREDENTIALS_DIRECTORY;
   if (typeof directory !== 'string' || directory.length === 0) {
     throw new ExternalIdentityRefused('no_credential_channel',
@@ -198,9 +221,21 @@ export function readCredentialRecord(env = process.env, options = {}) {
     if (current === '/' || current === '/run') break;
   }
 
-  const file = join(canonical, CREDENTIAL_NAME);
+  return canonical;
+}
+
+/**
+ * Read one credential out of an already-validated channel, and refuse anything that is not one.
+ *
+ * `uid !== 0` is refused outright here. The identity reader also accepts a file owned by the
+ * invoking account, which is safe only because the directory prefix is root-owned; an authorization
+ * to perform production work is held to the stricter rule, because "root said so" is the entire
+ * claim it makes.
+ */
+export function readCredentialBytes(canonical, name) {
+  const file = join(canonical, name);
   const link = lstatSync(file, { throwIfNoEntry: false });
-  if (link === undefined) throw new ExternalIdentityRefused('missing_credential', `${CREDENTIAL_NAME} is not present`);
+  if (link === undefined) throw new ExternalIdentityRefused('missing_credential', `${name} is not present`);
   if (link.isSymbolicLink()) throw new ExternalIdentityRefused('bad_credential', 'the credential is a symlink');
 
   let fd;
@@ -217,17 +252,41 @@ export function readCredentialRecord(env = process.env, options = {}) {
     */
     if ((stat.mode & 0o007) !== 0) throw new ExternalIdentityRefused('bad_credential', 'the credential is world accessible');
     if ((stat.mode & 0o020) !== 0) throw new ExternalIdentityRefused('bad_credential', 'the credential is group writable');
-    if (stat.uid !== 0 && stat.uid !== process.getuid?.()) {
+    if (name === ORDINARY_CREDENTIAL_NAME) {
+      if (stat.uid !== 0) throw new ExternalIdentityRefused('bad_credential', `the credential is owned by uid ${stat.uid}`);
+    } else if (stat.uid !== 0 && stat.uid !== process.getuid?.()) {
       throw new ExternalIdentityRefused('bad_credential', `the credential is owned by uid ${stat.uid}`);
     }
     if (stat.size > MAX_RECORD_BYTES) throw new ExternalIdentityRefused('oversized_record', `${stat.size} bytes`);
     const buffer = Buffer.alloc(stat.size);
     const read = readSync(fd, buffer, 0, stat.size, 0);
     if (read !== stat.size) throw new ExternalIdentityRefused('truncated_record', `read ${read} of ${stat.size} bytes`);
-    return parseIdentityRecord(buffer.toString('utf8'), options);
+    return buffer.toString('utf8');
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+/**
+ * The raw ordinary-work authorization, straight off the root-owned channel.
+ *
+ * This function reads and refuses; it does not decide. Whether the record ADMITS anything is
+ * decided in `src/core/ordinary-admission.ts` against the tree it is running in, because a record
+ * that parses is not a record that applies here.
+ */
+export function readOrdinaryAuthorizationRecord(env = process.env) {
+  const canonical = assertCredentialChannel(env);
+  const raw = readCredentialBytes(canonical, ORDINARY_CREDENTIAL_NAME);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ExternalIdentityRefused('malformed_record', 'the ordinary authorization is not valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ExternalIdentityRefused('malformed_record', 'the ordinary authorization is not an object');
+  }
+  return parsed;
 }
 
 /** The repository files the record binds, and how their digests are taken. */

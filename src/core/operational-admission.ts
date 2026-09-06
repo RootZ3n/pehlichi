@@ -99,7 +99,14 @@ export type RefusalCode =
    * `qualification-admission.ts`. Nothing in this module mints, reads or widens one; the
    * decision below is still a property of the committed status alone.
    */
-  | 'QUALIFICATION_NOT_ADMITTED';
+  | 'QUALIFICATION_NOT_ADMITTED'
+  /**
+   * Ordinary work was refused because no root-owned external authorization covers this exact
+   * deployment. Named here so the refusal shape stays one type; decided entirely in
+   * `ordinary-admission.ts`. Nothing in this module reads, mints or widens one, and the decision
+   * below is still a property of the committed status alone.
+   */
+  | 'ORDINARY_WORK_NOT_EXTERNALLY_AUTHORIZED';
 
 /**
  * A refusal carries four fields and nothing else.

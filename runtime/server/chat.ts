@@ -4,6 +4,8 @@ import { loadPersonality, buildPersonalityPrompt, type Personality } from './per
 import { loadSkin, type Skin } from './skin.js';
 import { TruthSessionGate } from './truth-gate.js';
 import { admitRunWork } from '../../src/core/operational-admission.js';
+import { agentProfile } from '../../src/profiles/agent.js';
+import { admitOrdinaryWork } from '../../src/core/ordinary-admission.js';
 import { OperationalWorkRefused } from '../../src/core/loop.js';
 
 export interface ChatMessage {
@@ -102,7 +104,16 @@ export class ChatSession {
     // of admission any more than "it only reads" is. This lane reaches a model without going
     // through `runAgent`, so it carries its own call to the same boundary rather than
     // inheriting one it never passes through.
-    const admission = admitRunWork('ordinary-work');
+    // The SAME external ordinary authorization the agent lane consults, differing only in the lane
+    // it declares. Giving the two lanes different effective authority is how one of them quietly
+    // becomes the soft way in; the record decides which lanes it covers.
+    const admission = admitOrdinaryWork(admitRunWork('ordinary-work'), {
+      // The agent's own validated profile, not the personality YAML: the authorization binds an
+      // identity, and a display name from a data file is not one.
+      agentName: agentProfile.name,
+      agentRole: agentProfile.role,
+      lane: 'converse',
+    });
     if (!admission.admitted) throw new OperationalWorkRefused(admission.refusal);
 
     // The caller's callback receives transport liveness and never a model delta. Deltas

@@ -124,6 +124,7 @@
     "src/core/loop.ts",
     "src/core/occasio-bridge.ts",
     "src/core/operational-admission.ts",
+    "src/core/ordinary-admission.ts",
     "src/core/personality.ts",
     "src/core/process-registry.ts",
     "src/core/profile.ts",
@@ -511,7 +512,9 @@
       "src/index.ts"
     ],
     "governedCommon": [
+      "scripts/trio/external-identity.mjs",
       "scripts/trio/governed-temp-authority.mjs",
+      "scripts/trio/identity-schema.mjs",
       "scripts/trio/run-ownership.mjs",
       "src/core/agent-tools/circuit-breaker.ts",
       "src/core/agent-tools/error-classifier.ts",
@@ -549,6 +552,7 @@
       "src/core/loop-mechanics.ts",
       "src/core/loop.ts",
       "src/core/operational-admission.ts",
+      "src/core/ordinary-admission.ts",
       "src/core/personality.ts",
       "src/core/process-registry.ts",
       "src/core/profile.ts",

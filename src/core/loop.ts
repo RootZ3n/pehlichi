@@ -11,6 +11,7 @@ import { createMemoryStore, type MemoryStore } from "lab-memory";
 
 import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { admitRunWork, describeRefusal, type AdmissionRefusal } from "./operational-admission.js";
+import { admitOrdinaryWork } from "./ordinary-admission.js";
 import { qualifyRun, type QualificationGrant } from "./qualification-admission.js";
 import { renderRunSummary, type RunSummary } from "./result-render.js";
 // The loop's decisions live here, apart from its effects. Production uses these; so do the
@@ -382,7 +383,17 @@ export class OperationalWorkRefused extends Error {
  * answer.
  */
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
-  const admission = qualifyRun(admitRunWork('agent-run'), {
+  // local status -> external ordinary authorization -> single-use qualification.
+  //
+  // `admitOrdinaryWork` can only NARROW: a local refusal passes through it untouched, so the
+  // qualification path below is unchanged, while a local PRODUCTION manifest is no longer
+  // sufficient on its own. That inversion is what closes the copied-manifest admission.
+  const admission = qualifyRun(admitOrdinaryWork(admitRunWork('agent-run'), {
+    agentName: opts.profile.name,
+    agentRole: opts.profile.role,
+    lane: 'agent-run',
+    toolNames: opts.toolNames ?? [],
+  }), {
     agentName: opts.profile.name,
     agentRole: opts.profile.role,
     taskId: opts.taskId ?? '',

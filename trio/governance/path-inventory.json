@@ -358,6 +358,7 @@
       "src/core/occasio-bridge.ts",
       "src/core/operational-admission.test.ts",
       "src/core/operational-admission.ts",
+      "src/core/ordinary-admission.ts",
       "src/core/personality.ts",
       "src/core/preproduction-zero-bypass.test.ts",
       "src/core/process-registry.ts",

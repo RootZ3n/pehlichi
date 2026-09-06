@@ -9,6 +9,8 @@
  */
 
 export declare const CREDENTIAL_NAME: string;
+/** The ordinary-work authorization, delivered on the same channel as a separate credential. */
+export declare const ORDINARY_CREDENTIAL_NAME: string;
 export declare const CREDENTIAL_ROOT: string;
 export declare const IDENTITY_SCHEMA_VERSION: number;
 /** The schema the pre-release source deployment presents. Off the release path only. */
@@ -47,3 +49,15 @@ export declare function parseIdentityRecord(text: string): IdentityRecord;
 export declare function readCredentialRecord(env?: NodeJS.ProcessEnv): IdentityRecord;
 export declare function assertRepositoryBinding(repositoryRoot: string, record: IdentityRecord): IdentityRecord;
 export declare function assertExternalBinding(repositoryRoot: string, env?: NodeJS.ProcessEnv): BoundIdentity;
+
+/** Validate the credential CHANNEL and return its canonical directory. Throws on anything else. */
+export declare function assertCredentialChannel(env?: NodeJS.ProcessEnv): string;
+/** Read one credential out of an already-validated channel. Throws on anything that is not one. */
+export declare function readCredentialBytes(canonical: string, name: string): string;
+/**
+ * The raw ordinary-work authorization off the root-owned channel.
+ *
+ * Reads and refuses; it does not decide. Whether the record APPLIES to this tree is decided in
+ * `src/core/ordinary-admission.ts`.
+ */
+export declare function readOrdinaryAuthorizationRecord(env?: NodeJS.ProcessEnv): Record<string, unknown>;

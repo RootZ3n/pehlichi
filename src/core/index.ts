@@ -171,6 +171,23 @@ export {
  * `qualifyRun` decides; there is deliberately no minting function here or anywhere in this
  * repository, so no caller can obtain an admission from inside the subject it would admit.
  */
+/**
+ * The external ordinary-work authorization: verification and narrowing only.
+ *
+ * `admitOrdinaryWork` can only narrow the decision it is handed. There is no minting function
+ * here or anywhere in this repository, and no signing key: the authority is a root-owned record
+ * delivered on the systemd credential channel.
+ */
+export {
+  admitOrdinaryWork,
+  closureDigest,
+  policyDigest,
+  type OrdinaryRequest,
+  type OrdinaryGrant,
+  type OrdinaryDecision,
+  type OrdinaryRefusalReason,
+} from "./ordinary-admission.js";
+
 export {
   qualifyRun,
   type QualificationRequest,
