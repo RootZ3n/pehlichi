@@ -601,9 +601,25 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   // MODEL SWITCH (P2): wrap the shared driver so the active model can be HOT-SWAPPED at runtime
   // without tearing down sessions (history preserved — every room holds this stable reference).
   // Injected test drivers wrap too, reporting MODEL so test expectations are unchanged.
+  /*
+    THE ACTIVE TARGET, from the profile when there is one.
+
+    `initialActive()` picks from a hard-coded preset list keyed on `AGENT_MODEL`, defaulting to
+    MiMo. The converse session is built from whatever this resolves to — so with a GLM profile
+    installed, the endpoint stayed MiMo while the key became GLM's, and every turn failed with
+    "Invalid API Key" from a provider nobody had chosen. The key came from one source and the
+    endpoint from another, which is exactly the mistake that makes a 401 look like a credential
+    problem.
+
+    `keyKind` selects the key RESOLVER, not the provider: the default resolver is profile-first,
+    so a profile target and its key stay together.
+  */
   const startActive: ModelTarget = opts.driver !== undefined
     ? { id: model, label: model, model, baseUrl, keyKind: 'mimo' }
-    : initialActive();
+    : liveProfile !== undefined
+      ? { id: liveProfile.model, label: `${liveProfile.provider} · ${liveProfile.model}`,
+          model: liveProfile.model, baseUrl: liveProfile.baseUrl, keyKind: 'mimo' }
+      : initialActive();
   const driver = new SwappableDriver(baseDriver, startActive);
   const currentModel = (): string => driver.active.model;
 
