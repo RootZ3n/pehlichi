@@ -145,7 +145,9 @@
   var pending=[];        // {name,type,dataUrl}
   var convo=[];          // {who,text} for copy-all
 
-  function headers(){var h={"content-type":"application/json"};if(TOKEN)h["authorization"]="Bearer "+TOKEN;return h;}
+  // The server holds this browser's principal and applies it only to a request that declares
+  // itself a browser AND satisfies the token. The page never receives authority it could keep.
+  function headers(){var h={"content-type":"application/json","x-pehverse-client":"browser-ui"};if(TOKEN)h["authorization"]="Bearer "+TOKEN;return h;}
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
   function fmt(s){
     var t=esc(s);

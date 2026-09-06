@@ -17,7 +17,7 @@
  * count so an operator can tell the two apart and see which one owns which schedules.
  */
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync, statSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, extname, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -366,7 +366,7 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 function preflight(res: ServerResponse): void {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Headers': 'authorization, content-type, x-pehverse-client, x-pehverse-principal',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Max-Age': '600',
   });
@@ -828,28 +828,107 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   // Instance identity (H1): which of the two co-located instances answered.
   const instanceId = `${port}:${process.pid}`;
 
-  /**
-   * H1: verify the bearer token on a chat request. Returns true when no token is
-   * configured (open, but read-only on the production path). A configured token requires
-   * an exact `Authorization: Bearer <token>` match.
-   */
+  /*
+    THE BROWSER'S PRINCIPAL IS HELD BY THE SERVER, NOT BY THE BROWSER.
+
+    Every other client of this agent is a process that can keep a secret: a systemd unit reads its
+    principal from a root-owned credential and presents it on a header. A browser cannot. Anything
+    the page can send, the page can be read for -- localStorage, a script variable, the page source,
+    a query string -- so handing a browser a principal would be handing every extension, every
+    bookmarklet and every copy of the tab a reusable authority that works from anywhere.
+
+    So the browser never receives one. It authenticates with the chat bearer it already uses, and
+    the SERVER then acts under a principal of its own, delivered on the same root-owned credential
+    channel as everything else and scoped to what a browser session legitimately needs: the
+    conversational lane, its own receipts, and no tools at all.
+
+    Three properties this must not lose, and does not:
+
+      - It is NOT an anonymous path. It applies only when a chat token is CONFIGURED and the request
+        actually authenticated with it. A deployment with no token gets no fallback, because
+        "nobody had to prove anything" is precisely the hole this phase closes.
+      - It does not promote the bearer into an authorization. The bearer still only decides whether
+        the server will act at all; WHAT may then be done is decided by an externally issued
+        principal this process cannot mint, widen or renew, and that root revokes without touching
+        a line of this code.
+      - It never leaves the process. It is not returned, echoed or rendered, and a client that
+        presents its OWN principal is served by that one instead.
+
+    Note what the credential path is and is not doing. It is a delivery channel, not a trust
+    anchor: this file is READ, never trusted. What makes the assertion mean anything is the
+    issuer signature, checked against the public half named inside the root-owned service lease.
+    So a process that could point `CREDENTIALS_DIRECTORY` somewhere of its own choosing gains
+    nothing at all -- it would be presenting a document no verifier accepts.
+  */
+  const browserPrincipal = ((): string | undefined => {
+    const directory = process.env['CREDENTIALS_DIRECTORY'];
+    if (typeof directory !== 'string' || directory.length === 0) return undefined;
+    let fd: number | undefined;
+    try {
+      fd = openSync(join(directory, 'browser-principal'), 'r');
+      const value = readFileSync(fd, 'utf8').trim();
+      return value.length > 0 ? value : undefined;
+    } catch {
+      return undefined;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  })();
+
   /*
     THE REQUEST PRINCIPAL, as this transport carries it.
 
     Parsing only. Whether the assertion means anything is decided by the one authorization
     function, against an issuer named by the root-owned service lease -- never here, and never by
-    anything a client can influence. An absent header is passed on as absent rather than defaulted,
-    because a default would be exactly the anonymous fallback this phase removes.
+    anything a client can influence. A client that presents one is served by it. A client that
+    presents none falls back ONLY to the server-held browser principal, and only when this
+    deployment has a chat token and the request satisfied it; otherwise absent stays absent.
 
     Kept out of every log line and every error body: an assertion is a bearer document, and a
     surface that echoes one back is a surface that hands it to whoever provoked the error.
   */
+  /*
+    WHO THE FALLBACK IS FOR, declared rather than guessed.
+
+    The fallback first applied to ANY bearer-holding request that presented no principal, and a
+    hostile run caught that immediately: a Matrix bridge whose credential was missing was not
+    refused, it was quietly served as the BROWSER -- wrong identity, wrong scope, and its evidence
+    filed against a caller that never made the request. Silent misattribution is worse than a
+    refusal, because nothing looks wrong.
+
+    The first repair sniffed for `Sec-Fetch-*`, on the assumption that only browsers send it. The
+    same hostile run disproved that in one line: Node's own fetch sends `sec-fetch-mode`, so the
+    signal did not separate a page from a daemon at all. Inferring the caller from headers the
+    platform happens to set today is a guess with a version number attached.
+
+    So the caller DECLARES itself. A client that wants the browser fallback says so; a server-side
+    client that forgets its credential says nothing and is refused, which is the outcome that
+    matters. This is not an authorization input and cannot be: declaring it buys exactly one thing,
+    the NARROWEST principal this deployment holds -- conversational, its own receipts, no tools --
+    strictly less than any real client's. There is nothing to gain by claiming it, which is what
+    makes it safe to ask, and asking makes the choice auditable instead of accidental.
+  */
+  const BROWSER_CLIENT_DECLARATION = 'browser-ui';
+  const declaresBrowserClient = (req: IncomingMessage): boolean => {
+    const header = req.headers['x-pehverse-client'];
+    const value = Array.isArray(header) ? header[0] : header;
+    return typeof value === 'string' && value.trim().toLowerCase() === BROWSER_CLIENT_DECLARATION;
+  };
+
   const presentedPrincipal = (req: IncomingMessage): string | undefined => {
     const header = req.headers['x-pehverse-principal'];
     const value = Array.isArray(header) ? header[0] : header;
-    return typeof value === 'string' && value.length > 0 ? value : undefined;
+    if (typeof value === 'string' && value.length > 0) return value;
+    if (hasChatToken && browserPrincipal !== undefined && declaresBrowserClient(req) && chatAuthorized(req))
+      return browserPrincipal;
+    return undefined;
   };
 
+  /**
+   * H1: verify the bearer token on a chat request. Returns true when no token is
+   * configured (open, but read-only on the production path). A configured token requires
+   * an exact `Authorization: Bearer <token>` match.
+   */
   const chatAuthorized = (req: IncomingMessage): boolean => {
     if (!hasChatToken) return true;
     const header = req.headers['authorization'];
