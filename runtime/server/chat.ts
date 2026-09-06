@@ -7,6 +7,9 @@ import { admitRunWork } from '../../src/core/operational-admission.js';
 import { agentProfile } from '../../src/profiles/agent.js';
 import { authorizeLaneRequest } from '../../src/core/lane-authorization.js';
 import { OperationalWorkRefused } from '../../src/core/loop.js';
+import { providerProfile } from '../../src/core/provider-profile.js';
+import { performCompletion, TransportError } from '../../src/core/drivers/transport.js';
+import type { AttemptRecord } from '../../src/core/transport-policy.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -58,6 +61,17 @@ export class ChatSession {
    * than surviving until the session ends.
    */
   private requestPrincipal: string | undefined;
+  /** Which provider this lane talks to, for evidence. Never the key. */
+  private readonly provider: string;
+  private readonly authStyle: 'bearer' | 'api-key';
+  private readonly requestExtras: Readonly<Record<string, unknown>>;
+  private readonly streamingProfile: boolean;
+  /** This session's id, so every attempt in it shares one run identity. */
+  private readonly sessionRunId: string;
+  /** Transport attempts recorded for the most recent turn. */
+  private lastAttempts: readonly AttemptRecord[] = [];
+  /** What the transport observed on the last turn, for the caller's evidence. */
+  transportEvidence(): readonly AttemptRecord[] { return this.lastAttempts; }
 
   constructor(opts?: {
     apiKey?: string;
@@ -85,12 +99,29 @@ export class ChatSession {
     if (opts?.capabilities) {
       this.systemPrompt += `\n\n---\n\n${opts.capabilities}`;
     }
-    this.apiKey = opts?.apiKey ?? process.env.AGENT_API_KEY ?? process.env.MIMO_API_KEY;
-    this.baseUrl = opts?.baseUrl ?? 'https://api.xiaomimimo.com/v1';
-    this.model = opts?.model ?? 'mimo-v2.5';
+    /*
+      ONE PROVIDER DECISION, shared with the agent lane.
+
+      This lane used to hold its own endpoint, its own model and its own key read from the process
+      environment — so a deployment could have a provider wired for `runAgent` and none here, which
+      is exactly what happened: the agent lane was given a profile and every converse turn still
+      failed at MiMo with 401. Two places deciding one thing is how they come to disagree.
+
+      The profile is the same root-owned record the driver reads. Explicit options still win, for
+      tests and embedders; what is gone is a second compiled-in default and a second key path.
+    */
+    const profile = providerProfile();
+    this.apiKey = opts?.apiKey ?? profile?.apiKey ?? process.env.AGENT_API_KEY ?? process.env.MIMO_API_KEY;
+    this.baseUrl = (opts?.baseUrl ?? profile?.baseUrl ?? 'https://api.xiaomimimo.com/v1').replace(/\/+$/, '');
+    this.model = opts?.model ?? profile?.model ?? 'mimo-v2.5';
+    this.provider = profile?.provider ?? (this.baseUrl.includes('xiaomimimo') ? 'xiaomi' : 'unknown');
+    this.authStyle = profile?.authStyle ?? (this.baseUrl.includes('xiaomimimo') ? 'api-key' : 'bearer');
+    this.requestExtras = profile?.requestExtras ?? {};
+    this.streamingProfile = profile?.streaming ?? false;
 
     const agent = opts?.agent ?? this.personality.name?.toLowerCase() ?? 'trio-agent';
     const sessionId = opts?.sessionId ?? `chat-${Date.now().toString(36)}`;
+    this.sessionRunId = sessionId;
     this.truth = new TruthSessionGate({ agent, sessionId, taskId: sessionId });
 
     // Add system message
@@ -180,70 +211,62 @@ export class ChatSession {
       }
     }
 
+    /*
+      THE SAME TRANSPORT THE AGENT LANE USES.
+
+      This lane had its own `fetch`, its own single 120-second abort, its own SSE reader and no
+      retry at all. Two transports for one runtime means two answers to every timeout question and
+      two places for a late response to land, and the one here was the weaker: a stream that went
+      quiet was indistinguishable from one still arriving.
+
+      Streaming is requested when the profile says the provider supports it OR when this turn has a
+      stream callback to feed. The distinction matters: a caller asking for deltas is not evidence
+      that the provider will send any, and what the transport reports is what it observed.
+    */
+    const wantsStream = this.streamingProfile || !!onStream;
     const body = {
+      ...this.requestExtras,
       model: this.model,
       messages: wireMessages,
       max_completion_tokens: 4096,
       temperature: 0.7,
-      stream: !!onStream,
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
+      const result = await performCompletion({
+        runId: `converse-${this.sessionRunId}`,
+        requestId: `req-${Date.now().toString(36)}`,
+        url: `${this.baseUrl}/chat/completions`,
         headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120_000),
+        payload: body,
+        provider: this.provider,
+        endpoint: this.baseUrl,
+        configuredModel: this.model,
+        driver: 'ChatSession',
+        streamingRequested: wantsStream,
+        /*
+          The network call this module is responsible for, made here rather than handed over as a
+          bare reference. The transport performs no request of its own — a caller supplies one —
+          so this is the line that actually reaches the provider, and the effect inventory should
+          be able to see it.
+        */
+        fetchImpl: ((url: string, init: never) => fetch(url, init)) as never,
+        // A conversational turn runs no tools, so nothing it does is an effect a retry could
+        // duplicate. That is a property of THIS lane and is stated rather than assumed.
+        effectsObserved: false,
+        onAttempt: (record) => { this.lastAttempts = [...this.lastAttempts, record]; },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'unknown error');
-        throw new Error(`MiMo API error ${response.status}: ${errorText.slice(0, 300)}`);
-      }
-
-      let content = '';
+      const parsed = result.json as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      let content = parsed.choices?.[0]?.message?.content ?? '';
       let usage: { in: number; out: number } | undefined;
-
-      if (onStream && response.body) {
-        // Streaming response
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                content += delta;
-                contained?.(delta);
-              }
-            } catch {
-              // Skip malformed chunks
-            }
-          }
-        }
-      } else {
-        // Non-streaming response
-        const data = await response.json() as {
-          choices?: Array<{ message?: { content?: string } }>;
-          usage?: { prompt_tokens?: number; completion_tokens?: number };
-        };
-        content = data.choices?.[0]?.message?.content ?? '';
-        if (data.usage) usage = { in: data.usage.prompt_tokens ?? 0, out: data.usage.completion_tokens ?? 0 };
-      }
+      if (parsed.usage) usage = { in: parsed.usage.prompt_tokens ?? 0, out: parsed.usage.completion_tokens ?? 0 };
+      // Deltas are delivered to the caller only when bytes genuinely arrived over time. Emitting
+      // the whole answer as one "chunk" would be this process pretending the provider streamed.
+      if (onStream && result.streamingObserved && content.length > 0) contained?.(content);
 
       // Add assistant message to history
       // Cross the authority boundary before anything is stored or returned. Writing the
@@ -264,7 +287,10 @@ export class ChatSession {
 
       return { content: authorized, thinkingVerb, ...authorised, ...(usage ? { usage } : {}) };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = err instanceof TransportError
+        ? `${this.provider} ${err.failure}: ${err.detail ?? err.message}`
+        : err instanceof Error ? err.message : String(err);
+      if (err instanceof TransportError) this.lastAttempts = err.attempts;
       // Even a transport failure goes through the boundary: an error path is exactly where
       // a half-formed model answer would otherwise be handed back unchecked.
       const decision = this.truth.finalize({
