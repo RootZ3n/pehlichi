@@ -241,7 +241,11 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       provider-chosen shell command runs with the network unshared and only the workspace
 //       visible. `src/core/tools.ts` is inside the executed closure, so closing that bypass moves
 //       the shape -- a boundary change, re-anchored on purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '96a27e98e35b0dbb979ec642998f05b1bef3d400b4b72103905c53fe76673cca';
+//   new fe0e505e66c679b46de5be03d31159e45b268c0404024824172be6dd110a37e9  (conversation history now
+//       keeps the inert narrative instead of the whole deliverable, so the verifier's own
+//       report stops being fed back to the model as its own prior words. `chat.ts` and
+//       `truth-agent-adapter.ts` are anchored files, so the shape moves -- re-anchored on purpose)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'fe0e505e66c679b46de5be03d31159e45b268c0404024824172be6dd110a37e9';
 
 interface Inventory {
   schemaVersion: 3;

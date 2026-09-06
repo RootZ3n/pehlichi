@@ -102,10 +102,40 @@ export interface Decision {
   readonly response: EnforcementResponse;
   /** The only bytes the host may present on this channel. */
   deliverable(): string;
+  /**
+   * What the host may keep as CONVERSATION HISTORY — the inert narrative alone.
+   *
+   * Not the same thing as `deliverable()`, and the difference is a defect this separation fixes.
+   * The deliverable carries the verifier's own report: outcomes, "verification: verified",
+   * "cleanliness: clean", digests. Storing it as the assistant turn fed all of that back to the
+   * model as its own prior words, and models duly repeated it — at which point the gate saw
+   * consequential assertions in prose outside the truth-claims contract and blocked the turn.
+   * Ordinary supported answers were being refused because of how the PREVIOUS answer was rendered.
+   *
+   * Raw prose is not the answer either: it would leave unverified claims in the transcript as
+   * ordinary assistant content, which is what storing the deliverable was protecting against. So
+   * the narrative is kept exactly as the verifier marked it — inside the inert markers, asserting
+   * nothing — and the report around it is dropped.
+   */
+  transcript(): string;
   /** True when the host may report success to a machine consumer. */
   ok(): boolean;
   /** True when the host must clear its completion bit. */
   blocked(): boolean;
+}
+
+/** The inert-narrative section of a rendering, with the verifier's report removed. */
+export function transcriptOf(rendering: string): string {
+  const begin = rendering.indexOf('--- BEGIN INERT MODEL NARRATIVE');
+  const endMark = '--- END INERT MODEL NARRATIVE';
+  const end = rendering.indexOf(endMark);
+  if (begin === -1 || end === -1 || end < begin) {
+    // No recognisable narrative section: keep nothing rather than guess, because guessing here
+    // would put verifier output back into the model's own history.
+    return '';
+  }
+  const close = rendering.indexOf('\n', end);
+  return rendering.slice(begin, close === -1 ? rendering.length : close);
 }
 
 /**
@@ -489,6 +519,7 @@ export function finalizeTurn(
   const wrap = (response: EnforcementResponse): Decision => ({
     response,
     deliverable: () => response.finalRendering,
+    transcript: () => transcriptOf(response.finalRendering),
     ok: () => response.authoritative === true || response.outcome === 'ADVISORY',
     blocked: () => response.completionBlocked !== false
   });

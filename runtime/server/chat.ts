@@ -296,9 +296,18 @@ export class ChatSession {
       });
       const authorized = decision.deliverable();
 
+      /*
+        HISTORY GETS THE INERT NARRATIVE, NOT THE DELIVERABLE.
+
+        The deliverable is what the USER sees, and it contains the verifier's own report. Storing it
+        as the assistant turn fed that report back to the model as its own prior words; the model
+        repeated it, and the gate then rejected "consequential assertion(s) in prose outside the
+        verifiable contract" — an ordinary supported answer refused because of how the previous
+        answer had been rendered. That is the unstable false-refusal Phase 3B measured at 17-67%.
+      */
       this.messages.push({
         role: 'assistant',
-        content: authorized,
+        content: decision.transcript(),
         timestamp: Date.now(),
         ...(reasoningContent !== undefined && reasoningContent.length > 0 ? { reasoningContent } : {}),
       });
