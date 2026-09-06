@@ -46,6 +46,7 @@
     "runtime/server/truth-gate.ts",
     "scripts/trio/external-identity.mjs",
     "scripts/trio/governed-temp-authority.mjs",
+    "scripts/trio/identity-schema.mjs",
     "scripts/trio/run-ownership.mjs",
     "src/core/agent-tools/brain-tools.ts",
     "src/core/agent-tools/browser-manager.ts",

@@ -175,7 +175,16 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // broke the anchor in all three repositories until T22 refused it -- which is the test doing
 // exactly its job. src/core/data-roots.ts changed `governedCommon`, which the anchor shape does
 // not include, so the trusted boundary genuinely did not move.
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8';
+// Moved by the schema-3 gate unification: scripts/trio gained identity-schema.mjs and
+// external-identity.mjs changed. Both are anchored bytes, so this is a real boundary change and
+// the anchor is supposed to say so.
+//
+// Computed with THIS file's recipe, not with build-provenance.mjs's `boundaryShapeSha256`. Those
+// are two different digests over two different inputs with near-identical names, and taking the
+// generator's number for this constant broke the anchor in all three repositories once already.
+//   old c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8
+//   new 98b2e1ac74f05edd395ee63c5a8e1333bd20b07a3cdb8884fa02775c29469c9c
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '98b2e1ac74f05edd395ee63c5a8e1333bd20b07a3cdb8884fa02775c29469c9c';
 
 interface Inventory {
   schemaVersion: 3;
