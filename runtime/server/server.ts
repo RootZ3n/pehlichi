@@ -54,6 +54,7 @@ import { agentProfile } from '../../src/profiles/agent.js';
 import { admitRunWork } from '../../src/core/operational-admission.js';
 import { authorizeLaneRequest } from '../../src/core/lane-authorization.js';
 import { receiptAccessScope, scopedReceipts, scopedSummary } from '../../src/core/receipt-access.js';
+import { describe as describeProvider, providerProfile } from '../../src/core/provider-profile.js';
 import { bridgeRegistry } from '../../src/core/bridges/registry.js';
 import { listMemory } from 'lab-memory';
 import { ReceiptStore, type Receipt } from '../../src/core/receipt-store.js';
@@ -72,7 +73,21 @@ import { TEMP_ROOT_ENV,assertGovernedTempSafety } from '../../src/core/temp-auth
 import { loadReleaseProvenance } from './provenance.js';
 import { bearerMatches, resolveChatToken } from '../../src/core/chat-credential.js';
 
+/*
+  THE PROVIDER KEY, from the root-owned profile before anything else.
+
+  This resolver read the process environment and nothing else, and it is consulted for BOTH lanes
+  -- the driver at construction and the converse session it builds. So a deployment could be given
+  a provider profile and still fail at the provider on every turn, because the server passed an
+  environment key (or none) explicitly and the explicit value beat the profile. That is exactly
+  what happened, and it is why the profile is consulted first here rather than only inside the
+  modules that consume it.
+
+  The environment fallbacks stay for off-release use, where there is no credential channel to read.
+*/
 function resolveApiKey(): string | undefined {
+  const profile = providerProfile();
+  if (profile?.apiKey) return profile.apiKey;
   if (process.env.AGENT_API_KEY) return process.env.AGENT_API_KEY;
   if (process.env.MIMO_API_KEY) return process.env.MIMO_API_KEY;
   return undefined;
@@ -480,8 +495,17 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   assertValidatedRuntimeConfiguration(config);
   const port = opts.port ?? configuredPort(config);
   const host = opts.host ?? configuredHost(config);
-  const model = process.env.AGENT_MODEL || config.capsule.providerDefaults.model;
-  const baseUrl = process.env.AGENT_BASE_URL || config.capsule.providerDefaults.baseUrl;
+  /*
+    THE ENDPOINT AND THE MODEL, from the same profile as the key.
+
+    The capsule's `providerDefaults` describe what this agent was BUILT expecting; the profile says
+    what it is actually pointed at now. Taking the key from one source and the endpoint from another
+    is how a deployment ends up presenting a valid key to the wrong provider and calling the 401 a
+    credential problem.
+  */
+  const liveProfile = providerProfile();
+  const model = process.env.AGENT_MODEL || liveProfile?.model || config.capsule.providerDefaults.model;
+  const baseUrl = process.env.AGENT_BASE_URL || liveProfile?.baseUrl || config.capsule.providerDefaults.baseUrl;
   const skin = loadSkin(join(config.repositoryRoot, config.capsule.skinPath));
   const personality = loadPersonality(join(config.repositoryRoot, config.capsule.personalityPath));
   const workspaceRoot = opts.workspaceRoot ?? configuredWorkspace(config);
