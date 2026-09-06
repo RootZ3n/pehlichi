@@ -21,6 +21,7 @@ import type { ToolSpec, ToolHandler, ToolResult } from "../tools.js";
 import { GbrainError, searchBrain, thinkBrain, putPage, syncMemory } from "../gbrain-bridge.js";
 import { scanForInjection } from "./prompt-injection.js";
 import type { BrainGovernance } from "./memory-governance.js";
+import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../data-roots.js';
 
 export interface BrainToolConfig {
   /**
@@ -40,10 +41,17 @@ const obj = (
 ): Record<string, unknown> => ({ type: "object", properties, required, additionalProperties: false });
 
 /** Default memory tree synced into the brain when the caller doesn't name one. */
+/**
+ * Resolve a persistent data root, or refuse.
+ *
+ * FAILS CLOSED, and the fallback it replaces is why. Every resolver in this tree used to end in a
+ * hardcoded `/pehverse/repos/lab-utilities/...` or a workspace-relative guess. Both are repository
+ * paths -- writable by the account the agent runs as -- and after a release deployment neither is
+ * where the data lives. An unset variable is a misconfiguration to surface at startup, never a
+ * default to silently adopt.
+ */
 function defaultMemoryRoot(): string {
-  return process.env["LAB_MEMORY_ROOT"]
-    ?? process.env["MEMORY_STORE_ROOT"]
-    ?? "/pehverse/repos/lab-utilities/lab-memory";
+  return requiredDataRoot(...DATA_ROOT_VARIABLES.memory);
 }
 
 export const brainToolSpecs: ToolSpec[] = [

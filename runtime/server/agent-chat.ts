@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { MimoDriver, type AgentEvent, type Driver, type Message, type ToolResult } from '../../src/core/index.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
+import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../../src/core/data-roots.js';
 import { agentProfile } from '../../src/profiles/agent.js';
 import { loadAgentRuntimeConfiguration, authorizedToolNames } from './config.js';
 import {
@@ -114,7 +115,7 @@ export class AgentChatSession {
       profile: { ...agentProfile, name: capsule.identity.displayName, role: capsule.identity.role, icon: capsule.identity.icon },
       driver,
       workspaceRoot,
-      labStoreRoot: process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store'),
+      labStoreRoot: requiredDataRoot(...DATA_ROOT_VARIABLES.store),
       extraTools: tools,
       toolNames: this.lane,
       approvalCallback: defaultApprovalPolicy({ allowWrites: false }),

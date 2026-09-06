@@ -19,15 +19,23 @@ import { createMemoryStore, proposeMemoryCreate, proposeMemorySupersede } from '
 import type { ToolSpec, ToolHandler } from '../tools.js';
 import { scanForInjection } from './prompt-injection.js';
 import { sanitizeMessage } from './input-sanitization.js';
+import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../data-roots.js';
 
 /** Lazy-loaded lab-memory store — initialized on first use. */
 let _store: any = null;
 let _storeRoot: string | null = null;
 
+/**
+ * Resolve a persistent data root, or refuse.
+ *
+ * FAILS CLOSED, and the fallback it replaces is why. Every resolver in this tree used to end in a
+ * hardcoded `/pehverse/repos/lab-utilities/...` or a workspace-relative guess. Both are repository
+ * paths -- writable by the account the agent runs as -- and after a release deployment neither is
+ * where the data lives. An unset variable is a misconfiguration to surface at startup, never a
+ * default to silently adopt.
+ */
 function getStoreRoot(): string {
-  return process.env['LAB_MEMORY_ROOT']
-    ?? process.env['MEMORY_STORE_ROOT']
-    ?? '/pehverse/repos/lab-utilities/lab-memory';
+  return requiredDataRoot(...DATA_ROOT_VARIABLES.memory);
 }
 
 async function getStore() {

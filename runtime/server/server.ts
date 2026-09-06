@@ -32,6 +32,7 @@ import {
   type ToolDef,
   OperationalWorkRefused,
 } from '../../src/core/index.js';
+import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../../src/core/data-roots.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { appendTurn, recentSharedContext, readRoomTail } from '../../src/core/lab-transcript.js';
@@ -470,7 +471,16 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
   const skin = loadSkin(join(config.repositoryRoot, config.capsule.skinPath));
   const personality = loadPersonality(join(config.repositoryRoot, config.capsule.personalityPath));
   const workspaceRoot = opts.workspaceRoot ?? configuredWorkspace(config);
-  const labStoreRoot = opts.labStoreRoot ?? process.env.LAB_STORE_ROOT ?? join(workspaceRoot, '..', 'lab-store');
+  /**
+   * Resolve a persistent data root, or refuse.
+   *
+   * FAILS CLOSED, and the fallback it replaces is why. Every resolver in this tree used to end in a
+   * hardcoded `/pehverse/repos/lab-utilities/...` or a workspace-relative guess. Both are repository
+   * paths -- writable by the account the agent runs as -- and after a release deployment neither is
+   * where the data lives. An unset variable is a misconfiguration to surface at startup, never a
+   * default to silently adopt.
+   */
+  const labStoreRoot = opts.labStoreRoot ?? requiredDataRoot(...DATA_ROOT_VARIABLES.store);
   const evidenceVault = createRestrictedEvidenceVault({ clock: opts.now ?? Date.now });
   const receiptStore = new ReceiptStore({ ttlMs: 60 * 60 * 1000, ...(opts.now ? { clock: opts.now } : {}) });
   const provenance = loadReleaseProvenance(
