@@ -184,7 +184,9 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 // generator's number for this constant broke the anchor in all three repositories once already.
 //   old c172f51334249aef43bb978afece86dd02d0b314ebc8cf340a62f43bacfeffa8
 //   new 98b2e1ac74f05edd395ee63c5a8e1333bd20b07a3cdb8884fa02775c29469c9c
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '98b2e1ac74f05edd395ee63c5a8e1333bd20b07a3cdb8884fa02775c29469c9c';
+//   old 98b2e1ac74f05edd395ee63c5a8e1333bd20b07a3cdb8884fa02775c29469c9c
+//   new 85a1dcaf41790cc33401a5f4d33542551da4a91645021340000f41bfdd870c68  (a source tree accepts schema 1 only)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '85a1dcaf41790cc33401a5f4d33542551da4a91645021340000f41bfdd870c68';
 
 interface Inventory {
   schemaVersion: 3;
