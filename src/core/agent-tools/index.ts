@@ -54,6 +54,7 @@ import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
 import { gitOpsToolSpecs, createGitOpsToolHandlers } from './git-ops-tools.js';
 import { labShellToolSpecs, createLabShellToolHandlers } from './lab-shell-tools.js';
 import { luakToolSpecs, createLuakToolHandlers } from './luak-tools.js';
+import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../data-roots.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -219,10 +220,21 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   const cronStorePath = config.cronStorePath ?? join(config.workspaceRoot, '.cron-jobs.json');
   const cronHandlers = createCronToolHandlers(cronExecute, { persistPath: cronStorePath, rearmOnLoad: true });
 
-  // COORDINATION (Blocker 7): agent_sync over a shared directory.
-  const coordinationDir = config.coordinationDir
-    ?? process.env.AGENT_SYNC_DIR
-    ?? join(config.workspaceRoot, '..', 'lab-store', '.agent-sync');
+  /*
+    COORDINATION (Blocker 7): agent_sync over a shared directory.
+
+    Fails closed, like every other persistent root -- see ../data-roots.js. The old fallback,
+    `join(workspaceRoot, '..', 'lab-store', '.agent-sync')`, is a repository path beside the
+    workspace; from inside a release it resolves to a sibling of the release directory. Five agents
+    coordinate through this one directory, so a fallback here is not a local default -- it is one
+    agent posting into a directory the other four cannot see.
+
+    Resolved on USE, not at wiring time: the registry is assembled by callers that never touch
+    agent_sync, and refusal belongs at the moment data would be created.
+  */
+  const coordinationDir = config.coordinationDir !== undefined
+    ? config.coordinationDir
+    : (): string => requiredDataRoot(...DATA_ROOT_VARIABLES.sync);
   const agentId = config.agentId;
   const coordinationHandlers = createCoordinationToolHandlers({ syncDir: coordinationDir, agentId });
 

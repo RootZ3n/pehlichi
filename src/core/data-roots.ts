@@ -22,6 +22,7 @@ export const DATA_ROOT_VARIABLES = Object.freeze({
   store: Object.freeze(['LAB_STORE_ROOT'] as const),
   memory: Object.freeze(['LAB_MEMORY_ROOT', 'MEMORY_STORE_ROOT'] as const),
   vault: Object.freeze(['LABMEM_ROOT'] as const),
+  sync: Object.freeze(['AGENT_SYNC_DIR'] as const),
 });
 
 /**
