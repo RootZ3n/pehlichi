@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
+  LEGACY_SCHEMA_VERSION,
   BOUND_FILES,
   CREDENTIAL_NAME,
   CREDENTIAL_ROOT,
@@ -41,11 +42,23 @@ const AGENTS = ['pehlichi', 'mad-ptah', 'loony-luna'] as const;
 const ME = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')).name as string;
 
 /** The record an installer would write for a repository — the same algorithm, stated once. */
+/**
+ * A record for the SOURCE deployment, which is schema 1.
+ *
+ * Deliberately `LEGACY_SCHEMA_VERSION` rather than `IDENTITY_SCHEMA_VERSION`. The latter is now 3 —
+ * the schema an activated release must present — and a schema-3 record carries release, boundary,
+ * packaging and dataRoots fields that this fixture does not build. Using it here produced records
+ * that were refused for the wrong reason (`unsupported_schema` instead of `missing or unknown`),
+ * which is a fixture bug wearing the costume of a passing guard.
+ *
+ * These cases exercise the source path; the release path's schema-3 record is proven against BOTH
+ * gates by the identity-schema suite.
+ */
 function recordFor(root: string, agent: string): IdentityRecord {
   const version = /CONTAINMENT_VERSION\s*=\s*"([0-9.]+)"/
     .exec(readFileSync(join(root, 'src/core/containment/version.ts'), 'utf8'))?.[1] ?? '0.0.0';
   return {
-    schemaVersion: IDENTITY_SCHEMA_VERSION,
+    schemaVersion: LEGACY_SCHEMA_VERSION,
     agent,
     package: { name: agent, sha256: fileDigest(join(root, BOUND_FILES.package)) },
     capsule: { sha256: fileDigest(join(root, BOUND_FILES.capsule)) },

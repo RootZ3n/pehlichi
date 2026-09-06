@@ -11,6 +11,8 @@
 export declare const CREDENTIAL_NAME: string;
 export declare const CREDENTIAL_ROOT: string;
 export declare const IDENTITY_SCHEMA_VERSION: number;
+/** The schema the pre-release source deployment presents. Off the release path only. */
+export declare const LEGACY_SCHEMA_VERSION: number;
 
 export declare const BOUND_FILES: Readonly<{
   package: string;
