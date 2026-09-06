@@ -110,8 +110,12 @@ export class MimoDriver implements UsageReportingDriver {
   private readonly runId: string;
   /** Transport attempts recorded for this driver, drained alongside the usage. */
   private pendingAttempts: AttemptRecord[] = [];
-  /** The reasoning from this driver's most recent completion, returned on the next request. */
-  private lastReasoning: string | undefined;
+  /**
+   * One entry per completion this driver has produced, in order, holding that completion's
+   * reasoning or `""` when it emitted none. Returned on the next request so each assistant turn
+   * carries the reasoning that produced it.
+   */
+  private reasonings: string[] = [];
 
   /** Return and clear the transport attempts recorded since the last call. */
   drainAttempts(): AttemptRecord[] {
@@ -178,7 +182,7 @@ export class MimoDriver implements UsageReportingDriver {
       // Provider-declared extras FIRST; engine-controlled fields follow and are never overridden.
       ...this.requestExtras,
       model: this.model,
-      messages: withReasoning(toWireMessages(ctx.messages), this.lastReasoning),
+      messages: withReasoning(toWireMessages(ctx.messages), this.reasonings),
       max_completion_tokens: this.maxCompletionTokens,
       ...(this.temperature !== undefined ? { temperature: this.temperature } : {}),
       ...(ctx.tools.length > 0 ? { tools: toProviderTools(ctx.tools) } : {}),
@@ -240,7 +244,7 @@ export class MimoDriver implements UsageReportingDriver {
     // H4: record the REAL token usage the provider reported, so the session's
     // TokenMonitor reflects actual consumption instead of staying at zero.
     if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);
-    this.lastReasoning = parsed.reasoningContent;
+    this.reasonings.push(parsed.reasoningContent ?? "");
     /*
       Map the provider's chosen name back before the action is formed. The provider only ever saw
       wire-safe names, so a tool call naming `bridge_health` means the runtime's `bridge.health`
@@ -349,21 +353,27 @@ export function toProviderTools(tools: readonly ToolSpec[]): Array<Record<string
   MiMo both accept the field and ignore it, so this is not gated on a provider name — a message
   that carries the reasoning it was given is simply a more faithful message.
 
-  It attaches to the LAST assistant message because that is the turn being continued, and it is the
-  provider's own text rather than a placeholder: echoing something the model did not think would be
-  a fabrication in the transcript the model reads back.
+  EVERY assistant turn needs its own reasoning, not just the last one. Attaching it only to the
+  final turn left the earlier tool-calling turn bare and DeepSeek still refused — six of 105 turns
+  instead of twelve. Turns are paired with completions from the END backwards, because the most
+  recent completion produced the most recent assistant message; any leading assistant message with
+  no completion behind it (seeded context, a resumed conversation) is simply left alone.
+
+  Each turn carries the provider's own text rather than a placeholder: echoing something the model
+  did not think would be a fabrication in the transcript it reads back.
 */
 export function withReasoning(
   wire: Array<Record<string, string>>,
-  reasoning: string | undefined,
+  reasonings: readonly string[],
 ): Array<Record<string, string>> {
-  if (reasoning === undefined || reasoning.length === 0) return wire;
-  for (let i = wire.length - 1; i >= 0; i -= 1) {
+  let next = reasonings.length - 1;
+  for (let i = wire.length - 1; i >= 0 && next >= 0; i -= 1) {
     const entry = wire[i];
-    if (entry !== undefined && entry["role"] === "assistant") {
-      wire[i] = { ...entry, reasoning_content: reasoning };
-      break;
-    }
+    if (entry === undefined || entry["role"] !== "assistant") continue;
+    const reasoning = reasonings[next];
+    next -= 1;
+    if (reasoning === undefined || reasoning.length === 0) continue;
+    wire[i] = { ...entry, reasoning_content: reasoning };
   }
   return wire;
 }

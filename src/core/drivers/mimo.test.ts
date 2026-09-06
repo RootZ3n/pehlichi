@@ -302,16 +302,42 @@ test('the reasoning is returned on the assistant turn being continued', () => {
     { role: 'user', content: 'TOOL RESULT:\nok' },
     { role: 'assistant', content: 'second' },
   ];
-  const out = withReasoning(wire, 'because');
-  assert.equal(out[3]?.['reasoning_content'], 'because', 'the continued turn must carry it');
-  assert.equal(out[1]?.['reasoning_content'], undefined, 'an earlier turn must not be rewritten');
+  const out = withReasoning(wire, ['first thoughts', 'second thoughts']);
+  assert.equal(out[3]?.['reasoning_content'], 'second thoughts', 'the continued turn carries the latest');
+  assert.equal(out[1]?.['reasoning_content'], 'first thoughts', 'the earlier turn carries its own');
   assert.equal(out[3]?.['content'], 'second', 'the content must be untouched');
+});
+
+test('every assistant turn carries its own reasoning, paired from the end', () => {
+  /*
+    Attaching only to the last turn was not enough: the earlier tool-calling turn stayed bare and
+    DeepSeek still refused. Pairing runs from the END because the most recent completion produced
+    the most recent assistant message.
+  */
+  const wire = [
+    { role: 'assistant', content: 'seeded, no completion behind it' },
+    { role: 'assistant', content: 'a' },
+    { role: 'user', content: 'TOOL RESULT:\nok' },
+    { role: 'assistant', content: 'b' },
+  ];
+  const out = withReasoning(wire, ['ra', 'rb']);
+  assert.equal(out[3]?.['reasoning_content'], 'rb');
+  assert.equal(out[1]?.['reasoning_content'], 'ra');
+  assert.equal(out[0]?.['reasoning_content'], undefined, 'a turn with no completion is left alone');
+});
+
+test('a completion that emitted no reasoning contributes no field', () => {
+  // The empty entry still consumes its turn, so later turns stay aligned with their completions.
+  const out = withReasoning([
+    { role: 'assistant', content: 'a' }, { role: 'assistant', content: 'b' },
+  ], ['ra', '']);
+  assert.equal(out[1]?.['reasoning_content'], undefined, 'no reasoning means no field');
+  assert.equal(out[0]?.['reasoning_content'], 'ra', 'alignment must not shift');
 });
 
 test('no reasoning means no field, and no assistant turn means no change', () => {
   const wire = () => [{ role: 'user', content: 'u' }];
-  assert.deepEqual(withReasoning(wire(), undefined), wire());
-  assert.deepEqual(withReasoning(wire(), ''), wire());
+  assert.deepEqual(withReasoning(wire(), []), wire());
   // A conversation with no assistant turn yet is left exactly as it was.
-  assert.deepEqual(withReasoning(wire(), 'because'), wire());
+  assert.deepEqual(withReasoning(wire(), ['because']), wire());
 });
