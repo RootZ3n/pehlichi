@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ReceiptStore } from './receipt-store.js';
+import { receiptJournalName } from './loop.js';
 import { governedMkdtemp } from './temp-authority.js';
 
 const base = (): string => governedMkdtemp('receipt-durability-');
@@ -144,6 +145,20 @@ test('a well-formed line that is not a receipt is discarded, not trusted', () =>
       assert.equal(recovered.get('r-y'), undefined);
     } finally { recovered.destroy(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a journal filename identifies the run instead of colliding', () => {
+  // The defect a live campaign exposed: a harness passing a non-numeric task id produced the
+  // literal "NaN", so every run sharing a receipt root appended to one file.
+  assert.equal(receiptJournalName('t01'), 't01');
+  assert.equal(receiptJournalName('build/step 2'), 'build-step-2');
+  let n = 0;
+  const unique = (): string => `u${(n += 1)}`;
+  for (const bad of ['NaN', 'undefined', 'null', '', '   ', '///', undefined]) {
+    assert.match(receiptJournalName(bad, unique), /^run-u\d+$/, `${String(bad)} was not replaced`);
+  }
+  // Two unnameable runs must not land on the same file.
+  assert.notEqual(receiptJournalName(undefined), receiptJournalName(undefined));
 });
 
 test('a missing journal reads as empty rather than throwing', () => {

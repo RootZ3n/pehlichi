@@ -4,6 +4,7 @@
  * Depends only on the Driver interface, the tool registry, and the event
  * emitter. The scripted driver and the real MiMo driver are interchangeable.
  */
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { createStore, type ModuleMeta, type Store } from "lab-store";
@@ -67,6 +68,25 @@ import {
  *
  * Every one of them still spends a TURN, which is what bounds a model that never makes progress.
  */
+/**
+ * A journal filename that identifies the run rather than colliding with every other one.
+ *
+ * A live campaign exposed the previous version: it interpolated the task id straight into the name,
+ * and a harness that passed a non-numeric id produced the literal string "NaN", so every run in a
+ * shared receipt root would have appended to one file called `NaN.jsonl`. Per-run directories hid
+ * it. A shared root would not have.
+ *
+ * An id that survives sanitisation names the file. Anything that does not — empty, undefined, or
+ * punctuation-only — falls back to a name that is still unique, because two runs sharing a receipt
+ * journal is exactly the confusion the journal exists to prevent.
+ */
+export function receiptJournalName(taskId: string | undefined, unique = () => randomUUID()): string {
+  const cleaned = `${taskId ?? ""}`.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  return cleaned.length > 0 && cleaned !== "NaN" && cleaned !== "undefined" && cleaned !== "null"
+    ? cleaned
+    : `run-${unique()}`;
+}
+
 export function spendsActionAllowance(kind: DriverAction["kind"]): boolean {
   return kind === "tool";
 }
@@ -584,12 +604,7 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
   const receiptJournalRoot = optionalDataRoot(...DATA_ROOT_VARIABLES.receipts);
   const receiptStore = new ReceiptStore(
     receiptJournalRoot !== undefined
-      ? {
-          journalPath: join(
-            receiptJournalRoot,
-            `${`${opts.taskId ?? opts.task ?? "run"}`.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80)}.jsonl`,
-          ),
-        }
+      ? { journalPath: join(receiptJournalRoot, `${receiptJournalName(opts.taskId ?? opts.task)}.jsonl`) }
       : {},
   );
   const evidenceRecorder = opts.evidenceRecorder
