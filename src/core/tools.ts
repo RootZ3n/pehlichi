@@ -246,7 +246,27 @@ const terminalTool = async (args: Record<string, unknown>, ctx: ToolContext, pro
   const durationMs = Date.now() - start;
 
   const out = capBytes(res.stdout ?? "", MAX_OUTPUT_BYTES);
-  const err = capBytes(res.stderr ?? "", MAX_OUTPUT_BYTES);
+  /*
+    A SHELL WRITE INTO A NON-ALLOCATED WORKSPACE FAILS AS `Read-only file system`, WHICH TELLS THE
+    MODEL NOTHING IT CAN ACT ON.
+
+    A deployment declares the workspace an agent works in AND, separately, the roots it may write to;
+    an agent's own repository is deliberately in the first and not the second. That asymmetry is
+    correct — writes there go through the governed write tools, which have their own reviewed
+    boundary — but it was invisible, and a model that cannot see it retries the same redirection
+    until its budget is gone. Measured in the Phase-3C campaign: one turn lost exactly that way.
+
+    So the refusal explains itself. This adds a sentence to a failed command's output; it changes no
+    policy and grants nothing.
+  */
+  const readOnlyWorkspace = !workspaceIsWritable(cwd);
+  const wroteNothing = (res.status ?? -1) !== 0 && /Read-only file system|Permission denied/i.test(res.stderr ?? "");
+  const err = capBytes(
+    readOnlyWorkspace && wroteNothing
+      ? `${res.stderr ?? ""}\n[this workspace is not one of the deployment's declared writable roots, ` +
+        `so shell redirection cannot create files here; use the write_file or patch tool instead]`
+      : (res.stderr ?? ""),
+    MAX_OUTPUT_BYTES);
   const truncated = out.truncated || err.truncated;
 
   const timedOut = (res.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
@@ -421,9 +441,14 @@ function capBytes(s: string, cap: number): { text: string; originalBytes: number
   read-only when it is not, rather than widening the reviewed allocation to make `terminal` more
   convenient. Governed temporary space is writable either way.
 */
+function workspaceIsWritable(cwd: string): boolean {
+  const config = agentContainmentConfig();
+  return config.writableWorkspaces.some((root) => isWithin(canonical(cwd), canonical(root)));
+}
+
 function containedShellPlan(cwd: string): ContainmentDecision {
   const config = agentContainmentConfig();
-  const declared = config.writableWorkspaces.some((root) => isWithin(canonical(cwd), canonical(root)));
+  const declared = workspaceIsWritable(cwd);
   return planFor(
     {
       command: SHELL_BINARY,

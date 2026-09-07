@@ -294,6 +294,7 @@
       "src/core/agent-tools/token-monitor.ts",
       "src/core/agent-tools/tool-arg-repair.test.ts",
       "src/core/agent-tools/tool-arg-repair.ts",
+      "src/core/agent-tools/tool-boundary.test.ts",
       "src/core/agent-tools/tool-governor.test.ts",
       "src/core/agent-tools/tool-governor.ts",
       "src/core/agent-tools/tool-text-boundary.ts",
