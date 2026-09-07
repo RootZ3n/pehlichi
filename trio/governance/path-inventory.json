@@ -304,6 +304,7 @@
       "src/core/agent-tools/velum-scan.ts",
       "src/core/agent-tools/vision-tools.ts",
       "src/core/agent-tools/web-tools.ts",
+      "src/core/answer-contract.test.ts",
       "src/core/approval-policy.ts",
       "src/core/bridge-adapter.ts",
       "src/core/bridges/bridge-tools.ts",
