@@ -4,8 +4,8 @@
  * Tool names match Hermes: patch, read_file, write_file, search_files.
  * Supplements the core's basic read/write/search with Hermes-level features.
  */
-import { writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, dirname, basename } from 'node:path';
+import { writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { basename, dirname, join, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
 import { resolveInWorkspace, openInWorkspace } from '../workspace.js';
@@ -190,6 +190,21 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
       // REVERSIBILITY (P0.3): capture the pre-write state so the loop can emit a diff
       // event and the session can journal an undo entry. `before` is null for a new file.
       const before = existsSync(filePath) ? readByIdentity(workspaceRoot, args.path as string, filePath) : null;
+      /*
+        THE TOOL'S OWN DESCRIPTION PROMISES THIS: "creates parent dirs, overwrites existing".
+
+        It did not. Three Trio agents failed the same test-authoring task in the Phase-3 campaign
+        with `ENOENT: no such file or directory, open '.../ws/tests/test_pricing.py'`, retried, and
+        tripped the repetition governor. The model was not wrong — it was told the tool creates
+        parent directories and it believed the schema it was given.
+
+        `filePath` has already been through `resolveInWorkspace`, which refuses traversal, absolute
+        paths outside the root, and symlinked ancestors, so the directory being created is inside
+        the authorized workspace. A concurrent same-UID process could still swap an ancestor between
+        the check and this call; that is the residual this programme has already accepted and
+        documented, and it is not widened here.
+      */
+      mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, content, 'utf8');
       const bytes = Buffer.byteLength(content, 'utf8');
       return { ok: true, output: `Wrote ${bytes} bytes to ${filePath}`, diff: { path: filePath, before, after: content } };

@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { governedMkdtemp } from "../temp-authority.js";
 import { createGitOpsToolHandlers } from "./git-ops-tools.js";
-import { createEnhancedFileToolHandlers } from "./enhanced-file-tools.js";
+import { createEnhancedFileToolHandlers, enhancedFileToolSpecs } from "./enhanced-file-tools.js";
 
 /*
   TOOL BOUNDARIES FOR THE FAMILIES THAT ARE NOT A SHELL.
@@ -127,4 +127,40 @@ test("paths outside the workspace are refused by the search boundary", async () 
       /escapes the workspace/,
       `a search rooted at ${path} must be refused`);
   }
+});
+
+test("write_file creates parent directories, as its own description promises", async () => {
+  /*
+    The advertised description reads "Write content to a file (creates parent dirs, overwrites
+    existing)". It did not. Three Trio agents failed the same test-authoring task in the Phase-3
+    campaign with `ENOENT ... ws/tests/test_pricing.py`, retried, and tripped the repetition
+    governor. The model believed the schema it was given.
+  */
+  const root = governedMkdtemp("write-parents-");
+  const handlers = createEnhancedFileToolHandlers(root);
+  const write = handlers.get("write_file");
+  assert.ok(write, "write_file must be registered");
+  const spec = enhancedFileToolSpecs.find((s) => s.name === "write_file");
+  assert.match(String(spec?.description), /creates parent dirs/,
+    "the contract under test is the one the model is shown");
+
+  const r = await write({ path: "tests/unit/test_pricing.py", content: "assert True\n" } as never,
+    { workspaceRoot: root, allowWrites: true } as never);
+  assert.equal(r.ok, true, `write_file must succeed: ${String(r.error ?? "")}`);
+  assert.equal(readFileSync(join(root, "tests", "unit", "test_pricing.py"), "utf8"), "assert True\n");
+});
+
+test("creating parents cannot be used to escape the workspace", async () => {
+  // The path still goes through the same resolution boundary; only the directory creation is new.
+  const root = governedMkdtemp("write-parents-escape-");
+  const write = createEnhancedFileToolHandlers(root).get("write_file");
+  assert.ok(write);
+  for (const path of ["../outside/x.txt", "/etc/pehverse/x.txt", "a/../../outside/x.txt"]) {
+    await assert.rejects(
+      () => write({ path, content: "x" } as never, { workspaceRoot: root, allowWrites: true } as never),
+      /escapes the workspace/,
+      `${path} must still be refused`);
+  }
+  assert.equal(existsSync(join(root, "..", "outside")), false,
+    "a refused write must not have created directories on its way out");
 });
