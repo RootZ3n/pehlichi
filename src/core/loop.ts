@@ -4,7 +4,7 @@
  * Depends only on the Driver interface, the tool registry, and the event
  * emitter. The scripted driver and the real MiMo driver are interchangeable.
  */
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { createStore, type ModuleMeta, type Store } from "lab-store";
 import { createMemoryStore, type MemoryStore } from "lab-memory";
@@ -13,6 +13,7 @@ import { READ_ONLY_TOOLS } from "./approval-policy.js";
 import { admitRunWork, describeRefusal, type AdmissionDecision, type AdmissionRefusal } from "./operational-admission.js";
 import { authorizeLaneRequest, type LaneDecision } from "./lane-authorization.js";
 import { qualifyRun, type QualificationGrant } from "./qualification-admission.js";
+import { DATA_ROOT_VARIABLES, optionalDataRoot } from "./data-roots.js";
 import { renderRunSummary, type RunSummary } from "./result-render.js";
 // The loop's decisions live here, apart from its effects. Production uses these; so do the
 // pure component tests. A pure layer production does not use tests one implementation and
@@ -577,7 +578,20 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
 
   // Infrastructure: context compression, receipt tracking, token monitoring
   const compressor = new ContextCompressor();
-  const receiptStore = new ReceiptStore();
+  // DURABLE WHEN A ROOT IS CONFIGURED. The IDs returned in this run's result are handed onward as
+  // its record, so they must resolve after the run ends, after the TTL, and after a restart. With
+  // no root configured the store is an ordinary cache and reports that through `durable`.
+  const receiptJournalRoot = optionalDataRoot(...DATA_ROOT_VARIABLES.receipts);
+  const receiptStore = new ReceiptStore(
+    receiptJournalRoot !== undefined
+      ? {
+          journalPath: join(
+            receiptJournalRoot,
+            `${`${opts.taskId ?? opts.task ?? "run"}`.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80)}.jsonl`,
+          ),
+        }
+      : {},
+  );
   const evidenceRecorder = opts.evidenceRecorder
     ?? createRestrictedEvidenceVault({ clock }).recorderFor({ taskId: opts.taskId ?? opts.task, roomKey: 'direct' });
   const tokenMonitor = new TokenMonitor({ model: "mimo-v2.5" });

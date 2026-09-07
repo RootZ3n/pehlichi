@@ -23,7 +23,24 @@ export const DATA_ROOT_VARIABLES = Object.freeze({
   memory: Object.freeze(['LAB_MEMORY_ROOT', 'MEMORY_STORE_ROOT'] as const),
   vault: Object.freeze(['LABMEM_ROOT'] as const),
   sync: Object.freeze(['AGENT_SYNC_DIR'] as const),
+  /**
+   * Durable receipt journal. UNLIKE the others this one is read through `optionalDataRoot`: a
+   * receipt store with no journal is still a working cache, it simply reports `durable: false`,
+   * and refusing to start over a missing receipt path would be a harsher failure than the
+   * property is worth. What is NOT permitted is a silent hardcoded fallback, which is why the
+   * variable exists at all.
+   */
+  receipts: Object.freeze(['LAB_RECEIPT_ROOT'] as const),
 });
+
+/** The first of `names` that is set to a non-empty value, or undefined. Never a default path. */
+export function optionalDataRoot(...names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
 
 /**
  * The first of `names` that is set to a non-empty value, or a thrown error naming all of them.

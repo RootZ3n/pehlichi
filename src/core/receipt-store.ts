@@ -1,12 +1,32 @@
 /**
- * RECEIPT STORE — lightweight in-memory receipt log with TTL auto-cleanup.
+ * RECEIPT STORE — a durable receipt journal with an in-memory cache over it.
  *
- * Every /chat turn produces a receipt. Receipts are noisy but necessary for
- * audit. They auto-expire after a configurable TTL (default 1 hour) so they
- * don't fill up memory on long-running processes.
+ * Every /chat turn produces a receipt, and callers hand those receipt IDs onward as the record of
+ * what a run did. That contract was previously unkeepable: the store was a Map with a one-hour TTL,
+ * `loop.ts` built a fresh one per run and the server built another, so an ID could be returned to a
+ * caller and then be unretrievable after the TTL, after the run, or after a restart. `/health`
+ * reported zero receipts against a non-empty conversation history for exactly that reason.
+ *
+ * DURABILITY. When a journal path is configured, `record()` appends one JSON line and only then
+ * returns. An ID a caller holds therefore always corresponds to a line already on disk, including
+ * when the process is killed immediately afterwards. The Map is a CACHE over that journal, not the
+ * record itself: the TTL sweep evicts from the cache and never from the journal, and a read that
+ * misses the cache falls back to the journal.
+ *
+ * FORMAT. Append-only JSONL, one receipt per line, the same single-writer discipline
+ * `lab-transcript.ts` already uses. This is deliberately not a second logging subsystem.
+ *
+ * TORN TAILS. A process killed mid-write can leave a partial final line. `readJournal` skips lines
+ * that do not parse rather than throwing, because losing the interrupted record is acceptable and
+ * losing every record before it is not.
+ *
+ * NOT A SECRET STORE. A receipt carries the VERIFIED principal id and a content summary. It never
+ * carries an assertion, a token or a key, and making the journal durable does not change that.
  *
  * Shared across the trio (Peh, Ptah, Luna) — identical file in each repo.
  */
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { validateFindingMetadata, type PublicFindingMetadata } from './agent-tools/restricted-evidence.js';
 
 export interface Receipt {
@@ -46,6 +66,12 @@ export interface ReceiptStoreOptions {
   readonly cleanupIntervalMs?: number;
   /** Injectable clock (ms). Default Date.now. */
   readonly clock?: () => number;
+  /**
+   * Append-only JSONL journal. When set, every recorded receipt is on disk before `record()`
+   * returns, and reads fall back to it on a cache miss. When unset the store is cache-only and
+   * `durable` is false, which is what a caller must check before treating an ID as retrievable.
+   */
+  readonly journalPath?: string;
 }
 
 export class ReceiptStore {
@@ -54,6 +80,7 @@ export class ReceiptStore {
   private readonly clock: () => number;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
   private idCounter = 0;
+  private readonly journalPath: string | undefined;
 
   constructor(opts: ReceiptStoreOptions = {}) {
     this.ttlMs = opts.ttlMs ?? 60 * 60 * 1000; // 1 hour default
@@ -61,6 +88,13 @@ export class ReceiptStore {
     const intervalMs = opts.cleanupIntervalMs ?? 5 * 60 * 1000; // 5 min default
     this.cleanupTimer = setInterval(() => this.sweep(), intervalMs);
     this.cleanupTimer.unref(); // Don't keep process alive
+    this.journalPath = opts.journalPath;
+    if (this.journalPath !== undefined) mkdirSync(dirname(this.journalPath), { recursive: true });
+  }
+
+  /** Whether a receipt ID handed to a caller survives TTL, run end and restart. */
+  get durable(): boolean {
+    return this.journalPath !== undefined;
   }
 
   /** Record a new receipt. */
@@ -89,53 +123,93 @@ export class ReceiptStore {
       timestamp: this.clock(),
       receipt_id: `r-${this.clock()}-${this.idCounter.toString(36)}`,
     };
+    // ON DISK BEFORE THE CALLER HOLDS THE ID. A crash between these two statements loses nothing
+    // a caller could later be asked to retrieve, which is the property the previous store lacked.
+    if (this.journalPath !== undefined) {
+      appendFileSync(this.journalPath, `${JSON.stringify(receipt)}\n`);
+    }
     this.receipts.set(receipt.id, receipt);
     return receipt;
   }
 
+  /**
+   * Read a receipt journal from disk, skipping any torn final line.
+   *
+   * Static so recovery does not require constructing a store, and so an operator or a later run
+   * can read the record of a process that is gone.
+   */
+  static readJournal(path: string): Receipt[] {
+    let raw: string;
+    try { raw = readFileSync(path, 'utf8'); } catch { return []; }
+    const out: Receipt[] = [];
+    for (const line of raw.split('\n')) {
+      if (line.length === 0) continue;
+      try { out.push(JSON.parse(line) as Receipt); } catch { /* torn tail: keep everything before it */ }
+    }
+    return out;
+  }
+
+  /** Every receipt this store can still account for: the journal when durable, else the cache. */
+  private all(): Receipt[] {
+    if (this.journalPath === undefined) return [...this.receipts.values()];
+    const journal = ReceiptStore.readJournal(this.journalPath);
+    const seen = new Set(journal.map((r) => r.id));
+    // A cached receipt absent from the journal cannot occur while durable, but preferring the
+    // union keeps a read correct rather than merely consistent if it ever does.
+    return [...journal, ...[...this.receipts.values()].filter((r) => !seen.has(r.id))];
+  }
+
   /** Get the most recent N receipts (newest first). */
   recent(limit = 20): Receipt[] {
-    const all = [...this.receipts.values()].sort((a, b) => b.timestamp - a.timestamp);
-    return all.slice(0, limit);
+    return this.all().sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
   }
 
   /** Get receipts for a specific task. */
   byTask(taskId: string): Receipt[] {
-    return [...this.receipts.values()].filter((r) => r.taskId === taskId);
+    return this.all().filter((r) => r.taskId === taskId);
   }
 
   /** Get receipts for a specific workspace. */
   byWorkspace(workspaceId: string): Receipt[] {
-    return [...this.receipts.values()].filter((r) => r.workspaceId === workspaceId);
+    return this.all().filter((r) => r.workspaceId === workspaceId);
   }
 
   /** Get failed/blocked receipts only. */
   failures(): Receipt[] {
-    return [...this.receipts.values()].filter(
+    return this.all().filter(
       (r) => r.status === 'failed' || r.status === 'error' || r.status === 'injection_blocked' || r.status === 'injection_quarantined'
     );
   }
 
   /** Get a specific receipt by id. */
   get(id: string): Receipt | undefined {
-    return this.receipts.get(id);
+    const cached = this.receipts.get(id);
+    if (cached !== undefined) return cached;
+    // A cache miss is not an absence: the TTL sweep evicts, the journal does not.
+    if (this.journalPath === undefined) return undefined;
+    return ReceiptStore.readJournal(this.journalPath).find((r) => r.id === id);
   }
 
   /** Total count of live receipts. */
   get size(): number {
-    return this.receipts.size;
+    return this.all().length;
   }
 
   /** Summary stats for /health. */
   summary(): { total: number; failures: number; oldestMs: number | null } {
-    const all = [...this.receipts.values()];
+    const all = this.all();
     if (all.length === 0) return { total: 0, failures: 0, oldestMs: null };
     const failures = all.filter((r) => r.status !== 'success').length;
     const oldest = Math.min(...all.map((r) => r.timestamp));
     return { total: all.length, failures, oldestMs: this.clock() - oldest };
   }
 
-  /** Remove expired receipts. Called automatically on the cleanup interval. */
+  /**
+   * Evict expired receipts FROM THE CACHE. Called automatically on the cleanup interval.
+   *
+   * The journal is never swept. Expiry is a memory bound, not a retention policy, and conflating
+   * the two is what made receipt IDs unretrievable.
+   */
   private sweep(): void {
     const cutoff = this.clock() - this.ttlMs;
     let swept = 0;
@@ -149,7 +223,7 @@ export class ReceiptStore {
       // Operational log → structured record on stderr. stdout is reserved for
       // protocol/user output; background sweeps must never pollute it.
       process.stderr.write(
-        `${JSON.stringify({ level: 'info', component: 'receipts', msg: 'swept expired receipts', swept, remaining: this.receipts.size })}\n`,
+        `${JSON.stringify({ level: 'info', component: 'receipts', msg: 'evicted expired receipts from cache', swept, remaining: this.receipts.size })}\n`,
       );
     }
   }

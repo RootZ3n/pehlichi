@@ -124,6 +124,10 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   'src/core/delegated-authorization.ts': ['filesystem-mutation'],
   'src/core/lane-authorization.ts': ['filesystem-mutation'],
   'src/core/loop.ts': ['tool-invocation'],
+  // The receipt journal. `filesystem-mutation` because a receipt is appended to durable storage
+  // before its id is handed back, which is the whole point: an id a caller holds must correspond
+  // to a line already on disk.
+  'src/core/receipt-store.ts': ['filesystem-mutation'],
   // Pre-model ordinary authorization. `child-process` because the subject's own commit and tree
   // are read from git rather than taken from a caller; `filesystem-mutation` because the refusal
   // and admission receipts are durable writes, and both happen before a model or a tool.

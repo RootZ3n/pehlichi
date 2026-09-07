@@ -32,7 +32,7 @@ import {
   type ToolDef,
   OperationalWorkRefused,
 } from '../../src/core/index.js';
-import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../../src/core/data-roots.js';
+import { DATA_ROOT_VARIABLES, optionalDataRoot, requiredDataRoot } from '../../src/core/data-roots.js';
 import { createFullToolRegistry } from '../../src/core/agent-tools/index.js';
 import { CircuitBreaker } from '../../src/core/agent-tools/circuit-breaker.js';
 import { appendTurn, recentSharedContext, readRoomTail } from '../../src/core/lab-transcript.js';
@@ -520,7 +520,17 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
    */
   const labStoreRoot = opts.labStoreRoot ?? requiredDataRoot(...DATA_ROOT_VARIABLES.store);
   const evidenceVault = createRestrictedEvidenceVault({ clock: opts.now ?? Date.now });
-  const receiptStore = new ReceiptStore({ ttlMs: 60 * 60 * 1000, ...(opts.now ? { clock: opts.now } : {}) });
+  // The service's own store. `/health` reported zero receipts against a non-empty conversation
+  // history because this store held them for an hour in memory and nowhere else; a caller given a
+  // receipt id could not retrieve it after a restart. The TTL now bounds the cache, not the record.
+  const receiptJournalRoot = optionalDataRoot(...DATA_ROOT_VARIABLES.receipts);
+  const receiptStore = new ReceiptStore({
+    ttlMs: 60 * 60 * 1000,
+    ...(opts.now ? { clock: opts.now } : {}),
+    ...(receiptJournalRoot !== undefined
+      ? { journalPath: join(receiptJournalRoot, `${config.capsule.identity.id}-service.jsonl`) }
+      : {}),
+  });
   const provenance = loadReleaseProvenance(
     config.repositoryRoot,
     config.capsule.identity.id,
