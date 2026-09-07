@@ -137,6 +137,12 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   // happen before anything reaches a model or a tool.
   'src/core/qualification-admission.ts': ['child-process', 'filesystem-mutation'],
   'src/core/scenario.ts': ['child-process', 'filesystem-mutation'],
+  /*
+    Materialization builds a fresh workspace by copying content through descriptors, so it
+    creates directories and files. It is declared for the same reason every other sink is:
+    an effect that is not declared is an effect nobody reviews.
+  */
+  'src/core/materialize.ts': ['filesystem-mutation'],
   'src/core/shadow.ts': ['filesystem-mutation'],
   'src/core/subagent-entry.ts': ['filesystem-mutation'],
   'src/core/temp-authority.ts': ['filesystem-mutation'],

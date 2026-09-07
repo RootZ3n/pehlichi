@@ -49,6 +49,13 @@ function readByIdentity(workspaceRoot: string, requested: string, _resolved: str
   The count of suppressed files is reported so a silent gap in results is visible, and no suppressed
   path or byte is named.
 */
+/** The whole environment a search binary receives. Nothing the service holds is passed on. */
+const SEARCH_ENV: NodeJS.ProcessEnv = Object.freeze({
+  PATH: '/usr/local/bin:/usr/bin:/bin',
+  LANG: 'C.UTF-8',
+  LC_ALL: 'C.UTF-8',
+});
+
 function withoutAliasedFiles(output: string): { text: string; suppressed: number } {
   const suppressed = new Set<string>();
   const kept: string[] = [];
@@ -229,6 +236,11 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
 
         try {
           const output = execFileSync('rg', rgArgs, {
+            // A BUILT environment, not the service's. These are fixed binaries that read files and
+            // print matches, so neither can be made to disclose what it holds — but the service
+            // environment carries CREDENTIALS_DIRECTORY, which is a path to the provider secret,
+            // and a search tool has no reason to be handed it.
+            env: SEARCH_ENV,
             encoding: 'utf8',
             timeout: 10_000,
             maxBuffer: 512 * 1024,
@@ -240,6 +252,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
           const grepArgs = ['-rn', '--include', fileGlob || '*', '--', pattern, searchPath];
           try {
             const output = execFileSync('grep', grepArgs, {
+              env: SEARCH_ENV,
               encoding: 'utf8',
               timeout: 10_000,
               maxBuffer: 512 * 1024,

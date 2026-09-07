@@ -124,6 +124,19 @@ export function defaultPhoneRunner(transport: PhoneTransport): PhoneRunner {
     const cmdArgs = isSsh ? [transport.host, binary, ...args] : [...args];
     // LOCAL: Termux-aware env. SSH: inherit process.env so ssh finds keys/known_hosts.
     const res = spawnSync(cmd, cmdArgs, {
+      /*
+        A BUILT environment. The device helper takes a fixed argv and cannot be asked to print what
+        it holds, but the service environment carries CREDENTIALS_DIRECTORY — a path to the provider
+        secret — and a phone helper has no reason to receive it. Termux needs its own PREFIX and
+        HOME, which are supplied explicitly rather than inherited wholesale.
+      */
+      env: {
+        PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: process.env['HOME'] ?? '/home/zen',
+        LANG: 'C.UTF-8',
+        ...(process.env['PREFIX'] !== undefined ? { PREFIX: process.env['PREFIX'] } : {}),
+        ...(process.env['ANDROID_DATA'] !== undefined ? { ANDROID_DATA: process.env['ANDROID_DATA'] } : {}),
+      } as NodeJS.ProcessEnv,
       encoding: 'utf8',
       timeout: PHONE_TIMEOUT_MS,
       maxBuffer: MAX_BUFFER_BYTES,
