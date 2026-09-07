@@ -360,6 +360,8 @@
       "src/core/loop-mechanics.ts",
       "src/core/loop.test.ts",
       "src/core/loop.ts",
+      "src/core/materialize.test.ts",
+      "src/core/materialize.ts",
       "src/core/memory-tools.test.ts",
       "src/core/occasio-bridge.test.ts",
       "src/core/occasio-bridge.ts",

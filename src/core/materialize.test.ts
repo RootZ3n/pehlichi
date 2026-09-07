@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { execSync } from "node:child_process";
-import { linkSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { governedMkdtemp } from "./temp-authority.js";
@@ -39,8 +38,15 @@ test("a file aliased from outside the tree is refused, not reproduced", () => {
   assert.equal(existsSync(join(base, "ws", "alias.txt")), false,
     "the alias must be absent from the workspace, not copied into it");
   // And nothing anywhere in the materialized tree carries the canary.
-  const grep = execSync(`grep -rl ${CANARY} ${join(base, "ws")} 2>/dev/null || true`, { encoding: "utf8" });
-  assert.equal(grep.trim(), "", "no admitted file may contain the outside content");
+  // Walk the materialized tree in-process rather than shelling out to grep: a committed test that
+  // executes a command is the thing the governed-execution scanner is for.
+  const carriesCanary = (dir: string): boolean =>
+    readdirSync(dir, { withFileTypes: true }).some((entry) => {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) return carriesCanary(abs);
+      return entry.isFile() && readFileSync(abs, "utf8").includes(CANARY);
+    });
+  assert.equal(carriesCanary(join(base, "ws")), false, "no admitted file may contain the outside content");
 });
 
 test("hardlinks whose names are all inside the tree are admitted", () => {
@@ -69,13 +75,16 @@ test("every admitted file is a fresh inode with a single link", () => {
 test("symlinks, devices and fifos are recorded rather than followed or recreated", () => {
   const { src, outside, base } = fixture();
   symlinkSync(join(outside, "secret.txt"), join(src, "link.txt"));
-  try { execSync(`mkfifo ${join(src, "pipe")}`); } catch { /* not fatal on hosts without mkfifo */ }
   const result = materializeInto(src, join(base, "ws"));
   const reasons = new Map(result.skipped.map((s) => [s.path, s.reason]));
   assert.equal(reasons.get("link.txt"), "symlink");
   assert.equal(existsSync(join(base, "ws", "link.txt")), false,
     "recreating the link would put the original question back inside the answer");
-  if (existsSync(join(src, "pipe"))) assert.equal(reasons.get("pipe"), "not-a-regular-file");
+  /*
+    The FIFO case needs `mkfifo`, and Node has no API for it. Executing a command from a committed
+    test is exactly what the governed-execution scanner exists to catch, so that case lives in the
+    Phase-3F audit harness instead — which drives the same code path and is not a committed file.
+  */
 });
 
 test("a source that changes under the copy is refused, not sampled twice", () => {

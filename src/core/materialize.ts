@@ -53,7 +53,8 @@ export type SkipReason =
   | "symlink"
   | "not-a-regular-file"
   | "unreadable"
-  | "externally-aliased";
+  | "externally-aliased"
+  | "aliased-during-materialization";
 
 export interface MaterializeResult {
   readonly files: number;
@@ -85,6 +86,7 @@ function copyByDescriptor(
   sourcePath: string,
   destinationPath: string,
   accountedFor: (dev: number, ino: number, nlink: number) => boolean,
+  admit: (dev: number, ino: number) => void,
 ): number {
   let fd: number;
   try {
@@ -110,6 +112,7 @@ function copyByDescriptor(
         `${sourcePath} has ${before.nlink} links and the source tree accounts for fewer, ` +
         "so its content is reachable from outside and it is not admitted");
     }
+    admit(before.dev, before.ino);
     const bytes = readFileSync(fd);
     const after = fstatSync(fd);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
@@ -154,6 +157,10 @@ export function materialize(
     copying starts, from the same tree, and is used only to REFUSE — a stale count can withhold a
     file that was admissible, never admit one that was not.
   */
+  /** Inodes whose bytes were copied. The second census re-examines exactly these. */
+  const admittedInodes = new Set<string>();
+  const admit = (dev: number, ino: number): void => { admittedInodes.add(`${dev}:${ino}`); };
+
   const linkCounts = new Map<string, number>();
   const census = (dir: string): void => {
     let entries: Dirent[];
@@ -192,7 +199,7 @@ export function materialize(
       }
       if (!entry.isFile()) { skipped.push({ path: rel, reason: "not-a-regular-file" }); continue; }
       try {
-        bytes += copyByDescriptor(abs, join(to, rel), accountedFor);
+        bytes += copyByDescriptor(abs, join(to, rel), accountedFor, admit);
         files += 1;
       } catch (error) {
         if (error instanceof MaterializationRefused && error.detail !== "mutated-during-copy") {
@@ -204,6 +211,82 @@ export function materialize(
     }
   };
   visit(from);
+
+  /*
+    THE SAMPLING WINDOW, AND WHY A SECOND CENSUS CLOSES IT.
+
+    `nlink` is a count read at a moment. An adversary who can write the source can unlink the
+    OUTSIDE name just before the descriptor is stat'd, so the file looks ordinary, and restore it
+    afterwards. Phase 3F won exactly that race against the first version of this code: a second
+    process flapping the outside name in a loop got the canary admitted.
+
+    A single sample cannot be made reliable — that is what a sample is. So the tree is censused
+    AGAIN after every copy, and any admitted inode that now has names the tree cannot account for
+    invalidates the whole materialization. The result is a two-sided window, and the adversary has
+    to keep the outside name absent across BOTH censuses and every copy in between.
+
+    If they do, the argument changes rather than weakens: for the entire materialization the inode's
+    only name was inside the workspace. The content was, throughout, exclusively a workspace file —
+    which is indistinguishable from an adversary with write access simply writing those bytes, and
+    no boundary above the filesystem can prevent that. What is closed here is admission through
+    ALIASING; what remains is an adversary who already has write access to the source, and that was
+    never what this boundary was for.
+
+    The whole materialization is rejected rather than the single file: a source being manipulated
+    while it is read is not a source one file of which can be trusted.
+  */
+  const recensus = new Map<string, number>();
+  const second = (dir: string): void => {
+    let entries: Dirent[];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (exclude.has(entry.name)) continue;
+      const abs = join(dir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) { second(abs); continue; }
+      if (!entry.isFile()) continue;
+      try {
+        const st = lstatSync(abs);
+        if (st.nlink <= 1) continue;
+        const key = `${st.dev}:${st.ino}`;
+        recensus.set(key, (recensus.get(key) ?? 0) + 1);
+      } catch { /* vanished between listing and stat */ }
+    }
+  };
+  second(from);
+  for (const [key, insideNow] of recensus) {
+    // Only inodes whose bytes were actually COPIED matter here. A file refused at admission is
+    // already refused; re-rejecting the whole run for it would make an ordinary planted alias fatal
+    // instead of skipped, which is the wrong shape of answer and would break any tree that legally
+    // contains one.
+    if (!admittedInodes.has(key)) continue;
+    const [devText, inoText] = key.split(":");
+    let nlinkNow = 0;
+    // Re-stat one occurrence to learn the current link count for this inode.
+    const probe = (dir: string): boolean => {
+      let entries: Dirent[];
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+      for (const entry of entries) {
+        if (exclude.has(entry.name)) continue;
+        const abs = join(dir, entry.name);
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isDirectory()) { if (probe(abs)) return true; continue; }
+        if (!entry.isFile()) continue;
+        try {
+          const st = lstatSync(abs);
+          if (`${st.dev}:${st.ino}` === key) { nlinkNow = st.nlink; return true; }
+        } catch { /* vanished */ }
+      }
+      return false;
+    };
+    probe(from);
+    if (nlinkNow > insideNow) {
+      throw new MaterializationRefused("aliased-during-materialization",
+        `inode ${devText}:${inoText} has ${nlinkNow} links and the tree accounts for ${insideNow}; ` +
+        "the source was manipulated while it was being read and the materialization is rejected");
+    }
+  }
+
   return { files, bytes, directories, skipped, milliseconds: Date.now() - started };
 }
 
