@@ -380,6 +380,7 @@
       "src/core/qualification-admission.ts",
       "src/core/receipt-access.test.ts",
       "src/core/receipt-access.ts",
+      "src/core/receipt-durability.test.ts",
       "src/core/receipt-store.ts",
       "src/core/report-store.test.ts",
       "src/core/report-store.ts",
