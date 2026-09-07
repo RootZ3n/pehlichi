@@ -80,7 +80,10 @@ import {
  * punctuation-only — falls back to a name that is still unique, because two runs sharing a receipt
  * journal is exactly the confusion the journal exists to prevent.
  */
-export function receiptJournalName(taskId: string | undefined, unique = () => randomUUID()): string {
+export function receiptJournalName(
+  taskId: string | undefined,
+  unique: () => string = () => randomUUID(),
+): string {
   const cleaned = `${taskId ?? ""}`.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
   return cleaned.length > 0 && cleaned !== "NaN" && cleaned !== "undefined" && cleaned !== "null"
     ? cleaned
