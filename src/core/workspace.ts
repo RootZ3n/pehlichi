@@ -105,6 +105,85 @@ function realPathOrNearest(abs: string): string {
   This is not a claim of race freedom from two pathname checks. There is exactly one lookup.
 */
 /*
+  STATIC HARDLINK ADMISSION — DEFENCE IN DEPTH, AND NOT A RACE-PROOF AUTHORITY.
+
+  Phase 3F established that filesystem topology cannot establish provenance, and Phase 3G's accepted
+  threat model narrows the residual to a concurrently hostile process already running as the service
+  account. That actor can already read the files it would alias, so racing this check gains it
+  nothing it did not hold.
+
+  What this check IS for is the case that needs no race at all: an alias that is ALREADY SITTING in
+  a workspace when a run begins. Nothing else refuses that today, and refusing it costs nothing on
+  real content — the live project tree has 1010 files and zero multiply-linked ones.
+
+  It runs BEFORE any model-controlled execution, so an ambiguous workspace is refused rather than
+  explored. It discloses no file content: a refusal names the class and the count, never the bytes.
+
+  DEPENDENCY CONTENT IS NOT COVERED, AND THAT IS SAID RATHER THAN IMPLIED. Package managers hardlink
+  from a content store outside the workspace by design — 5112 such files in the live tree — so a
+  blanket rule would refuse every ordinary build. Those paths are reported as UNCOVERED, pending the
+  digest-bound dependency closure. That is not a pathname exemption claiming they are safe; it is a
+  declared gap with a name.
+*/
+export interface WorkspaceLinkAssessment {
+  /** Project files whose inode has names the workspace cannot account for. */
+  readonly ambiguous: readonly string[];
+  /** Dependency-tree files in the same position, reported but not refused. */
+  readonly uncoveredDependencyLinks: number;
+  readonly filesExamined: number;
+  /** Always true: a same-UID process can still plant an alias after this returns. */
+  readonly raceRemainsPossible: true;
+}
+
+/** Directories whose contents are package-manager material rather than project source. */
+function isDependencyPath(relative: string): boolean {
+  return relative.split(sep).includes("node_modules");
+}
+
+/**
+ * Examine a workspace for external hardlink relationships.
+ *
+ * Bounded: a tree too large to examine within the bound reports what it saw and says so, because a
+ * check that silently gives up is worse than one that admits its limit.
+ */
+export function assessWorkspaceLinks(root: string, bound = 200_000): WorkspaceLinkAssessment {
+  const base = resolve(root);
+  const counts = new Map<string, number>();
+  const candidates: Array<{ rel: string; key: string; nlink: number }> = [];
+  let examined = 0;
+  const visit = (dir: string): void => {
+    let entries: Dirent[];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (examined >= bound) return;
+      const abs = join(dir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) { visit(abs); continue; }
+      if (!entry.isFile()) continue;
+      examined += 1;
+      try {
+        const st = lstatSync(abs);
+        if (st.nlink <= 1) continue;
+        const key = `${st.dev}:${st.ino}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        candidates.push({ rel: relative(base, abs), key, nlink: st.nlink });
+      } catch { /* vanished between listing and stat */ }
+    }
+  };
+  visit(base);
+
+  const ambiguous: string[] = [];
+  let uncovered = 0;
+  for (const candidate of candidates) {
+    const inside = counts.get(candidate.key) ?? 0;
+    if (inside >= candidate.nlink) continue;          // every name accounted for inside the workspace
+    if (isDependencyPath(candidate.rel)) { uncovered += 1; continue; }
+    ambiguous.push(candidate.rel);
+  }
+  return { ambiguous, uncoveredDependencyLinks: uncovered, filesExamined: examined, raceRemainsPossible: true };
+}
+
+/*
   NOT EVERY MULTIPLY-LINKED FILE IS AN ESCAPE.
 
   The first version of this boundary refused any regular file with `nlink > 1`. That is the textbook

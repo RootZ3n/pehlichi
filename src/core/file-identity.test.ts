@@ -4,7 +4,7 @@ import { closeSync, linkSync, mkdirSync, readFileSync, statSync, symlinkSync, wr
 import { join } from "node:path";
 
 import { governedMkdtemp } from "./temp-authority.js";
-import { readInWorkspace, openInWorkspace, FileIdentityRefused, resolveInWorkspace } from "./workspace.js";
+import { assessWorkspaceLinks, readInWorkspace, openInWorkspace, FileIdentityRefused, resolveInWorkspace } from "./workspace.js";
 
 /*
   FILE IDENTITY, NOT FILE NAME.
@@ -137,4 +137,52 @@ test("the workspace root itself is a legal path, not an escape", () => {
   assert.throws(() => resolveInWorkspace(ws, ".."), /escapes the workspace/);
   assert.throws(() => resolveInWorkspace(ws, "../elsewhere"), /escapes the workspace/);
   assert.throws(() => resolveInWorkspace(ws, "/etc/passwd"), /escapes the workspace/);
+});
+
+test("a preplanted external alias makes the workspace ambiguous", () => {
+  /*
+    Defence in depth for the case that needs no race at all: an alias already sitting in the
+    workspace when a run begins. The accepted residual is a CONCURRENT same-UID process, which can
+    still plant one after this check returns — and gains nothing by it, because it could already
+    read what it aliased. What it cannot do is walk past a workspace that was ambiguous from the
+    start.
+  */
+  const { ws, outside } = fixture();
+  linkSync(join(outside, "secret.txt"), join(ws, "alias.txt"));
+  const assessment = assessWorkspaceLinks(ws);
+  assert.deepEqual(assessment.ambiguous, ["alias.txt"]);
+  assert.equal(assessment.raceRemainsPossible, true,
+    "the assessment must never claim to be race-proof");
+});
+
+test("a legitimate in-tree hardlink pair is not ambiguous", () => {
+  const { ws } = fixture();
+  linkSync(join(ws, "ordinary.txt"), join(ws, "twin.txt"));
+  assert.equal(statSync(join(ws, "twin.txt")).nlink, 2);
+  assert.deepEqual(assessWorkspaceLinks(ws).ambiguous, []);
+});
+
+test("dependency links are reported as uncovered, not exempted as safe", () => {
+  /*
+    Package managers hardlink from a store outside the workspace by design — 5112 such files in the
+    live tree — so refusing them would refuse every ordinary build. They are counted and named
+    UNCOVERED, pending the digest-bound dependency closure. That is a declared gap, not a pathname
+    exemption claiming they are safe.
+  */
+  const { ws, outside } = fixture();
+  mkdirSync(join(ws, "node_modules", "dep"), { recursive: true });
+  linkSync(join(outside, "secret.txt"), join(ws, "node_modules", "dep", "index.js"));
+  const assessment = assessWorkspaceLinks(ws);
+  assert.deepEqual(assessment.ambiguous, [], "a dependency link must not refuse the workspace");
+  assert.equal(assessment.uncoveredDependencyLinks, 1, "but it must be counted and reported");
+});
+
+test("the refusal happens before any model-controlled execution and names no content", () => {
+  const { ws, outside, canary } = fixture();
+  linkSync(join(outside, "secret.txt"), join(ws, "alias.txt"));
+  const assessment = assessWorkspaceLinks(ws);
+  assert.equal(assessment.ambiguous.length, 1);
+  // The assessment carries a path, never bytes.
+  assert.equal(JSON.stringify(assessment).includes(canary), false,
+    "an assessment must never disclose the content it flagged");
 });

@@ -20,6 +20,7 @@ import { planFor } from "./containment/policy.js";
 import type { ContainmentDecision } from "./containment/policy.js";
 import { wrap } from "./containment/wrap.js";
 import { canonical, isWithin } from "./containment/paths.js";
+import { assessWorkspaceLinks } from "./workspace.js";
 import { resolve } from "node:path";
 
 import type { ToolSpec } from "./driver.js";
@@ -199,6 +200,24 @@ const terminalTool = async (args: Record<string, unknown>, ctx: ToolContext, pro
 
   const env = buildTerminalEnv(cwd);
   const envKeys = Object.keys(env).sort();
+
+  /*
+    STATIC HARDLINK ADMISSION, BEFORE ANY MODEL-CONTROLLED EXECUTION.
+
+    Defence in depth against the case that needs no race at all: an alias already sitting in the
+    workspace when the run begins. A concurrently hostile same-UID process can still plant one after
+    this returns — that residual is accepted, documented, and gains that actor nothing it could not
+    already read. What it cannot do is walk past a workspace that was ambiguous from the start.
+
+    The refusal names the class and the count and never a byte of content.
+  */
+  const links = assessWorkspaceLinks(cwd);
+  if (links.ambiguous.length > 0) {
+    throw new ToolError(
+      `terminal refused: workspace_hardlink_ambiguous — ${links.ambiguous.length} project file(s) ` +
+      "have names outside this workspace, so their content is reachable from somewhere this run was " +
+      "not granted; a concurrent same-UID race remains possible and is not covered by this check");
+  }
 
   // Decide BEFORE spawning, foreground or background alike. A refusal is a value carrying no
   // policy, and `wrap` throws if handed one, so there is no shape of code below this point that
