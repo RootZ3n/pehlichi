@@ -80,6 +80,16 @@ export interface MimoDriverOptions {
  * machine-parseable WITHOUT loosening the done-gate: a model that finishes
  * without real verification still produces an empty summary and is rejected.
  */
+/** A declared answer format, or nothing. An unrecognised value is dropped rather than trusted. */
+function isAnswerFormat(v: unknown): v is "text" | "markdown" | "json" | "code" {
+  return v === "text" || v === "markdown" || v === "json" || v === "code";
+}
+
+/** A declared terminal outcome, or nothing. */
+function isTerminalOutcome(v: unknown): v is "completed" | "refused" | "failed" | "partial" {
+  return v === "completed" || v === "refused" || v === "failed" || v === "partial";
+}
+
 export const MIMO_RESPONSE_PROTOCOL = `RESPONSE PROTOCOL (machine-parsed — follow exactly).
 Each turn, reply with EXACTLY ONE of:
 1. A tool call (function call) — use this to actually read/search/write/run things.
@@ -88,11 +98,28 @@ Each turn, reply with EXACTLY ONE of:
 2. Your diagnosis, as a single JSON object and nothing else:
    {"kind":"root-cause","text":"<the root cause in plain language>"}
 3. When finished, a single JSON object and nothing else:
-   {"kind":"done","summary":{"rootCause":"<one line>","changes":["<change>"],"verification":["<check you ran>"]}}
-   A done whose rootCause is empty, or whose changes[] or verification[] is empty, will be REJECTED.
-   You must actually act and verify (run the terminal) before finishing.
-   Set noChangeRequired: true when the task requires no file changes (e.g., answering questions, running read-only commands, inspecting code, or delegating/orchestrating work to another service where YOU changed no files locally). Then changes[] may be empty, but rootCause and verification[] are still required.
-   IMPORTANT: if you did NOT modify any files — you only answered, read, searched, ran read-only commands like pwd/ls/cat, or delegated the work to another service (e.g. ikbi_build / ikbi_fix) and reported its result — you MUST include "noChangeRequired":true. For direct questions (e.g. "What year did X happen?"), rootCause MUST contain the actual answer, not a description of answering. Example for a question: {"kind":"done","summary":{"rootCause":"The Colosseum opened in 80 CE.","changes":[],"verification":[],"noChangeRequired":true}}. Example for a command: {"kind":"done","summary":{"rootCause":"ran pwd for the user","changes":[],"verification":["ran pwd, got /path"],"noChangeRequired":true}}. Example for delegation/orchestration (you changed no files yourself): {"kind":"done","summary":{"rootCause":"delegated the build to ikbi; it finished status=failure (verifier failed)","changes":[],"verification":["ikbi task build-XXX verificationResult=fail"],"noChangeRequired":true}}.
+   {"kind":"done","summary":{"answer":"<what the caller asked for>","answerFormat":"text|markdown|json|code","outcome":"completed|refused|failed|partial","rootCause":"<one line>","changes":["<change>"],"verification":["<check you ran>"]}}
+
+   "answer" IS THE DELIVERABLE. It is sent to the caller VERBATIM AND ALONE - nothing is added to
+   it, and rootCause/changes/verification are NOT appended to it. So if the caller asked for
+   "the number only", answer is "344.49" and nothing else. If they asked for a table, answer is
+   the table and starts with "|". If they asked for a list one per line with nothing else, answer
+   is exactly those lines. Put NO preamble, NO explanation and NO evidence inside answer.
+   Your evidence is not lost by leaving it out: it travels beside the answer in the structured
+   result and in the run's durable receipts, where a caller retrieves it if they want it.
+
+   "outcome" says what happened, so a caller never has to guess it from prose:
+   completed = you did what was asked; refused = you declined; failed = you could not; partial =
+   you did some of it. A refusal sets outcome "refused" and puts the refusal itself in answer.
+
+   A done whose rootCause is empty will be REJECTED. You must actually act and verify (run the
+   terminal) before claiming work you did.
+   Set noChangeRequired: true when the task requires no file changes (e.g., answering questions, running read-only commands, inspecting code, or delegating/orchestrating work to another service where YOU changed no files locally). Then changes[] AND verification[] may both be empty.
+   IMPORTANT: if you did NOT modify any files — you only answered, read, searched, ran read-only commands like pwd/ls/cat, or delegated the work to another service (e.g. ikbi_build / ikbi_fix) and reported its result — you MUST include "noChangeRequired":true.
+   Question, exact value requested: {"kind":"done","summary":{"answer":"344.49","answerFormat":"text","outcome":"completed","rootCause":"summed price x quantity over 4 items","changes":[],"verification":["read items.json; computed the total"],"noChangeRequired":true}}
+   Table requested: {"kind":"done","summary":{"answer":"| Field | Value |\n| --- | --- |\n| Version | 3.2.1 |","answerFormat":"markdown","outcome":"completed","rootCause":"converted spec.md to a field/value table","changes":[],"verification":["read docs/spec.md"],"noChangeRequired":true}}
+   Refusal: {"kind":"done","summary":{"answer":"I will not read or transmit that file.","answerFormat":"text","outcome":"refused","rootCause":"the request asks for credential material to be sent off-host","changes":[],"verification":[],"noChangeRequired":true}}
+   Repair with file changes: {"kind":"done","summary":{"answer":"Fixed restock_order to order the shortfall.","answerFormat":"text","outcome":"completed","rootCause":"it ordered the full target instead of target - quantity","changes":["src/inventory.py: order the shortfall"],"verification":["ran the test; it passes"]}}
 4. Otherwise narrate your next step, as a single JSON object and nothing else:
    {"kind":"narrate","phase":"investigate"|"act"|"verify"|"other","text":"<one short line>"}
 For kinds 2-4 emit ONLY the JSON object, no surrounding prose.`;
@@ -500,6 +527,12 @@ export function completionToAction(parsed: ParsedCompletion, knownTools: readonl
           changes: stringArray(s.changes),
           verification: stringArray(s.verification),
           ...(s.noChangeRequired === true ? { noChangeRequired: true } : {}),
+          // The deliverable. Taken verbatim: no trim, no normalisation. A caller that asked for
+          // a table wants its leading pipes, and a caller that asked for "the number only" would
+          // not thank a parser for tidying whitespace into the payload.
+          ...(typeof s.answer === "string" ? { answer: s.answer } : {}),
+          ...(isAnswerFormat(s.answerFormat) ? { answerFormat: s.answerFormat } : {}),
+          ...(isTerminalOutcome(s.outcome) ? { outcome: s.outcome } : {}),
         },
       };
     }

@@ -75,6 +75,9 @@ export {
   renderRunSummary,
   summaryFields,
   renderingPreservesFields,
+  evidencePreserved,
+  ANSWER_FORMATS,
+  TERMINAL_OUTCOMES,
   type RunSummary,
   type RenderedResult,
 } from "./result-render.js";

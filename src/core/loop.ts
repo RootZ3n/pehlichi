@@ -337,6 +337,18 @@ export interface RunAgentResult {
   readonly tokenUsage?: { readonly totalInput: number; readonly totalOutput: number; readonly totalCached: number; readonly callCount: number };
   /** Velum (improvement #3): how many tool outputs were flagged for injection this run. */
   readonly injectionFindings?: number;
+  /**
+   * True when `output` is the model's verbatim deliverable and nothing else.
+   *
+   * A caller consuming a machine-readable answer must be able to tell that from a repair report
+   * it has to read past. False means `output` is the legacy rootCause/Changes/Verification
+   * rendering.
+   */
+  readonly answerDelivered?: boolean;
+  /** How the bytes in `output` are meant to be read. Advisory; nothing reformats them. */
+  readonly answerFormat?: "text" | "markdown" | "json" | "code";
+  /** The run's own terminal claim, so a caller never infers a refusal from prose. */
+  readonly outcome?: "completed" | "refused" | "failed" | "partial";
   /** WHY the run went partial — 'budget' (out of steps, was progressing → safe to auto-continue),
    *  'failures' (stuck/no-progress governor), or 'injection' (security stop). Absent on a clean done. */
   readonly partialReason?: "budget" | "failures" | "injection";
@@ -1139,11 +1151,22 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
           verification: action.summary.verification,
           ...(action.summary.noChangeRequired !== undefined
             ? { noChangeRequired: action.summary.noChangeRequired } : {}),
+          // The deliverable and its declared classification travel with the summary, so the
+          // delivered bytes and the structured record still cannot disagree.
+          ...(action.summary.answer !== undefined ? { answer: action.summary.answer } : {}),
+          ...(action.summary.answerFormat !== undefined
+            ? { answerFormat: action.summary.answerFormat } : {}),
+          ...(action.summary.outcome !== undefined ? { outcome: action.summary.outcome } : {}),
         };
         const rendered = renderRunSummary(runSummary);
         return {
           ok: true, accomplished, output: rendered.delivered, summary: runSummary,
           resultComplete: rendered.complete, missingFields: rendered.missingFields,
+          // A caller must be able to tell an answer it can consume from a repair report it has to
+          // read, and to see the run's own terminal claim rather than infer one from prose.
+          answerDelivered: rendered.answerDelivered,
+          answerFormat: rendered.format,
+          outcome: rendered.outcome,
           receiptIds: receiptStore.recent(1000).map((receipt) => receipt.id),
           injectionFindings, ...planResult(), ...tokenResult(),
         };

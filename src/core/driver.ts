@@ -30,7 +30,21 @@ export type DriverAction =
   | { kind: "narrate"; phase: Phase; text: string }
   | { kind: "root-cause"; text: string }
   | { kind: "tool"; tool: string; args: Record<string, unknown> }
-  | { kind: "done"; summary: { rootCause: string; changes: string[]; verification: string[]; noChangeRequired?: boolean } }
+  | {
+      kind: "done";
+      summary: {
+        rootCause: string;
+        changes: string[];
+        verification: string[];
+        noChangeRequired?: boolean;
+        /** The deliverable, verbatim. When present it IS the delivered answer, alone. */
+        answer?: string;
+        /** How the answer bytes are meant to be read. Advisory; never used to reformat them. */
+        answerFormat?: "text" | "markdown" | "json" | "code";
+        /** What happened, declared rather than inferred by a reader. */
+        outcome?: "completed" | "refused" | "failed" | "partial";
+      };
+    }
   // The model wrote a tool call as prose instead of using the function-call API.
   // This NEVER executes — the loop feeds back a correction. There is no edge
   // from this action kind to tool execution (only `kind:"tool"` reaches it).
