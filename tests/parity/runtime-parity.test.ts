@@ -245,16 +245,18 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       keeps the inert narrative instead of the whole deliverable, so the verifier's own
 //       report stops being fed back to the model as its own prior words. `chat.ts` and
 //       `truth-agent-adapter.ts` are anchored files, so the shape moves -- re-anchored on purpose)
-//   new 9818a89496ac4b20d87c812fe70477c0c3a88bb572abd070ff2d33a7467195ce  (receipt ids handed to
+//   new dfc75ea319564a72f336c6d3ed00c53e2a0c31f6abd085305bd636ffd94b5459  (receipt ids handed to
 //       callers now correspond to a line already on disk: `receipt-store.ts` writes an append-only
-//       journal and the Map became a cache over it. The durability suite enters the closed
-//       inventory and `receipt-store.ts` gains a declared filesystem-mutation effect, so the shape
-//       moves -- a boundary change, re-anchored on purpose.
-//       CORROBORATED EXTERNALLY: lab-boundary-verify/boundary-verify.mjs, which lives outside all
-//       three repositories and implements the digest independently, computes this value for all
-//       three trees, and reproduces the PREVIOUS anchor on the pre-change tree. The anchor was not
-//       taken from what the repository's own code happened to produce)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9818a89496ac4b20d87c812fe70477c0c3a88bb572abd070ff2d33a7467195ce';
+//       journal and the Map became a cache over it, so a TTL sweep and a restart stop destroying
+//       the record an id refers to. The durability suite enters the closed inventory,
+//       `receipt-store.ts` gains a declared filesystem-mutation effect, and its journal reader is
+//       declared as a validated runtime load -- so the shape moves. A boundary change, re-anchored
+//       on purpose.
+//       CORROBORATED EXTERNALLY: lab-boundary-verify/boundary-verify.mjs lives outside all three
+//       repositories and implements this digest independently. It computes this value for all
+//       three trees, and reproduces the PREVIOUS anchor fe0e505e on the pre-change tree. The value
+//       was not adopted from whatever the repository's own code happened to produce)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dfc75ea319564a72f336c6d3ed00c53e2a0c31f6abd085305bd636ffd94b5459';
 
 interface Inventory {
   schemaVersion: 3;
