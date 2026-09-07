@@ -81,3 +81,43 @@ test("the boundary hands back a descriptor, so there is no second lookup to race
     closeSync(fd);
   }
 });
+
+test('a multiply-linked file whose other links are all inside the workspace still reads', () => {
+  /*
+    The first version of this boundary refused any file with nlink > 1. That is the textbook rule
+    and it was wrong here: pnpm populates node_modules by hardlinking from a content store, and a
+    live agent repository contains thousands of legitimate multiply-linked files. A boundary that
+    makes dependency source unreadable is breaking the thing it protects.
+  */
+  const root = governedMkdtemp("links-inside-");
+  const ws = join(root, "ws");
+  mkdirSync(ws); mkdirSync(join(ws, "store"));
+  writeFileSync(join(ws, "store", "pkg.js"), "legitimate dependency\n");
+  linkSync(join(ws, "store", "pkg.js"), join(ws, "dep.js"));
+  assert.equal(statSync(join(ws, "dep.js")).nlink, 2);
+  assert.equal(readInWorkspace(ws, "dep.js"), "legitimate dependency\n");
+});
+
+test('package-manager content is a named exception, matched as a whole path segment', () => {
+  /*
+    A content-addressed store lives OUTSIDE the workspace by design, so a dependency file has links
+    the workspace cannot account for. The exception is stated rather than hidden, and it is not
+    model-selectable: nothing a model can do decides where a file's other links live.
+  */
+  const root = governedMkdtemp("pm-exception-");
+  const ws = join(root, "ws");
+  const outside = join(root, "outside");
+  mkdirSync(ws); mkdirSync(outside);
+  mkdirSync(join(ws, "node_modules", "dep"), { recursive: true });
+  mkdirSync(join(ws, "my-node_modules"), { recursive: true });
+  const canary = "CANARY-PM-EXCEPTION-8b02";
+  writeFileSync(join(outside, "store.js"), `${canary}\n`);
+  linkSync(join(outside, "store.js"), join(ws, "node_modules", "dep", "index.js"));
+  linkSync(join(outside, "store.js"), join(ws, "my-node_modules", "index.js"));
+
+  // Inside a real node_modules the store link is accepted, which is the trade being made.
+  assert.match(readInWorkspace(ws, "node_modules/dep/index.js"), new RegExp(canary));
+  // A directory that merely CONTAINS the string does not qualify.
+  assert.throws(() => readInWorkspace(ws, "my-node_modules/index.js"),
+    (e: unknown) => (e as { detail?: string }).detail === "hardlink-alias");
+});
