@@ -142,6 +142,11 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
     creates directories and files. It is declared for the same reason every other sink is:
     an effect that is not declared is an effect nobody reviews.
   */
+  /*
+    Content authority writes the admitted tree into staging, and runs git plumbing to read
+    objects. Both are declared: an effect nobody declares is an effect nobody reviews.
+  */
+  'src/core/content-authority.ts': ['child-process', 'filesystem-mutation'],
   'src/core/materialize.ts': ['filesystem-mutation'],
   'src/core/shadow.ts': ['filesystem-mutation'],
   'src/core/subagent-entry.ts': ['filesystem-mutation'],
