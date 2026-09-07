@@ -22,7 +22,7 @@ import {
   unprovenClaim, validateToolLane
 } from "./loop-mechanics.js";
 import { loadLatestCheckpoint, saveCheckpoint } from "./checkpoint.js";
-import { isUsageReportingDriver, type Driver, type Message } from "./driver.js";
+import { isUsageReportingDriver, type Driver, type DriverAction, type Message } from "./driver.js";
 import { EventEmitter, type EventSink } from "./events.js";
 import type { AgentProfile } from "./profile.js";
 import { createIsolatedProcessScope, type ProcessScope } from "./process-registry.js";
@@ -56,6 +56,20 @@ import {
 // work. Default 50 to match what MiMo is proven to do; override via AGENT_MAX_ITERATIONS
 // (0 or negative = effectively unbounded — the no-progress governor + a caller-side wall-clock
 // are the real brakes). A caller may still pass an explicit opts.maxIterations to override.
+/**
+ * Does this action kind spend the ACTION allowance?
+ *
+ * Only a tool action does. A narration, a root-cause, a `done` that was sent back for evidence, and
+ * a `textual-call-detected` correction are all model turns that did no work, and charging them
+ * against a quantity the tier table declares in TOOLS is what made the Phase-3 comparison fail: the
+ * frozen t1 runs spent 10-13 of 25 turns on textual-call corrections alone.
+ *
+ * Every one of them still spends a TURN, which is what bounds a model that never makes progress.
+ */
+export function spendsActionAllowance(kind: DriverAction["kind"]): boolean {
+  return kind === "tool";
+}
+
 const DEFAULT_MAX_ITERATIONS = (() => {
   const n = parseInt(process.env.AGENT_MAX_ITERATIONS ?? '', 10);
   return Number.isFinite(n) ? (n <= 0 ? 100_000 : n) : 50;
@@ -662,7 +676,30 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
 
   // Iteration budget: formal budget tracker, initialized after checkpoint resume
   // so startIteration is known. Accounts for resumed iterations.
+  /*
+    TWO COUNTERS, BECAUSE THE BUDGET MEANT TWO DIFFERENT THINGS.
+
+    `TIER_LIMITS` documents its numbers in TOOLS — "readonly: 12 tools", "mutation: 12 tools" — and
+    the function that reads them is called `resolveToolBudget`. The loop then spent one unit per
+    MODEL TURN, which is not the same quantity and is not what any caller declared.
+
+    Measured on the frozen t1 comparison, from the runs' own event telemetry: Mad-Ptah spent 13
+    turns on tool calls and 12 on `textual-call-detected` — turns where the model wrote a tool call
+    as prose, the loop corrected it, and nothing executed. Roughly HALF the allowance went on
+    correcting the provider's channel discipline, and all three agents died at 9-11 useful actions
+    on a task Hermes finished in seven.
+
+    So the action allowance is spent on ACTIONS, and a separate, larger ceiling bounds model turns.
+    That keeps both properties the order requires: a correction or a narration no longer eats the
+    scarce quantity that was declared in tools, and a model that only ever narrates still stops.
+
+    The ceiling is derived rather than configured — a second knob would be a second thing to get
+    wrong — and it is deliberately generous, because it is a runaway guard and not a work budget.
+    The no-progress governor and the caller's wall clock remain the brakes they always were.
+  */
   const iterationBudget = new IterationBudget(maxIterations);
+  const TURN_CEILING_MULTIPLE = 4;
+  const turnCeiling = new IterationBudget(Math.max(maxIterations * TURN_CEILING_MULTIPLE, 50));
   for (let j = 0; j < startIteration; j++) iterationBudget.consume();
 
   // PARTIAL RESULTS (item 3): every successful tool call appends an accomplishment.
@@ -695,7 +732,24 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
   let repetitionStopInjected = false;
 
   for (let i = startIteration; ; i++) {
-    if (!iterationBudget.consume()) {
+    /*
+      Every model turn costs a TURN, so nothing can loop forever — a model that only ever narrates,
+      or only ever writes tool calls as prose, still terminates here. The ACTION allowance is spent
+      where actions happen, in `case "tool"`.
+    */
+    if (!turnCeiling.consume()) {
+      const message = `exceeded the model-turn ceiling (${turnCeiling.status().max})`;
+      if (opts.partialOnExhaustion === true) {
+        const toolsRun = [...new Set(accomplished.map((a) => a.split(":")[0]!.trim()))];
+        const output = `I reached my turn ceiling without finishing. I ran ${accomplished.length} tool call(s)`
+          + `${toolsRun.length > 0 ? ` (${toolsRun.slice(0, 12).join(", ")})` : ""}. Ask me to continue, or narrow the task.`;
+        emitter.emit({ kind: "narrate", phase: "other", text: output });
+        return { ok: false, partial: true, partialReason: "budget", accomplished, output, ...planResult(), ...tokenResult() };
+      }
+      emitter.emit({ kind: "error", where: "loop", message });
+      throw new Error(message);
+    }
+    if (iterationBudget.remaining <= 0) {
       const budgetStatus = iterationBudget.status();
       const message = `exceeded max iterations (${budgetStatus.max})`;
       // Opt-in: return a partial result describing what was accomplished instead of
@@ -761,6 +815,9 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
         break;
       }
       case "tool": {
+        // THE ACTION ALLOWANCE IS SPENT HERE, where an action actually happens. A turn that
+        // narrated, was corrected, or produced nothing does not draw on it.
+        if (spendsActionAllowance(action.kind)) iterationBudget.consume();
         emitter.emit({ kind: "tool-call", tool: action.tool, args: action.args });
         messages.push({ role: "assistant", content: `call ${action.tool}(${JSON.stringify(action.args)})` });
 

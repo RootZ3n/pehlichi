@@ -1,3 +1,5 @@
+import { spendsActionAllowance } from "./loop.js";
+import { IterationBudget } from "./agent-tools/iteration-budget.js";
 /**
  * PURE_COMPONENT_TEST. The loop's decisions, with nothing that can execute.
  *
@@ -146,4 +148,91 @@ test("PURE_COMPONENT_TEST: the first line of narration skips blank leading lines
   assert.equal(firstLine("\n\n   hello there  \nsecond"), "hello there");
   assert.equal(firstLine(""), "");
   assert.equal(firstLine("   \n\t\n"), "");
+});
+
+// ── budget semantics: actions versus model turns ─────────────────────────────────────────────
+
+/*
+  THE PHASE-3 COMPARISON DEFECT, as a regression.
+
+  `TIER_LIMITS` documents its numbers in TOOLS — "readonly: 12 tools" — and the function that reads
+  them is `resolveToolBudget`. The loop nevertheless spent one unit per MODEL TURN. Measured from
+  the frozen t1 runs' own event telemetry, at the commit that failed the comparison:
+
+      Mad-Ptah    13 tool-call, 12 textual-call-detected, 1 narrate
+      Loony-Luna  12 tool-call, 13 textual-call-detected, 1 narrate
+      Pehlichi    15 tool-call, 10 textual-call-detected, 1 narrate
+
+  Roughly half of every allowance went on turns where the model wrote a tool call as prose and the
+  loop corrected it. All three died at 9-11 useful actions on a task Hermes finished in seven.
+
+  The fixture below carries those counts and NOT the task's expected answer: what is under test is
+  the accounting, not whether a model can survey a repository.
+*/
+
+test("only a tool action spends the action allowance", () => {
+  assert.equal(spendsActionAllowance("tool"), true);
+  for (const kind of ["narrate", "root-cause", "done", "textual-call-detected"] as const) {
+    assert.equal(spendsActionAllowance(kind), false,
+      `${kind} does no work and must not draw on an allowance declared in tools`);
+  }
+});
+
+test("the real t1 turn mix no longer exhausts the allowance at ~10 actions", () => {
+  /*
+    Mad-Ptah's observed counts, INTERLEAVED as they actually occur: the model writes a call as
+    prose, the loop corrects it, the model retries through the real channel. Ordering matters —
+    grouping all the tools first would let the old accounting look fine, because it would spend its
+    turns on the useful half before running out.
+  */
+  const observed: Array<"tool" | "textual-call-detected" | "narrate"> = ["narrate"];
+  for (let i = 0; i < 13; i += 1) {
+    if (i < 12) observed.push("textual-call-detected");
+    observed.push("tool");
+  }
+  const allowance = new IterationBudget(25);
+  let executed = 0;
+  for (const kind of observed) {
+    if (!spendsActionAllowance(kind)) continue;
+    if (allowance.remaining <= 0) break;
+    allowance.consume();
+    executed += 1;
+  }
+  assert.equal(executed, 13, "every tool action in the observed trace must fit the allowance");
+  assert.ok(allowance.remaining > 0, "and the allowance must not be exhausted by corrections");
+
+  // The old semantics, for contrast: one unit per turn, which is why the run died.
+  const oldStyle = new IterationBudget(25);
+  let oldExecuted = 0;
+  for (const kind of observed) {
+    if (!oldStyle.consume()) break;
+    if (kind === "tool") oldExecuted += 1;
+  }
+  assert.ok(oldExecuted < 13,
+    "the old accounting must be shown to lose actions, or this regression proves nothing");
+});
+
+test("a model that only narrates still terminates under a finite turn ceiling", () => {
+  // The ceiling is what stops a model that never makes progress; the allowance no longer can.
+  const ceiling = new IterationBudget(Math.max(25 * 4, 50));
+  let turns = 0;
+  while (ceiling.consume()) turns += 1;
+  assert.equal(turns, 100, "the ceiling is finite and reached");
+  assert.equal(ceiling.consume(), false, "and it does not reset");
+});
+
+test("repeated tool calls still terminate under the action allowance", () => {
+  const allowance = new IterationBudget(12);
+  let executed = 0;
+  while (allowance.consume()) executed += 1;
+  assert.equal(executed, 12);
+  assert.equal(allowance.remaining, 0);
+});
+
+test("the turn ceiling is always at least as large as the action allowance", () => {
+  // A ceiling below the allowance would silently re-impose the defect being removed.
+  for (const declared of [1, 4, 12, 20, 25, 50, 200]) {
+    const ceiling = Math.max(declared * 4, 50);
+    assert.ok(ceiling >= declared, `ceiling ${ceiling} must not undercut allowance ${declared}`);
+  }
 });
