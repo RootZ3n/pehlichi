@@ -76,6 +76,16 @@ export interface InputManifest {
   porcelain command by mistake.
 */
 const PLUMBING_CONFIG: readonly string[] = Object.freeze([
+  /*
+    `--no-replace-objects` is not decoration. A replacement ref tells git to answer questions about
+    one object with another, and ordinary plumbing honours it. Measured: with `refs/replace/<commit>`
+    installed, `rev-parse <pinned>^{tree}` returned the HOSTILE tree while the pinned commit id was
+    unchanged — so the manifest recorded the right commit and admitted the wrong content, and every
+    blob in it hashed correctly because they were genuine objects of a different tree. The digest
+    check cannot see that: the lie is told at reference resolution, not in the bytes.
+  */
+  "--no-replace-objects",
+  "-c", "core.graftsFile=/dev/null",
   "-c", "core.hooksPath=/nonexistent-hooks-path",
   "-c", "core.pager=cat",
   "-c", "core.editor=false",
@@ -96,6 +106,12 @@ const PLUMBING_ENV: NodeJS.ProcessEnv = Object.freeze({
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_TERMINAL_PROMPT: "0",
   GIT_OPTIONAL_LOCKS: "0",
+  // A partial clone would otherwise reach the network for a missing object mid-admission, turning a
+  // local integrity question into a remote one. Absent objects must fail, not be fetched.
+  GIT_NO_LAZY_FETCH: "1",
+  // The environment names no alternate object directory. An alternate declared inside the
+  // repository is still possible and is caught by the digest check, which was measured.
+  GIT_ALTERNATE_OBJECT_DIRECTORIES: "",
 });
 
 function git(repo: string, args: readonly string[], encoding: "utf8" | "buffer"): string | Buffer {
@@ -171,14 +187,32 @@ export function admitTree(options: {
   const subroot = options.subroot ?? "";
   const format = objectFormat(repo);
 
-  // The externally pinned commit is resolved to its exact tree here, and everything below is read
-  // from that tree — never from the working directory, which is what made the old design raceable.
-  const commit = String(git(repo, ["rev-parse", `${options.commit}^{commit}`], "utf8")).trim();
-  const tree = String(git(repo, ["rev-parse", `${commit}^{tree}`], "utf8")).trim();
+  /*
+    THE TREE COMES FROM THE COMMIT'S OWN VERIFIED BYTES, NOT FROM `rev-parse ^{tree}`.
+
+    Asking git to resolve the tree is asking the thing under attack. The commit object is read,
+    hashed, and checked against the id that was pinned; only then is its `tree` header believed. A
+    replacement ref, a graft or an alternate can all make `rev-parse` answer differently, and none of
+    them can survive hashing the commit object itself.
+  */
+  const commit = String(git(repo, ["rev-parse", "--verify", `${options.commit}^{commit}`], "utf8")).trim();
+  const commitBytes = git(repo, ["cat-file", "commit", commit], "buffer") as Buffer;
+  const commitHeader = Buffer.from(`commit ${commitBytes.byteLength}\0`, "utf8");
+  const observedCommit = createHash(format === "sha256" ? "sha256" : "sha1")
+    .update(Buffer.concat([commitHeader, commitBytes])).digest("hex");
+  if (observedCommit !== commit) {
+    throw new ContentRefused("digest-mismatch",
+      `commit ${commit} hashes to ${observedCommit}; the object store returned a different commit`);
+  }
+  const treeLine = /^tree ([0-9a-f]{40,64})$/m.exec(commitBytes.toString("utf8"));
+  if (treeLine === null || treeLine[1] === undefined) {
+    throw new ContentRefused("digest-mismatch", `commit ${commit} declares no tree`);
+  }
+  const tree = treeLine[1];
 
   const listing = String(git(repo,
     ["ls-tree", "-r", "-z", "--format=%(objectmode) %(objecttype) %(objectname)\t%(path)",
-      commit, ...(subroot.length > 0 ? ["--", subroot] : [])], "utf8"));
+      tree, ...(subroot.length > 0 ? ["--", subroot] : [])], "utf8"));
 
   const entries: AdmittedEntry[] = [];
   const refused: Array<{ path: string; reason: AdmissionRefusal }> = [];

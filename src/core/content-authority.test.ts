@@ -119,3 +119,36 @@ test("an unrecognised object format is refused rather than guessed", () => {
   const repo = repository();
   assert.equal(objectFormat(repo), "sha1");
 });
+
+test("a replacement ref cannot rewrite which tree the pinned commit means", () => {
+  /*
+    The one attack the digest check alone cannot see, because it tells its lie ABOVE the object
+    layer. `refs/replace/<commit>` makes `rev-parse <pinned>^{tree}` answer with a different tree
+    whose blobs are all genuine objects that hash correctly.
+
+    Measured before the fix: the manifest recorded the pinned commit id and admitted the hostile
+    tree's content. The tree is now taken from the commit object's own verified bytes rather than
+    from `rev-parse`, so asking git to resolve it is no longer asking the thing under attack.
+  */
+  const repo = repository();
+  const env = { PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+  const run = (command: string): string =>
+    execFileSync("/bin/sh", ["-c", command], { cwd: repo, env, encoding: "utf8" }).trim();
+
+  const genuineTree = run("git rev-parse HEAD^{tree}");
+  const good = run("git rev-parse HEAD");
+  writeFileSync(join(repo, "a.txt"), "HOSTILE TREE CONTENT\n");
+  run("git add -A && git -c user.email=t@t -c user.name=t commit -q -m hostile");
+  const hostile = run("git rev-parse HEAD");
+  run(`git reset -q --hard ${good}`);
+  run(`git replace -f ${good} ${hostile}`);
+
+  // The control: raw git now resolves the pinned commit to a different tree.
+  assert.notEqual(run(`git rev-parse ${good}^{tree}`), genuineTree,
+    "the replacement ref must actually move what raw git resolves");
+
+  const manifest = admitTree({ repo, commit: good, staging: join(repo, "..", "ws-replace"),
+    runId: "r6", agent: "ptah", workOrderId: "w1" });
+  assert.equal(manifest.tree, genuineTree, "the verified commit's own tree must be used");
+  assert.equal(readFileSync(join(repo, "..", "ws-replace", "a.txt"), "utf8"), "ORIGINAL A\n");
+});
