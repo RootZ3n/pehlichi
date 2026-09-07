@@ -454,6 +454,7 @@
       "tui/src/lib/skin.ts",
       "tui/src/model-switch.test.ts",
       "tui/src/truth-conformance-harness.ts",
+      "tui/src/truth-transcript.test.ts",
       "tui/src/workspace-override.test.ts",
       "tui/src/write-safety.test.ts"
     ],

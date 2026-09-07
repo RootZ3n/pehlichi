@@ -4,16 +4,34 @@
  * Tool names match Hermes: patch, read_file, write_file, search_files.
  * Supplements the core's basic read/write/search with Hermes-level features.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, relative, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
-import { resolveInWorkspace } from '../workspace.js';
+import { resolveInWorkspace, openInWorkspace } from '../workspace.js';
+import { closeSync, readFileSync as readFd } from 'node:fs';
 
 const obj = (
   properties: Record<string, unknown>,
   required: string[],
 ): Record<string, unknown> => ({ type: 'object', properties, required, additionalProperties: false });
+
+/*
+  Read a resolved workspace path BY IDENTITY.
+
+  `resolveInWorkspace` has already refused traversal and symlinked ancestors, but it answers about a
+  NAME. A hardlink is a second name for an outside inode whose realpath is the in-workspace name, so
+  nothing in the path betrays it. `openInWorkspace` opens once with O_NOFOLLOW and inspects the
+  descriptor, and the bytes come from the inode that was inspected rather than from a second lookup.
+*/
+function readByIdentity(workspaceRoot: string, requested: string, _resolved: string): string {
+  const fd = openInWorkspace(workspaceRoot, requested);
+  try {
+    return readFd(fd, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
+}
 
 export const enhancedFileToolSpecs: ToolSpec[] = [
   {
@@ -87,7 +105,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
     }
 
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = readByIdentity(workspaceRoot, args.path as string, filePath);
       const lines = content.split('\n');
       const totalLines = lines.length;
       const start = Math.max(0, offset - 1);
@@ -120,7 +138,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
     try {
       // REVERSIBILITY (P0.3): capture the pre-write state so the loop can emit a diff
       // event and the session can journal an undo entry. `before` is null for a new file.
-      const before = existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
+      const before = existsSync(filePath) ? readByIdentity(workspaceRoot, args.path as string, filePath) : null;
       writeFileSync(filePath, content, 'utf8');
       const bytes = Buffer.byteLength(content, 'utf8');
       return { ok: true, output: `Wrote ${bytes} bytes to ${filePath}`, diff: { path: filePath, before, after: content } };
@@ -209,7 +227,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
     }
 
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = readByIdentity(workspaceRoot, args.path as string, filePath);
 
       // Exact match
       if (content.includes(oldString)) {

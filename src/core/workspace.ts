@@ -3,7 +3,7 @@
  * rejects anything that escapes workspaceRoot — same discipline as lab-store's
  * slug guard: resolve, then prefix-check, reject traversal.
  */
-import { existsSync, realpathSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /** Thrown by tools on a confinement violation or an invalid argument. */
@@ -64,4 +64,81 @@ function realPathOrNearest(abs: string): string {
     dir = parent;
   }
   return tail.length === 0 ? realpathSync(dir) : resolve(realpathSync(dir), ...tail);
+}
+
+/*
+  READING BY FILE IDENTITY, NOT BY NAME.
+
+  `resolveInWorkspace` answers "is this PATHNAME inside the root", and resolves symlinks to catch a
+  link whose target is outside. A hardlink defeats both: it is a second NAME for an outside inode,
+  its realpath is the in-workspace name, and there is nothing in the path to notice. Measured on
+  this host with `fs.protected_hardlinks=1`: a same-owner alias is creatable, `nlink` is 2, the
+  inode is identical to the outside file, and the content read back through it in full.
+
+  Returning a pathname is also a check-then-open: whatever is validated can be replaced before the
+  caller opens it. So the boundary hands back a DESCRIPTOR and the caller reads from that — the
+  bytes come from the exact inode that was inspected, and no second lookup happens.
+
+  Three things are established on the descriptor itself:
+
+    • `O_NOFOLLOW` refuses a symlinked final component at open time, in the kernel, rather than in
+      a pathname comparison that a rename could invalidate a moment later.
+    • `fstat` reports `nlink`. A regular file inside a workspace with more than one link is refused:
+      the other names cannot be enumerated cheaply, so their location cannot be established, and a
+      boundary that cannot establish it must not assume it.
+    • the inode must still be a regular file — a device or fifo swapped in is not readable content.
+
+  This is not a claim of race freedom from two pathname checks. There is exactly one lookup.
+*/
+export class FileIdentityRefused extends ToolError {
+  /** The refusal class, for the receipt. Never carries a byte of the protected content. */
+  readonly detail: string;
+  constructor(detail: string, message: string) {
+    super(message);
+    this.detail = detail;
+  }
+}
+
+/** Open a workspace file by identity. The caller must close the returned descriptor. */
+export function openInWorkspace(workspaceRoot: string, p: string): number {
+  const abs = resolveInWorkspace(workspaceRoot, p);
+  let fd: number;
+  try {
+    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ELOOP") {
+      // The refusal names the class and the path the caller already knows. It never quotes the
+      // target or any byte of the protected content.
+      throw new FileIdentityRefused("symlink",
+        `path "${p}" is a symbolic link and is refused at the workspace boundary`);
+    }
+    throw error;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) {
+      throw new FileIdentityRefused("not-a-regular-file",
+        `path "${p}" is not a regular file`);
+    }
+    if (st.nlink > 1) {
+      throw new FileIdentityRefused("hardlink-alias",
+        `path "${p}" has ${st.nlink} links, so its content may also exist outside the workspace; ` +
+        "reading it is refused");
+    }
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+}
+
+/** Read a workspace file by identity. Refuses symlinks and hardlink aliases before any byte is returned. */
+export function readInWorkspace(workspaceRoot: string, p: string): string {
+  const fd = openInWorkspace(workspaceRoot, p);
+  try {
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }

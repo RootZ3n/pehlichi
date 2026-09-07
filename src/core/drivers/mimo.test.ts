@@ -308,6 +308,49 @@ test('the reasoning is returned on the assistant turn being continued', () => {
   assert.equal(out[3]?.['content'], 'second', 'the content must be untouched');
 });
 
+test('a completion that produced no assistant turn cannot shift the pairing', () => {
+  /*
+    THE 1-IN-105 DEEPSEEK REFUSAL.
+
+    Two action kinds — `textual-call-detected` and `done` — consume a completion and push no
+    assistant message. Pairing from the END meant one of those mid-run shifted every earlier
+    pairing by one and left the oldest turn bare, and DeepSeek refuses the whole request over a
+    single bare turn. Matching by ordinal makes the two counts irrelevant.
+  */
+  const wire = [
+    { role: 'system', content: 's' },
+    { role: 'assistant', content: 'turn-0' },
+    { role: 'user', content: 'TOOL RESULT:\nok' },
+    { role: 'assistant', content: 'turn-1' },
+  ];
+  // Ordinal 0 answered, ordinal 1 answered; a completion in between produced no message and was
+  // overwritten at its own ordinal, so the list still has exactly two entries.
+  const out = withReasoning(wire, ['r0', 'r1']);
+  assert.equal(out[1]?.['reasoning_content'], 'r0', 'turn 0 keeps its own reasoning');
+  assert.equal(out[3]?.['reasoning_content'], 'r1', 'turn 1 keeps its own reasoning');
+  // And a trailing entry for a turn that does not exist yet must not be attached to anything.
+  const out2 = withReasoning([
+    { role: 'assistant', content: 'turn-0' },
+  ], ['r0', 'r1-not-yet-a-message']);
+  assert.equal(out2[0]?.['reasoning_content'], 'r0', 'the only turn keeps ordinal 0');
+});
+
+test('a gap at an ordinal leaves that turn bare rather than borrowing another turn reasoning', () => {
+  // A sparse list is what a completion with no reasoning produces. The turn is left without the
+  // field rather than inheriting a neighbour's, which would put words in the wrong turn.
+  const sparse: string[] = [];
+  sparse[0] = 'r0';
+  sparse[2] = 'r2';
+  const out = withReasoning([
+    { role: 'assistant', content: 't0' },
+    { role: 'assistant', content: 't1' },
+    { role: 'assistant', content: 't2' },
+  ], sparse);
+  assert.equal(out[0]?.['reasoning_content'], 'r0');
+  assert.equal(out[1]?.['reasoning_content'], undefined, 'the gap stays a gap');
+  assert.equal(out[2]?.['reasoning_content'], 'r2');
+});
+
 test('every assistant turn carries its own reasoning, paired from the end', () => {
   /*
     Attaching only to the last turn was not enough: the earlier tool-calling turn stayed bare and
@@ -320,10 +363,12 @@ test('every assistant turn carries its own reasoning, paired from the end', () =
     { role: 'user', content: 'TOOL RESULT:\nok' },
     { role: 'assistant', content: 'b' },
   ];
-  const out = withReasoning(wire, ['ra', 'rb']);
-  assert.equal(out[3]?.['reasoning_content'], 'rb');
+  // Ordinals count from the start: turn 0 is the seeded message, so the driver's two reasonings
+  // land on turns 0 and 1. A seeded conversation must therefore seed the ordinals too.
+  const out = withReasoning(wire, ['r-seed', 'ra', 'rb']);
+  assert.equal(out[0]?.['reasoning_content'], 'r-seed');
   assert.equal(out[1]?.['reasoning_content'], 'ra');
-  assert.equal(out[0]?.['reasoning_content'], undefined, 'a turn with no completion is left alone');
+  assert.equal(out[3]?.['reasoning_content'], 'rb');
 });
 
 test('a completion that emitted no reasoning contributes no field', () => {

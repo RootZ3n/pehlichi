@@ -111,9 +111,18 @@ export class MimoDriver implements UsageReportingDriver {
   /** Transport attempts recorded for this driver, drained alongside the usage. */
   private pendingAttempts: AttemptRecord[] = [];
   /**
-   * One entry per completion this driver has produced, in order, holding that completion's
-   * reasoning or `""` when it emitted none. Returned on the next request so each assistant turn
-   * carries the reasoning that produced it.
+   * Reasoning KEYED BY THE ASSISTANT-TURN ORDINAL it produced, not by completion order.
+   *
+   * Pairing positionally from the end was wrong, and this is the defect behind the 1-in-105
+   * DeepSeek refusal. Two action kinds — `textual-call-detected` and `done` — consume a completion
+   * and push NO assistant message. When one occurs mid-run the reasoning list outgrows the
+   * assistant turns, every earlier pairing shifts by one, and the oldest turn is left bare. DeepSeek
+   * then refuses the whole request.
+   *
+   * The index is the number of assistant messages that already existed when the completion was
+   * requested, which IS the ordinal of the turn it is about to produce. A completion that produces
+   * no message is simply overwritten by the next one at the same ordinal, which is correct: that
+   * ordinal belongs to whichever completion actually created the message.
    */
   private reasonings: string[] = [];
 
@@ -178,6 +187,7 @@ export class MimoDriver implements UsageReportingDriver {
   }
 
   async next(ctx: DriverContext): Promise<DriverAction> {
+    const assistantTurnOrdinal = ctx.messages.filter((m) => m.role === "assistant").length;
     const body = {
       // Provider-declared extras FIRST; engine-controlled fields follow and are never overridden.
       ...this.requestExtras,
@@ -244,7 +254,9 @@ export class MimoDriver implements UsageReportingDriver {
     // H4: record the REAL token usage the provider reported, so the session's
     // TokenMonitor reflects actual consumption instead of staying at zero.
     if (parsed.usage !== undefined) this.pendingUsage.push(parsed.usage);
-    this.reasonings.push(parsed.reasoningContent ?? "");
+    // Anchored to the turn this completion is about to create, not to how many completions there
+    // have been. See the field comment: those two counts diverge and the difference is a refusal.
+    this.reasonings[assistantTurnOrdinal] = parsed.reasoningContent ?? "";
     /*
       Map the provider's chosen name back before the action is formed. The provider only ever saw
       wire-safe names, so a tool call naming `bridge_health` means the runtime's `bridge.health`
@@ -354,10 +366,12 @@ export function toProviderTools(tools: readonly ToolSpec[]): Array<Record<string
   that carries the reasoning it was given is simply a more faithful message.
 
   EVERY assistant turn needs its own reasoning, not just the last one. Attaching it only to the
-  final turn left the earlier tool-calling turn bare and DeepSeek still refused — six of 105 turns
-  instead of twelve. Turns are paired with completions from the END backwards, because the most
-  recent completion produced the most recent assistant message; any leading assistant message with
-  no completion behind it (seeded context, a resumed conversation) is simply left alone.
+  final turn left the earlier tool-calling turn bare and DeepSeek still refused.
+
+  Turns are matched BY ORDINAL, counting assistant messages from the start, because the driver
+  records each completion's reasoning against the turn ordinal it is about to create. Pairing from
+  the end instead looked equivalent and was not: two action kinds consume a completion without
+  pushing a message, and one of those mid-run shifted every earlier pairing by one.
 
   Each turn carries the provider's own text rather than a placeholder: echoing something the model
   did not think would be a fabrication in the transcript it reads back.
@@ -366,12 +380,12 @@ export function withReasoning(
   wire: Array<Record<string, string>>,
   reasonings: readonly string[],
 ): Array<Record<string, string>> {
-  let next = reasonings.length - 1;
-  for (let i = wire.length - 1; i >= 0 && next >= 0; i -= 1) {
+  let ordinal = 0;
+  for (let i = 0; i < wire.length; i += 1) {
     const entry = wire[i];
     if (entry === undefined || entry["role"] !== "assistant") continue;
-    const reasoning = reasonings[next];
-    next -= 1;
+    const reasoning = reasonings[ordinal];
+    ordinal += 1;
     if (reasoning === undefined || reasoning.length === 0) continue;
     wire[i] = { ...entry, reasoning_content: reasoning };
   }
