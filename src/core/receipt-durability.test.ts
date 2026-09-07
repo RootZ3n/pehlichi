@@ -11,15 +11,15 @@
  * was never in doubt.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ReceiptStore } from './receipt-store.js';
+import { governedMkdtemp } from './temp-authority.js';
 
-const base = (): string => mkdtempSync(join(tmpdir(), 'receipt-durability-'));
+const base = (): string => governedMkdtemp('receipt-durability-');
 
 test('a receipt is on disk before record() returns', () => {
   const dir = base();

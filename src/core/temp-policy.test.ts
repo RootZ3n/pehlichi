@@ -1225,6 +1225,12 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "9729feda099deecf88b58b550125148d442ad8f40b125fb3ace3c1bbe496ddf8",
     ],
   }],
+  ["src/core/receipt-durability.test.ts", {
+    reason: "the crash test spawns a child that records receipts and is SIGKILLed; proving a receipt survives a process that got no chance to flush requires a real second process running the TypeScript store, and the command is Node's own execPath",
+    lineDigests: [
+      "6a047717abdeb39fca6d8c6222ba8b7e458fa7ab56fffe2ab75b54ddf626d2dc",
+    ],
+  }],
   ["src/core/temp-authority.test.ts", {
     reason: "an adversarial fixture starts the loader on purpose, to prove the authority refuses ungoverned storage, and hands Node a fixture path built at run time",
     lineDigests: [
