@@ -121,3 +121,20 @@ test('package-manager content is a named exception, matched as a whole path segm
   assert.throws(() => readInWorkspace(ws, "my-node_modules/index.js"),
     (e: unknown) => (e as { detail?: string }).detail === "hardlink-alias");
 });
+
+test("the workspace root itself is a legal path, not an escape", () => {
+  /*
+    `.` and `./` mean the workspace root — the most natural way to say "search here". They were
+    refused alongside genuine escapes, so `search_files` with `path: "."` returned "escapes the
+    workspace", the model retried, and the budget governor ended the turn after three consecutive
+    tool failures. The Phase-3F Hermes comparison surfaced it: two agents lost every git-derived
+    fact on the survey task this way.
+  */
+  const { ws } = fixture();
+  assert.equal(resolveInWorkspace(ws, "."), ws);
+  assert.equal(resolveInWorkspace(ws, "./"), ws);
+  // Genuine escapes are unaffected.
+  assert.throws(() => resolveInWorkspace(ws, ".."), /escapes the workspace/);
+  assert.throws(() => resolveInWorkspace(ws, "../elsewhere"), /escapes the workspace/);
+  assert.throws(() => resolveInWorkspace(ws, "/etc/passwd"), /escapes the workspace/);
+});

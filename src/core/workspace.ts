@@ -32,7 +32,20 @@ export function resolveInWorkspace(workspaceRoot: string, p: string): string {
   const root = resolve(workspaceRoot);
   const abs = resolve(root, p);
   const rel = relative(root, abs);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  /*
+    THE ROOT IS NOT AN ESCAPE.
+
+    `rel === ""` means the path resolved to the workspace root itself, which is what `.` and `./`
+    mean — the most natural way to say "search here". It was refused alongside genuine escapes, so
+    `search_files` with `path: "."` came back as "escapes the workspace", the model retried, and the
+    budget governor ended the turn after three consecutive tool failures.
+
+    The Phase-3F Hermes comparison is what surfaced it: Luna and Ptah lost every git-derived fact on
+    the survey task this way, scoring 2/7 against Hermes's 7/7. The defect is as old as the file —
+    not a regression from the containment work — and it had never been measured because no campaign
+    task happened to search the root.
+  */
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new ToolError(`path "${p}" escapes the workspace`);
   }
   // H6 (symlink escape): the logical-path check above is necessary but not sufficient —
