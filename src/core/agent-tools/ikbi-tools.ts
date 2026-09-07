@@ -118,6 +118,31 @@ export const ikbiToolSpecs: ToolSpec[] = [
 ];
 
 /** A JSON HTTP request to ikbi, with timeout + uniform error mapping. */
+/**
+ * Is the HTTP build surface live, per ikbi's OWN authoritative declaration?
+ *
+ * `/capabilities` lists the endpoints ikbi currently serves. `/api/build` was removed from that
+ * list when the v1 build engine was retired, even though the route still 202s and then fails in its
+ * worker. So "does the declared surface include a build endpoint?" is the honest, forward-compatible
+ * check: if ikbi ever restores HTTP build it re-appears here and this returns available again, with
+ * no client change and no hardcoded retirement.
+ *
+ * Fails CLOSED. If capabilities cannot be read, build is reported unavailable rather than optimistic
+ * — submitting a doomed task is the behaviour being removed.
+ */
+async function ikbiBuildAvailability(): Promise<{ status: "available" | "retired" | "unreachable"; detail: string }> {
+  const res = await ikbiRequest("ikbi_build", "GET", "/capabilities");
+  if (!res.ok) return { status: "unreachable", detail: `ikbi capabilities could not be read: ${res.error}` };
+  const data = res.data as { endpoints?: unknown; tools?: unknown } | null;
+  const endpoints = Array.isArray(data?.endpoints) ? data.endpoints.map(String) : [];
+  const tools = Array.isArray(data?.tools) ? data.tools.map(String) : [];
+  const declaresBuild =
+    endpoints.some((e) => /\/(api\/)?build\b/.test(e)) || tools.some((t) => /(^|_)build$/.test(t));
+  return declaresBuild
+    ? { status: "available", detail: "the declared surface includes a build endpoint" }
+    : { status: "retired", detail: "ikbi's declared endpoints do not include an HTTP build surface" };
+}
+
 async function ikbiRequest(
   tool: string,
   method: "GET" | "POST",
@@ -200,6 +225,31 @@ export function createIkbiToolHandlers(): Map<string, ToolHandler> {
     const builderMode = (args.builderMode as string)?.trim() || "agent";
     if (builderMode !== "agent" && builderMode !== "patch") {
       return { ok: false, output: "", error: `ikbi_build: builderMode must be "agent" or "patch" (got "${builderMode}")` };
+    }
+
+    // FAIL FAST ON A RETIRED SURFACE.
+    //
+    // `POST /api/build` still returns 202 with a taskId, then its worker throws "HTTP build tasks
+    // are retired" — so submitting looks like success and can only fail downstream. `ikbi_build`
+    // must not report accepted work for a task that cannot run. The authoritative live signal is
+    // ikbi's own `/capabilities`, whose declared `endpoints` list no longer contains `/api/build`.
+    // So the surface is checked before anything is submitted, and a retired build is a typed
+    // terminal result naming the CLI replacement rather than a doomed task id.
+    //
+    // This resurrects nothing, redirects nothing, and hides nothing: it reports the retirement.
+    const buildAvailability = await ikbiBuildAvailability();
+    if (buildAvailability.status !== "available") {
+      // The typed classification travels in the error text the model reads. RETIRED and UNREACHABLE
+      // are distinct: the first is a permanent product fact with a named replacement, the second is
+      // a transient connectivity gap. Neither reports accepted work.
+      return {
+        ok: false,
+        output: "",
+        error:
+          `ikbi_build UNAVAILABLE [${buildAvailability.status}]: ${buildAvailability.detail}. `
+          + `The HTTP build endpoint is retired; the canonical build engine is the ikbi CLI: `
+          + `ikbi build "<goal>" --repo <path>. No task was submitted, so there is nothing to poll.`,
+      };
     }
 
     const res = await ikbiRequest("ikbi_build", "POST", "/api/build", { goal, repo, builderMode });

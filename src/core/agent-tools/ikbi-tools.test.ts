@@ -41,6 +41,19 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const handlers = createIkbiToolHandlers();
 
+/**
+ * A responder for the current two-step build flow: `ikbi_build` first GETs `/capabilities` to
+ * confirm the surface is live, then POSTs `/api/build`. `caps.endpoints` decides availability.
+ */
+function buildResponder(opts: { endpoints?: string[]; taskId?: string } = {}) {
+  const endpoints = opts.endpoints ?? ["/health", "/capabilities", "/api/build"];
+  return (url: string) => {
+    if (/\/capabilities$/.test(url)) return jsonResponse(200, { agent: "ikbi", endpoints, tools: [] });
+    return jsonResponse(200, { taskId: opts.taskId ?? "task-abc" });
+  };
+}
+
+
 test("ikbi tools are registered in the full tool registry", () => {
   const tools = createFullToolRegistry({ workspaceRoot: governedMkdtemp("ikbi-reg-ws-"), agentServerUrl: "http://127.0.0.1:0", agentId: "test-agent" });
   const names = new Set(tools.map((t) => t.spec.name));
@@ -51,7 +64,7 @@ test("ikbi tools are registered in the full tool registry", () => {
 
 test("ikbi_build with a valid request returns the taskId and POSTs to /api/build", async () => {
   await withFetch(
-    () => jsonResponse(200, { taskId: "task-abc" }),
+    buildResponder(),
     async (calls) => {
       const res = await handlers.get("ikbi_build")!(
         { goal: "build a parser", repo: "/repo/x", builderMode: "patch" },
@@ -59,10 +72,10 @@ test("ikbi_build with a valid request returns the taskId and POSTs to /api/build
       );
       assert.equal(res.ok, true);
       assert.match(res.output, /task-abc/);
-      assert.equal(calls.length, 1);
-      assert.match(calls[0]!.url, /\/api\/build$/);
-      assert.equal(calls[0]!.init?.method, "POST");
-      const body = JSON.parse(String(calls[0]!.init?.body));
+      const post = calls.find((c) => /\/api\/build$/.test(c.url));
+      assert.ok(post, "the build POST was not sent");
+      assert.equal(post!.init?.method, "POST");
+      const body = JSON.parse(String(post!.init?.body));
       assert.deepEqual(body, { goal: "build a parser", repo: "/repo/x", builderMode: "patch" });
     },
   );
@@ -70,11 +83,12 @@ test("ikbi_build with a valid request returns the taskId and POSTs to /api/build
 
 test("ikbi_build defaults builderMode to 'agent'", async () => {
   await withFetch(
-    () => jsonResponse(200, { taskId: "t1" }),
+    buildResponder({ taskId: "t1" }),
     async (calls) => {
       const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
       assert.equal(res.ok, true);
-      const body = JSON.parse(String(calls[0]!.init?.body));
+      const post = calls.find((c) => /\/api\/build$/.test(c.url));
+        const body = JSON.parse(String(post!.init?.body));
       assert.equal(body.builderMode, "agent");
     },
   );
@@ -191,7 +205,7 @@ test("ikbi tools surface a 4xx/5xx server error with its message", async () => {
 
 test("ikbi_build errors when ikbi accepts but returns no taskId", async () => {
   await withFetch(
-    () => jsonResponse(200, { ok: true }),
+    (url: string) => /\/capabilities$/.test(url) ? jsonResponse(200, { endpoints: ["/api/build"] }) : jsonResponse(200, { ok: true }),
     async () => {
       const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
       assert.equal(res.ok, false);
@@ -205,10 +219,11 @@ test("an Authorization: Bearer header is sent when IKBI_API_TOKEN is set (HIGH 3
   process.env["IKBI_API_TOKEN"] = "s3cret-ikbi-token";
   try {
     await withFetch(
-      () => jsonResponse(200, { taskId: "t" }),
+      buildResponder({ taskId: "t" }),
       async (calls) => {
         await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-        const headers = calls[0]!.init?.headers as Record<string, string> | undefined;
+        const post = calls.find((c) => /\/api\/build$/.test(c.url));
+        const headers = post!.init?.headers as Record<string, string> | undefined;
         assert.equal(headers?.["authorization"], "Bearer s3cret-ikbi-token");
         // The content-type is preserved for the POST body alongside the auth header.
         assert.equal(headers?.["content-type"], "application/json");
@@ -340,4 +355,54 @@ test("no fallback endpoint configured ⇒ a single attempt, unreachable surfaces
       },
     );
   });
+});
+
+// ── the retirement honesty fix ──────────────────────────────────────────────────────────────
+
+test("ikbi_build FAILS FAST when the declared surface has no build endpoint (retired)", async () => {
+  await withFetch(
+    // capabilities WITHOUT /api/build — the real retirement signal — even though a POST would 202.
+    buildResponder({ endpoints: ["/health", "/capabilities", "/chat"] }),
+    async (calls) => {
+      const res = await handlers.get("ikbi_build")!(
+        { goal: "build a parser", repo: "/repo/x" }, ctx);
+      assert.equal(res.ok, false, "a retired build must not report success");
+      assert.match(res.error ?? "", /UNAVAILABLE \[retired\]/);
+      assert.match(res.error ?? "", /No task was submitted/);
+      assert.match(res.error ?? "", /ikbi build/);
+      // It must NOT have posted a doomed task.
+      assert.equal(calls.some((c) => /\/api\/build$/.test(c.url)), false,
+        "a doomed build task was submitted despite the retired surface");
+    },
+  );
+});
+
+test("ikbi_build reports a doomed 202-then-fail server honestly, not as accepted work", async () => {
+  // This is the exact production shape: the endpoint 202s with a taskId, but its worker will throw
+  // "HTTP build tasks are retired". The capabilities list is the surface's honest self-report, and
+  // it omits the build endpoint, so the tool refuses before it can be handed a doomed task id.
+  await withFetch(
+    (url: string) => {
+      if (/\/capabilities$/.test(url)) return jsonResponse(200, { endpoints: ["/health", "/chat"] });
+      return jsonResponse(202, { taskId: "build-doomed-999" });  // the server WOULD accept it
+    },
+    async (calls) => {
+      const res = await handlers.get("ikbi_build")!({ goal: "x", repo: "/r" }, ctx);
+      assert.equal(res.ok, false);
+      assert.equal((res.output ?? "").includes("build-doomed-999"), false,
+        "the doomed task id leaked into a success-shaped output");
+      assert.equal(calls.some((c) => /\/api\/build$/.test(c.url)), false);
+    },
+  );
+});
+
+test("ikbi_build fails CLOSED when capabilities cannot be read (unreachable)", async () => {
+  await withFetch(
+    () => { throw new Error("connection refused"); },
+    async () => {
+      const res = await handlers.get("ikbi_build")!({ goal: "x", repo: "/r" }, ctx);
+      assert.equal(res.ok, false);
+      assert.match(res.error ?? "", /UNAVAILABLE \[unreachable\]/);
+    },
+  );
 });
