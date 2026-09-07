@@ -362,6 +362,13 @@
       "effect": "validated-authority-data"
     },
     {
+      "site": "src/core/receipt-store.ts",
+      "targets": [
+        "receipt-journal-state"
+      ],
+      "effect": "validated-runtime-state"
+    },
+    {
       "site": "src/core/runtime-config.ts",
       "targets": [
         "capsule/agent.json",

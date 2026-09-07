@@ -245,7 +245,16 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       keeps the inert narrative instead of the whole deliverable, so the verifier's own
 //       report stops being fed back to the model as its own prior words. `chat.ts` and
 //       `truth-agent-adapter.ts` are anchored files, so the shape moves -- re-anchored on purpose)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'fe0e505e66c679b46de5be03d31159e45b268c0404024824172be6dd110a37e9';
+//   new 9818a89496ac4b20d87c812fe70477c0c3a88bb572abd070ff2d33a7467195ce  (receipt ids handed to
+//       callers now correspond to a line already on disk: `receipt-store.ts` writes an append-only
+//       journal and the Map became a cache over it. The durability suite enters the closed
+//       inventory and `receipt-store.ts` gains a declared filesystem-mutation effect, so the shape
+//       moves -- a boundary change, re-anchored on purpose.
+//       CORROBORATED EXTERNALLY: lab-boundary-verify/boundary-verify.mjs, which lives outside all
+//       three repositories and implements the digest independently, computes this value for all
+//       three trees, and reproduces the PREVIOUS anchor on the pre-change tree. The anchor was not
+//       taken from what the repository's own code happened to produce)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '9818a89496ac4b20d87c812fe70477c0c3a88bb572abd070ff2d33a7467195ce';
 
 interface Inventory {
   schemaVersion: 3;

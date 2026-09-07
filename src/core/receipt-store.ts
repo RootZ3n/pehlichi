@@ -59,6 +59,11 @@ export interface Receipt {
   readonly receipt_id?: string;
 }
 
+/** The closed set of terminal statuses a stored receipt may claim. */
+const RECEIPT_STATUSES: ReadonlySet<string> = new Set([
+  'success', 'partial', 'failed', 'injection_blocked', 'injection_quarantined', 'error',
+]);
+
 export interface ReceiptStoreOptions {
   /** How long receipts live before auto-expiry. Default 1 hour. */
   readonly ttlMs?: number;
@@ -72,6 +77,17 @@ export interface ReceiptStoreOptions {
    * `durable` is false, which is what a caller must check before treating an ID as retrievable.
    */
   readonly journalPath?: string;
+}
+
+/** Does a parsed journal line carry the fields a receipt is defined by? */
+function isReceiptRecord(value: unknown): value is Receipt {
+  if (typeof value !== 'object' || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return typeof r['id'] === 'string' && r['id'].length > 0
+    && typeof r['agent'] === 'string'
+    && typeof r['timestamp'] === 'number' && Number.isFinite(r['timestamp'])
+    && typeof r['toolCallCount'] === 'number'
+    && RECEIPT_STATUSES.has(r['status'] as string);
 }
 
 export class ReceiptStore {
@@ -144,7 +160,12 @@ export class ReceiptStore {
     const out: Receipt[] = [];
     for (const line of raw.split('\n')) {
       if (line.length === 0) continue;
-      try { out.push(JSON.parse(line) as Receipt); } catch { /* torn tail: keep everything before it */ }
+      let parsed: unknown;
+      try { parsed = JSON.parse(line); } catch { continue; }  // torn tail: keep everything before it
+      // A journal line is a file on disk, and these records are projected into audit answers. A
+      // record that does not carry the fields a receipt is defined by is discarded rather than
+      // trusted into that projection, so the declared `validated-runtime-state` is true of it.
+      if (isReceiptRecord(parsed)) out.push(parsed);
     }
     return out;
   }

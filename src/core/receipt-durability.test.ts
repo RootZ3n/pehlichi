@@ -120,6 +120,32 @@ test('a torn final line loses only itself', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a well-formed line that is not a receipt is discarded, not trusted', () => {
+  const dir = base();
+  try {
+    const journalPath = join(dir, 'receipts.jsonl');
+    const store = new ReceiptStore({ journalPath });
+    const good = store.record({ agent: 'ptah', status: 'success', toolCallCount: 0 });
+    store.destroy();
+    // Each of these parses as JSON and would have been cast straight to a Receipt.
+    const planted = [
+      '{"id":"r-x","agent":"ptah","timestamp":1,"toolCallCount":0,"status":"approved"}', // status not in the closed set
+      '{"id":"","agent":"ptah","timestamp":1,"toolCallCount":0,"status":"success"}',     // empty id
+      '{"agent":"ptah","timestamp":1,"toolCallCount":0,"status":"success"}',             // no id
+      '{"id":"r-y","agent":"ptah","timestamp":"soon","toolCallCount":0,"status":"success"}', // timestamp not a number
+      '"a bare string"', '42', 'null', '[]',
+    ];
+    writeFileSync(journalPath, `${readFileSync(journalPath, 'utf8')}${planted.join('\n')}\n`);
+    const recovered = new ReceiptStore({ journalPath });
+    try {
+      assert.deepEqual(recovered.recent(100).map((r) => r.id), [good.id],
+        'a malformed record reached the projection');
+      assert.equal(recovered.get('r-x'), undefined);
+      assert.equal(recovered.get('r-y'), undefined);
+    } finally { recovered.destroy(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a missing journal reads as empty rather than throwing', () => {
   const dir = base();
   try {
