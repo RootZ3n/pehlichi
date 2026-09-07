@@ -346,6 +346,7 @@
       "src/core/evidence-gate.test.ts",
       "src/core/external-identity-hostile.test.ts",
       "src/core/external-runtime-integrity.ts",
+      "src/core/file-identity.test.ts",
       "src/core/gbrain-bridge.test.ts",
       "src/core/gbrain-bridge.ts",
       "src/core/governed-inventory.test.ts",

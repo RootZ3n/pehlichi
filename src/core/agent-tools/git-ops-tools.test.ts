@@ -79,7 +79,7 @@ test('git_diff supports staged + path scoping', async () => {
   const { run, calls } = fakeRunner({ stdout: 'diff --git ...' });
   const h = createGitOpsToolHandlers({ run });
   await h.get('git_diff')!({ staged: true, paths: ['x.ts'] }, ctx(dir));
-  assert.deepEqual(calls[0]!.args, ['diff', '--staged', '--', 'x.ts']);
+  assert.deepEqual(calls[0]!.args, ['diff', '--no-ext-diff', '--staged', '--', 'x.ts']);
 });
 
 test('git_push refuses without a token, and injects Basic auth via env when present', async () => {

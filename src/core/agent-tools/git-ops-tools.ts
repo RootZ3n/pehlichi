@@ -69,14 +69,76 @@ function capOutput(s: string): string {
   return s.length > MAX_OUTPUT_BYTES ? `${s.slice(0, MAX_OUTPUT_BYTES)}\n…[truncated]` : s;
 }
 
-/** The default runner (spawnSync). Inherits PATH/HOME from the process so git is found on-device. */
+/*
+  GIT IS A CONFIGURABLE PROGRAM LAUNCHER, AND THE REPOSITORY IS MODEL-WRITABLE.
+
+  A repository's own `.git/config` and `.git/hooks` are ordinary files inside the workspace, so an
+  agent that can write a file can choose a program for git to run. Measured in Phase 3D: writing
+  `.git/hooks/post-index-change` and running the existing `git_add` tool executed it — twice — with
+  the service's entire environment inherited, which is where its provider credentials live.
+
+  Two changes close that, and both are refusals rather than filters:
+
+    • Every invocation carries a fixed `-c` prefix that empties the program-selecting settings.
+      Command-line configuration outranks repository configuration, so a hostile `.git/config`
+      cannot restore them. `core.hooksPath` is pointed at a directory that does not exist, which is
+      how git is told to run no hooks at all.
+    • The environment is BUILT, not inherited. git receives a PATH, a HOME that is not the
+      operator's, and the reviewed credential header when one is supplied — and nothing else. A
+      program that git is somehow still persuaded to run inherits no secret.
+
+  `GIT_CONFIG_NOSYSTEM` and an empty global config keep the same question from being answered by
+  files outside the workspace.
+*/
+const GIT_SAFE_CONFIG: readonly string[] = Object.freeze([
+  '-c', 'core.hooksPath=/nonexistent-hooks-path',
+  '-c', 'core.pager=cat',
+  '-c', 'core.editor=false',
+  '-c', 'core.sshCommand=false',
+  '-c', 'core.fsmonitor=',
+  '-c', 'credential.helper=',
+  '-c', 'protocol.ext.allow=never',
+  '-c', 'protocol.file.allow=never',
+  '-c', 'uploadpack.packObjectsHook=',
+  /*
+    LFS filters are program launchers like the rest, so they are pointed at a program that refuses
+    rather than emptied. Emptying is not equivalent: git tries to execute the empty string and the
+    command dies with `cannot run : No such file or directory`, which is how the first version of
+    this list broke `git_diff` in an ORDINARY repository. The lab has no LFS repositories; one
+    would fail to check out here, and that is a reviewed exception rather than an accident.
+  */
+  '-c', 'filter.lfs.process=false',
+  '-c', 'filter.lfs.clean=false',
+  '-c', 'filter.lfs.smudge=false',
+]);
+/*
+  `diff.external` is deliberately NOT in that list, and the reason is worth recording: any value
+  makes git run something. Empty makes it try to execute the empty string (`cannot run : No such
+  file or directory`), and `false` makes every diff exit non-zero. The external diff is refused
+  where it belongs instead — `--no-ext-diff` is an option of `git diff`, not a global one, so it is
+  passed in the diff subcommand's own argv below.
+*/
+
+/** The default runner (spawnSync), with the program-selecting configuration surface closed. */
 export function defaultGitRunner(args: readonly string[], cwd: string, extraEnv?: Record<string, string>): GitRunResult {
-  const res = spawnSync('git', args, {
+  const res = spawnSync('git', [...GIT_SAFE_CONFIG, ...args], {
     cwd,
     encoding: 'utf8',
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: MAX_BUFFER_BYTES,
-    env: { ...process.env, ...(extraEnv ?? {}) } as NodeJS.ProcessEnv,
+    env: {
+      PATH: '/usr/local/bin:/usr/bin:/bin',
+      // Not the operator's home: a global config there would answer the same questions the `-c`
+      // prefix just closed.
+      HOME: cwd,
+      LANG: 'C.UTF-8',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: '',
+      GIT_OPTIONAL_LOCKS: '0',
+      ...(extraEnv ?? {}),
+    } as NodeJS.ProcessEnv,
   });
   if (res.error !== undefined && res.error !== null) {
     const code = (res.error as NodeJS.ErrnoException).code;
@@ -210,7 +272,7 @@ export function createGitOpsToolHandlers(opts: GitOpsOptions = {}): Map<string, 
   handlers.set('git_diff', async (args, ctx): Promise<ToolResult> => {
     const c = repoDir(ctx, args.repo);
     if ('error' in c) return fail(c.error);
-    const gitArgs = ['diff', ...(args.staged === true ? ['--staged'] : [])];
+    const gitArgs = ['diff', '--no-ext-diff', ...(args.staged === true ? ['--staged'] : [])];
     const paths = strArray(args.paths);
     if (paths.length > 0) gitArgs.push('--', ...paths);
     return render(run(gitArgs, c.dir), 'git diff');

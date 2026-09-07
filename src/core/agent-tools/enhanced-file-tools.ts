@@ -4,7 +4,7 @@
  * Tool names match Hermes: patch, read_file, write_file, search_files.
  * Supplements the core's basic read/write/search with Hermes-level features.
  */
-import { writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { ToolSpec, ToolHandler, ToolResult } from '../tools.js';
@@ -31,6 +31,50 @@ function readByIdentity(workspaceRoot: string, requested: string, _resolved: str
   } finally {
     closeSync(fd);
   }
+}
+
+/*
+  SEARCH RESULTS ARE FILTERED BY FILE IDENTITY TOO.
+
+  `read_file` opens a descriptor and refuses a multiply-linked file, but `rg` and `grep` open files
+  themselves: they walk the workspace and print matches, so a hardlink alias to an outside inode is
+  reported with its content even though every path the caller supplied was inside the root. Measured
+  in Phase 3D — the outside canary came back from a search with no path argument at all.
+
+  So matched lines are filtered by the same rule before anything is returned. This is a stat after
+  the search rather than an open before it, which is weaker than the read boundary and is stated as
+  such: what it guarantees is that the content does not reach model context, not that the search
+  process never read it.
+
+  The count of suppressed files is reported so a silent gap in results is visible, and no suppressed
+  path or byte is named.
+*/
+function withoutAliasedFiles(output: string): { text: string; suppressed: number } {
+  const suppressed = new Set<string>();
+  const kept: string[] = [];
+  for (const line of output.split('\n')) {
+    if (line.length === 0) { kept.push(line); continue; }
+    // rg and grep both emit `path:line:text`; a Windows-style drive letter cannot occur here.
+    const cut = line.indexOf(':');
+    const candidate = cut > 0 ? line.slice(0, cut) : '';
+    if (candidate.length > 0) {
+      if (suppressed.has(candidate)) continue;
+      try {
+        const st = statSync(candidate);
+        if (st.isFile() && st.nlink > 1) { suppressed.add(candidate); continue; }
+      } catch { /* a path that cannot be stat'd is left to the ordinary output path */ }
+    }
+    kept.push(line);
+  }
+  return { text: kept.join('\n'), suppressed: suppressed.size };
+}
+
+function searchResult(output: string): ToolResult {
+  const { text, suppressed } = withoutAliasedFiles(output);
+  const note = suppressed > 0
+    ? `\n[${suppressed} file(s) withheld: content also reachable outside the workspace through additional links]`
+    : '';
+  return { ok: true, output: `${text}${note}` };
 }
 
 export const enhancedFileToolSpecs: ToolSpec[] = [
@@ -189,7 +233,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
             timeout: 10_000,
             maxBuffer: 512 * 1024,
           });
-          return { ok: true, output: output.trim() || noMatch };
+          return output.trim().length === 0 ? { ok: true, output: noMatch } : searchResult(output.trim());
         } catch (rgErr) {
           if (ranEmpty(rgErr)) return { ok: true, output: noMatch };
           // rg was unavailable or errored — fall back to grep (also shell-free).
@@ -200,7 +244,7 @@ export function createEnhancedFileToolHandlers(workspaceRoot: string): Map<strin
               timeout: 10_000,
               maxBuffer: 512 * 1024,
             });
-            return { ok: true, output: output.trim() || noMatch };
+            return output.trim().length === 0 ? { ok: true, output: noMatch } : searchResult(output.trim());
           } catch (grepErr) {
             if (ranEmpty(grepErr)) return { ok: true, output: noMatch };
             // Neither searcher ran successfully — this is a FAILURE, not "no matches".
