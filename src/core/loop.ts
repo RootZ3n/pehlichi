@@ -352,6 +352,7 @@ export interface ShadowRunResult {
  * path is never passed as workspaceRoot. Promotion (copying results back) is a
  * separate operator-gated step and is deliberately NOT performed here.
  */
+
 export async function runAgentInShadow(opts: RunAgentInShadowOptions): Promise<ShadowRunResult> {
   // The SAME function the agent and conversational lanes call. This lane used to consult the
   // committed status gate alone, so a cron job and a delegated sub-agent started real work --
@@ -544,6 +545,8 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
   const localProcessScope = opts.processScope === undefined ? createIsolatedProcessScope("agent-run") : undefined;
   const processScope = opts.processScope ?? localProcessScope!;
   try {
+  /** Per-run answers to argument-identical read-only calls. Cleared by any tool with effects. */
+  const readCache = new Map<string, ToolResult>();
   const emitter = new EventEmitter(opts.sinks ?? [], clock);
   // Per-tier budget (Phase 7): an explicit maxIterations always wins; otherwise a
   // budgetTier derives the cap (converse=4 keeps casual prompts out of long loops).
@@ -797,7 +800,30 @@ async function executeAgentRun(opts: RunAgentOptions): Promise<RunAgentResult> {
             };
           } else {
             try {
+              /*
+                REPEATED READS ARE ANSWERED ONCE.
+
+                Measured on the Phase-3F survey task: Loony-Luna read `.git/HEAD` four times with
+                identical arguments and Mad-Ptah read one ref three times, while both exhausted the
+                25-step budget having made only 8-10 tool calls. The budget was not too small; the
+                same question was being asked repeatedly.
+
+                So an argument-identical call to a READ-ONLY tool inside one run returns the answer
+                already obtained. The cache is dropped the moment any tool runs that is not on that
+                list, because after an effect a previous read may no longer be true — a stale answer
+                would be a worse failure than a repeated one.
+              */
+              const cacheKey = READ_ONLY_TOOLS.has(action.tool)
+                ? `${action.tool}\u0000${JSON.stringify(action.args)}`
+                : undefined;
+              if (cacheKey === undefined) readCache.clear();
+              const cached = cacheKey !== undefined ? readCache.get(cacheKey) : undefined;
+              if (cached !== undefined) {
+                result = cached;
+              } else {
               result = await def.handler(action.args, ctx);
+              if (cacheKey !== undefined && result.ok) readCache.set(cacheKey, result);
+              }
             } catch (err) {
               result = thrownToolFailure(err);
             }

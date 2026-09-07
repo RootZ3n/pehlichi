@@ -329,6 +329,8 @@
       "src/core/containment/ssh-broker.ts",
       "src/core/containment/version.ts",
       "src/core/containment/wrap.ts",
+      "src/core/content-authority.test.ts",
+      "src/core/content-authority.ts",
       "src/core/context-compaction.test.ts",
       "src/core/context-compressor.ts",
       "src/core/data-roots.ts",
