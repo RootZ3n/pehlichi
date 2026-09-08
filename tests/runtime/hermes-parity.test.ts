@@ -75,6 +75,11 @@ function withBaseTool(name: string): AgentRuntimeConfiguration {
   writeFileSync(join(root, 'deployment/agent.env.json'), JSON.stringify(deployment));
   cpSync(join(configuredRuntime.repositoryRoot, 'personality'), join(root, 'personality'), { recursive: true });
   cpSync(join(configuredRuntime.repositoryRoot, 'tui/skin.yaml'), join(root, 'tui/skin.yaml'));
+  // The identity trust chain runs package.json `name` -> deployment.identity -> capsule.identity.id,
+  // so a stand-in repository root is only a repository root once it carries the manifest too.
+  // Without it every load here fails as `repository identity unreadable`, which is a fixture
+  // defect wearing the costume of an authority failure.
+  cpSync(join(configuredRuntime.repositoryRoot, 'package.json'), join(root, 'package.json'));
   return loadAgentRuntimeConfiguration(root, configuredRuntime.profile);
 }
 

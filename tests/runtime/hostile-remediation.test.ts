@@ -86,6 +86,8 @@ function fixtureConfig(name = 'audit_failure') {
   cpSync(join(repositoryRoot, 'personality'), join(root, 'personality'), { recursive: true });
   mkdirSync(join(root, 'tui'), { recursive: true });
   cpSync(join(repositoryRoot, 'tui/skin.yaml'), join(root, 'tui/skin.yaml'));
+  // A stand-in repository root must carry the manifest the identity chain binds against.
+  cpSync(join(repositoryRoot, 'package.json'), join(root, 'package.json'));
   return loadAgentRuntimeConfiguration(root, configuredRuntime.profile);
 }
 
@@ -270,8 +272,18 @@ test('delegated jobs carry only the explicit parent lane intersected with the ch
     runnerPath: runner,
     authorizedToolNames: ['terminal', 'delegate_task', 'rogue'],
   }).get('delegate_task')!;
-  const result = await handler({ goal: 'child' }, { workspaceRoot: root, labStoreRoot: root, store: {} });
-  assert.equal(result.ok, true);
+  // PRECONDITION (Phase 2): a run holding no delegable authority is refused before a child spawns.
+  // Asserted here so the lane-intersection case below cannot silently pass through an unauthorised
+  // path, and so this governing refusal is regressed rather than assumed.
+  const unauthorised = await handler({ goal: 'child' }, { workspaceRoot: root, labStoreRoot: root, store: {} });
+  assert.equal(unauthorised.ok, false);
+  assert.match(unauthorised.error ?? '', /holds no delegable authority/);
+
+  // With authority, the child lane is the parent lane intersected with the child registry ceiling:
+  // 'rogue' is in the parent lane and must NOT survive.
+  const result = await handler({ goal: 'child' },
+    { workspaceRoot: root, labStoreRoot: root, store: {}, delegation: 'delegation-under-test' });
+  assert.equal(result.ok, true, result.error);
   assert.deepEqual(JSON.parse(result.output), ['terminal', 'delegate_task']);
 });
 
@@ -293,6 +305,7 @@ test('authority-bearing capsule schemas reject unknown, nested, incomplete, dupl
   const root = createWorkspace(); cleanup.push(root);
   mkdirSync(join(root, 'capsule'), { recursive: true });
   mkdirSync(join(root, 'deployment'), { recursive: true });
+  cpSync(join(repositoryRoot, 'package.json'), join(root, 'package.json'));
   const capsule = JSON.parse(readFileSync(join(repositoryRoot, 'capsule/agent.json'), 'utf8')) as any;
   const deployment = JSON.parse(readFileSync(join(repositoryRoot, 'deployment/agent.env.json'), 'utf8')) as any;
   const write = (c: any, d: any) => {
@@ -308,9 +321,22 @@ test('authority-bearing capsule schemas reject unknown, nested, incomplete, dupl
     (_c: any, d: any) => { d.baseToolCeiling.push(d.baseToolCeiling[0]); },
   ]) {
     const c = structuredClone(capsule); const d = structuredClone(deployment); mutate(c, d); write(c, d);
-    assert.throws(() => readAgentCapsules(root));
+    // The rejection must come from the SCHEMA. A missing repository manifest also throws here, which
+    // would let every one of these pass without the schema being exercised at all.
+    assert.throws(() => readAgentCapsules(root),
+      (error: Error) => !/repository identity unreadable/.test(error.message),
+      'a schema rejection must not be satisfied by an unreadable repository manifest');
   }
   write(capsule, deployment);
+  assert.doesNotThrow(() => readAgentCapsules(root));
+
+  // The manifest is a load-bearing link, not fixture decoration: a root whose package name disagrees
+  // with the capsule identity is refused, and an absent manifest is refused as unreadable.
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'not-this-agent' }));
+  assert.throws(() => readAgentCapsules(root), /does not belong to this repository/);
+  rmSync(join(root, 'package.json'));
+  assert.throws(() => readAgentCapsules(root), /repository identity unreadable/);
+  cpSync(join(repositoryRoot, 'package.json'), join(root, 'package.json'));
   assert.doesNotThrow(() => readAgentCapsules(root));
 
   const duplicateDocuments = [
