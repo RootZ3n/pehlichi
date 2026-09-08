@@ -8,8 +8,13 @@
  * Trio → ikbi → optional Bokahli advice, and a second path from here to Bokahli would be a second
  * implementation pipeline with no governance in front of it. It does not read `ikbi inspect`. It
  * does not treat the child's exit code as an outcome.
+ *
+ * IT HOLDS NO EFFECT OF ITS OWN. `spawn` and `readHeadCommit` are REQUIRED injections, not
+ * defaults. A module that decides what to run and also runs it puts an unresolvable argv in front
+ * of the execution analysis — the scanner cannot see what a computed vector will execute, and
+ * fails closed, correctly. Keeping the effect at the caller leaves this file pure: same request,
+ * same decision, and the spawn declared where the other effect surfaces already are.
  */
-import { spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 
 import { selectRoute, type WorkRequest, type RouteDecision } from './route.js';
@@ -23,16 +28,20 @@ export interface DelegationContext {
   readonly agent: string;
   readonly authorizedRoots: readonly string[];
   readonly ikbiCliPath: string;
-  readonly nodePath: string;
   readonly profile: string;
   readonly bokahliBaseUrl?: string;
   readonly maxInvocations?: number;
   readonly maxBuilderTurns?: number;
   readonly timeoutMs?: number;
   readonly journal: DelegationJournal;
-  /** Injected for tests; production passes the real spawn. */
-  readonly spawn?: (argv: readonly string[], env: Record<string, string>, timeoutMs: number)
+  /**
+   * Runs the argument vector and returns what the child wrote. REQUIRED: this module never spawns.
+   * The vector is passed whole and is never joined into a command line.
+   */
+  readonly spawn: (argv: readonly string[], env: Record<string, string>, timeoutMs: number)
     => { stdout: string; status: number | null };
+  /** Reads a repository's current HEAD. REQUIRED for the same reason. */
+  readonly readHeadCommit: (repository: string) => string | undefined;
   readonly clock?: () => number;
 }
 
@@ -41,11 +50,6 @@ export interface DelegationOutcome {
   readonly record: DelegationRecord;
   readonly judgment?: SupervisorJudgment;
 }
-
-const headCommit = (repo: string): string | undefined => {
-  const r = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : undefined;
-};
 
 /** The operator-facing sentence. Derived from the verdict; never from the model's prose. */
 function operatorState(j: SupervisorJudgment | undefined, decision: RouteDecision): string {
@@ -105,15 +109,10 @@ export function runDelegation(request: WorkRequest, ctx: DelegationContext): Del
     }) };
   }
 
-  const startingCommit = headCommit(repository);
-  const spawnFn = ctx.spawn ?? ((a, e, t) => {
-    const r = spawnSync(ctx.nodePath, [...a], { encoding: 'utf8', timeout: t, cwd: repository,
-      env: { ...process.env, ...e }, maxBuffer: 64 * 1024 * 1024 });
-    return { stdout: r.stdout ?? '', status: r.status };
-  });
-  const { stdout, status } = spawnFn(argv, env, timeoutMs);
+  const startingCommit = ctx.readHeadCommit(repository);
+  const { stdout, status } = ctx.spawn(argv, env, timeoutMs);
   const judgment = superviseSession(stdout, { repository }, status);
-  const resultingCommit = headCommit(repository);
+  const resultingCommit = ctx.readHeadCommit(repository);
 
   const record = ctx.journal.record({
     ...base, repository, attemptId, localMode, profile: ctx.profile,

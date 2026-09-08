@@ -128,6 +128,10 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   // before its id is handed back, which is the whole point: an id a caller holds must correspond
   // to a line already on disk.
   'src/core/receipt-store.ts': ['filesystem-mutation'],
+  // The delegation journal. `filesystem-mutation` for the same reason the receipt journal is one:
+  // a delegation is appended to durable storage before the call returns, so a restart cannot turn
+  // interrupted work into success or lose completed work.
+  'src/core/delegation/journal.ts': ['filesystem-mutation'],
   // Pre-model ordinary authorization. `child-process` because the subject's own commit and tree
   // are read from git rather than taken from a caller; `filesystem-mutation` because the refusal
   // and admission receipts are durable writes, and both happen before a model or a tool.

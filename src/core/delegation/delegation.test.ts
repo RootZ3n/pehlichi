@@ -293,7 +293,7 @@ test('a cache-only journal reports that it is not durable', () => {
 const runnerCtx = (over: Partial<import('./runner.js').DelegationContext> = {}) => ({
   parentRequestId: 'req-9', principalId: 'operator-cli@ptah', agent: 'Ptah',
   authorizedRoots: ROOTS, ikbiCliPath: '/pehverse/repos/ecosystem/ikbi/dist/cli/index.js',
-  nodePath: '/usr/local/bin/node', profile: 'deepseek',
+  profile: 'deepseek', readHeadCommit: () => 'commit-before',
   journal: new DelegationJournal(join(governedMkdtemp('run-'), 'd.jsonl')),
   clock: () => 42,
   ...over,
@@ -323,7 +323,7 @@ test('RUNNER: a request with no mutation scope refuses without spawning', async 
 
 test('RUNNER: a promoted build is supervised and recorded with its evidence', async () => {
   const { runDelegation } = await import('./runner.js');
-  const ctx = runnerCtx({ spawn: (argv) => {
+  const ctx = runnerCtx({ spawn: (argv: readonly string[]) => {
     assert.ok(argv.includes('--allow-path'), 'scope reached ikbi');
     assert.equal(argv[argv.indexOf('--local-mode') + 1], 'off');
     return { stdout: session(), status: 0 };
@@ -348,7 +348,7 @@ test('RUNNER: exit 0 with wrong-repository evidence is recorded as rejected, not
 
 test('RUNNER: assist selects local mode and reports the specialist honestly', async () => {
   const { runDelegation } = await import('./runner.js');
-  const ctx = runnerCtx({ bokahliBaseUrl: 'http://127.0.0.1:18797/v1', spawn: (argv, env) => {
+  const ctx = runnerCtx({ bokahliBaseUrl: 'http://127.0.0.1:18797/v1', spawn: (argv: readonly string[], env: Record<string, string>) => {
     assert.equal(argv[argv.indexOf('--local-mode') + 1], 'assist');
     assert.equal(env['IKBI_BOKAHLI_BASE_URL'], 'http://127.0.0.1:18797/v1');
     return { stdout: session({ localAdvisories: [
