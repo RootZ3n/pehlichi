@@ -184,6 +184,39 @@ test('a verified candidate with no promotion awaits the operator — not a failu
   assert.equal(j.verdict, 'PROMOTION_REFUSED_AWAITING_OPERATOR');
 });
 
+/*
+  This case is here because the first real end-to-end run hit it. ikbi's usual
+  terminal outcome for governed work is `withheld` -- a built, checked candidate it
+  declined to publish -- and the supervisor did not know the word, so genuinely
+  verified work came back as `unrecognised terminal outcome "withheld"` and an
+  operator was told the result was indeterminate. The verdict follows the
+  VERIFICATION, never the publication.
+*/
+test('a withheld candidate is read by its verification, not by its publication', () => {
+  const withheld = (over: Record<string, unknown> = {}, attemptOver: Record<string, unknown> = {}) =>
+    superviseSession(
+      session({ outcome: { kind: 'withheld', candidateId: 'c1', verificationId: 'v1', reason: 'operator', ...over } },
+              attemptOver),
+      { repository: REPO }, 0);
+
+  const green = withheld();
+  assert.equal(green.verdict, 'PROMOTION_REFUSED_AWAITING_OPERATOR');
+  assert.match(green.explanation, /withheld \(operator\)/);
+  assert.equal(green.candidateId, 'c1');
+
+  // The reason is carried through: "a human must look" and "the branch moved" are
+  // not the same next step.
+  assert.match(withheld({ reason: 'target_moved' }).explanation, /target_moved/);
+
+  // Red checks are a rejection whichever way the publication went.
+  assert.equal(
+    withheld({}, { verification: { verdict: 'fail', checks: [{ name: 'unit', status: 'fail', exitCode: 1 }] } }).verdict,
+    'VERIFICATION_RED');
+
+  // No verification record at all establishes nothing.
+  assert.equal(withheld({}, { verification: undefined }).verdict, 'INDETERMINATE');
+});
+
 test('provider, policy, timeout and unknown failures are told apart', () => {
   const f = (failure: Record<string, unknown>) =>
     superviseSession(session({ outcome: { kind: 'failed', failure } }), { repository: REPO }, 1).verdict;

@@ -224,6 +224,43 @@ export function superviseSession(
       explanation: `verified against ${checks.length} deterministic check(s) and promoted` };
   }
 
+  /*
+    WITHHELD: ikbi built a candidate, ran the checks, and did not publish it.
+
+    This is the same situation as `accepted` without a promotion id, and it is the
+    outcome a governed engine reaches most often on real work -- it was missed here,
+    so a verified candidate came back as `unrecognised terminal outcome "withheld"`
+    and an operator was told the result was indeterminate when it was nothing of the
+    kind. The verdict must follow the VERIFICATION, not the publication: green checks
+    and no promotion is finished work parked at an authority boundary; red checks are
+    a rejection whichever way the publication went.
+
+    The reason ikbi gives (`operator`, `policy`, `governance`, `target_moved`,
+    `unsupported_publication`, ...) is carried through verbatim, because "a human must
+    look at this" and "the branch moved under us" call for very different next steps.
+  */
+  if (kind === 'withheld') {
+    const reason = str(outcome['reason']) ?? 'unstated reason';
+    const j = {
+      ...base,
+      ...(str(outcome['candidateId']) !== undefined ? { candidateId: str(outcome['candidateId']) as string } : {}),
+      ...(str(outcome['verificationId']) !== undefined ? { verificationId: str(outcome['verificationId']) as string } : {}),
+    };
+    const verdict = verification === undefined ? undefined : str(verification['verdict']);
+    if (verdict === 'pass') {
+      return { ...j, verdict: 'PROMOTION_REFUSED_AWAITING_OPERATOR',
+        explanation: `the candidate verified against ${checks.length} deterministic check(s) and publication was withheld (${reason}); `
+          + 'it awaits operator authority and is not a completed change' };
+    }
+    if (verdict !== undefined) {
+      return { ...j, verdict: 'VERIFICATION_RED',
+        explanation: `publication was withheld (${reason}) and the verification record says ${verdict}, not pass; nothing was promoted` };
+    }
+    return { ...j, verdict: 'INDETERMINATE',
+      explanation: `publication was withheld (${reason}) and the evidence carries no verification record, `
+        + 'so whether the candidate is good is not established' };
+  }
+
   if (kind === 'rejected') {
     return { ...base, verdict: 'VERIFICATION_RED',
       explanation: `the candidate was rejected (${str(outcome['reason']) ?? 'unstated reason'}); nothing was promoted` };
