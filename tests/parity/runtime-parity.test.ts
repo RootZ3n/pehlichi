@@ -256,7 +256,22 @@ const BOUNDARY_ANCHOR_VERSION = 2;
 //       repositories and implements this digest independently. It computes this value for all
 //       three trees, and reproduces the PREVIOUS anchor fe0e505e on the pre-change tree. The value
 //       was not adopted from whatever the repository's own code happened to produce)
-const TRUSTED_BOUNDARY_SHAPE_SHA256 = 'dfc75ea319564a72f336c6d3ed00c53e2a0c31f6abd085305bd636ffd94b5459';
+//   new 47f4f98808c906a2e32a13193971a6decc082a728896cffd04085a2a116efedf  (the governed
+//       delegation tool. `src/core/delegation/` enters the runtime closure;
+//       `src/core/temp-policy.test.ts` -- an anchored file -- gains the declared
+//       ungoverned-execution entry for the single spawn that tool holds; and
+//       `src/core/delegation/journal.ts` is declared as a validated-runtime-state load, because
+//       it re-reads and parses its own append-only journal. That last one was found only after
+//       the anchor was corrected: the stale anchor was failing first and masking it, so the
+//       boundary had to be corroborated and re-anchored twice rather than once.
+//       CORROBORATED EXTERNALLY: /usr/local/lib/pehverse/boundary-verify.mjs, root:root 0755,
+//       sha256 057ec7d37d4bde464df9f797a502d7296346da7cdda35a67d1d8985dd0f06b29, installed from
+//       lab-utilities/lab-boundary-verify and importing no repository code. It computes this
+//       value on all three trees; it reproduces the PREVIOUS anchor dfc75ea3 on every
+//       pre-change commit through ba55edf and moves only at 68003e9, so it tracks the boundary
+//       rather than agreeing with whatever tree it is shown. The value was READ OUT of a
+//       deliberate anchor mismatch, never supplied to the checker as an expected answer)
+const TRUSTED_BOUNDARY_SHAPE_SHA256 = '47f4f98808c906a2e32a13193971a6decc082a728896cffd04085a2a116efedf';
 
 interface Inventory {
   schemaVersion: 3;

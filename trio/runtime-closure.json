@@ -325,6 +325,13 @@
       "effect": "validated-runtime-state"
     },
     {
+      "site": "src/core/delegation/journal.ts",
+      "targets": [
+        "delegation-journal-state"
+      ],
+      "effect": "validated-runtime-state"
+    },
+    {
       "site": "src/core/external-runtime-integrity.ts",
       "targets": [
         "runtime/manifest.json",
