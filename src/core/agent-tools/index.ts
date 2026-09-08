@@ -38,6 +38,7 @@ import { clarifyToolSpecs, createClarifyToolHandlers } from './clarify-tools.js'
 import { coordinationToolSpecs, createCoordinationToolHandlers } from './coordination-tools.js';
 import { brainToolSpecs, createBrainToolHandlers } from './brain-tools.js';
 import { ikbiToolSpecs, createIkbiToolHandlers } from './ikbi-tools.js';
+import { delegateImplementationSpec, createDelegationToolHandlers } from '../delegation/tool.js';
 import { musicToolSpecs, createMusicToolHandlers } from './music-tools.js';
 import { labContextToolSpecs, createLabContextToolHandlers } from './lab-context-tools.js';
 import { labmemToolSpecs, createLabmemToolHandlers } from './labmem-tools.js';
@@ -54,7 +55,7 @@ import { phoneToolSpecs, createPhoneToolHandlers } from './phone-tools.js';
 import { gitOpsToolSpecs, createGitOpsToolHandlers } from './git-ops-tools.js';
 import { labShellToolSpecs, createLabShellToolHandlers } from './lab-shell-tools.js';
 import { luakToolSpecs, createLuakToolHandlers } from './luak-tools.js';
-import { DATA_ROOT_VARIABLES, requiredDataRoot } from '../data-roots.js';
+import { DATA_ROOT_VARIABLES, requiredDataRoot, optionalDataRoot } from '../data-roots.js';
 
 export interface AgentToolConfig {
   /** Workspace root for file operations */
@@ -262,6 +263,21 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   // the base URL comes from IKBI_API_URL (default http://localhost:18796).
   const ikbiHandlers = createIkbiToolHandlers();
 
+  // DELEGATION: the one governed path from a Trio agent to ikbi's canonical v2 build engine, and
+  // through ikbi's own local-mode to the optional Bokahli specialist. The Trio never reaches
+  // Bokahli itself. Roots, cli path, profile and bounds are deployment configuration; nothing here
+  // is taken from a model.
+  const delegationHandlers = createDelegationToolHandlers({
+    agent: config.agentId,
+    principalId: config.agentId,
+    authorizedRoots: (process.env['TRIO_DELEGATION_ROOTS'] ?? '/pehverse/repos').split(':').filter((p) => p.length > 0),
+    ikbiCliPath: process.env['IKBI_CLI_PATH'] ?? '/pehverse/repos/ecosystem/ikbi/dist/cli/index.js',
+    profile: process.env['IKBI_PROFILE'] ?? 'deepseek',
+    ...(process.env['IKBI_BOKAHLI_BASE_URL'] !== undefined ? { bokahliBaseUrl: process.env['IKBI_BOKAHLI_BASE_URL'] } : {}),
+    ...(optionalDataRoot(...DATA_ROOT_VARIABLES.receipts) !== undefined
+      ? { journalPath: join(optionalDataRoot(...DATA_ROOT_VARIABLES.receipts) as string, 'delegations.jsonl') } : {}),
+  });
+
   // MUSIC: MiniMax Music 2.6 API for song generation, lyrics, and covers.
   // API key from MINIMAX_API_KEY env var.
   const musicHandlers = createMusicToolHandlers();
@@ -289,6 +305,12 @@ export function createFullToolRegistry(config: AgentToolConfig): ToolDef[] {
   for (const spec of browserToolSpecs) {
     const handler = browserHandlers.get(spec.name);
     if (handler) tools.push({ spec, handler });
+  }
+
+  // Delegation (governed implementation)
+  {
+    const handler = delegationHandlers.get(delegateImplementationSpec.name);
+    if (handler) tools.push({ spec: delegateImplementationSpec, handler });
   }
 
   // Web tools

@@ -72,6 +72,50 @@ export interface SupervisorJudgment {
   readonly humanReviewRequired: boolean;
 }
 
+/**
+ * WHAT THE LOCAL SPECIALIST ACTUALLY DID.
+ *
+ * `bokahliInvoked` on the judgment means only "the local lane was attempted", which reads as
+ * participation to an operator even when the service was unreachable and every hook was refused.
+ * Historical journals keep that field unchanged — evidence already written is not rewritten — and
+ * live results carry this instead, which separates the four facts that were being collapsed:
+ * whether ikbi tried, whether the deployment answered, and whether its answer survived ikbi's
+ * deterministic validator.
+ */
+export interface BokahliParticipation {
+  /** ikbi ran the local lane at all (local-mode was not `off`). */
+  readonly attempted: boolean;
+  /** The deployment answered with a completion (`ROUTED`) at least once. */
+  readonly reached: boolean;
+  /** Advisories whose content survived ikbi's validator. */
+  readonly adviceAccepted: number;
+  /** Advisories ikbi produced but then rejected. */
+  readonly adviceDiscarded: number;
+  /** Advisories the deployment declined or could not serve. */
+  readonly refused: number;
+  /** Advisories whose content actually reached the primary provider's context. */
+  readonly suppliedToPrimaryProvider: number;
+  /** One sentence, safe to show an operator without implying authority. */
+  readonly summary: string;
+}
+
+export function bokahliParticipation(advisories: readonly LocalAdvisoryFact[]): BokahliParticipation {
+  const attempted = advisories.length > 0;
+  const reached = advisories.some((a) => a.outcome === 'ROUTED');
+  const adviceAccepted = advisories.filter((a) => a.disposition === 'accepted').length;
+  const adviceDiscarded = advisories.filter((a) => a.disposition === 'discarded').length;
+  const refused = advisories.filter((a) => a.outcome !== 'ROUTED' && a.outcome !== 'unknown').length;
+  const supplied = advisories.filter((a) => a.suppliedToPrimaryProvider).length;
+  const summary = !attempted
+    ? 'the local specialist was not consulted'
+    : !reached
+      ? `the local specialist was consulted ${advisories.length} time(s) and did not serve any of them; the build proceeded on the primary provider alone`
+      : `the local specialist answered ${adviceAccepted + adviceDiscarded} of ${advisories.length} consultation(s): `
+        + `${adviceAccepted} accepted, ${adviceDiscarded} discarded by ikbi's validator, `
+        + `${supplied} supplied to the primary provider as advisory data`;
+  return { attempted, reached, adviceAccepted, adviceDiscarded, refused, suppliedToPrimaryProvider: supplied, summary };
+}
+
 const obj = (v: unknown): Record<string, unknown> | undefined =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);

@@ -132,6 +132,11 @@ export const EFFECT_SINKS: Readonly<Record<string, readonly EffectClass[]>> = Ob
   // a delegation is appended to durable storage before the call returns, so a restart cannot turn
   // interrupted work into success or lose completed work.
   'src/core/delegation/journal.ts': ['filesystem-mutation'],
+  // The delegation tool. `child-process` because this is where the two effects the runner refuses
+  // to hold actually live: one spawn of ikbi's governed build as an argument vector, and one git
+  // read of the subject's HEAD. Keeping them here means the execution analysis sees exactly one
+  // spawn site, in a file that declares it, rather than a computed vector it cannot read.
+  'src/core/delegation/tool.ts': ['child-process'],
   // Pre-model ordinary authorization. `child-process` because the subject's own commit and tree
   // are read from git rather than taken from a caller; `filesystem-mutation` because the refusal
   // and admission receipts are durable writes, and both happen before a model or a tool.

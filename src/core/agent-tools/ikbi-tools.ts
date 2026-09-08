@@ -63,43 +63,24 @@ function originOf(url: string, path = ""): string {
   }
 }
 
+/**
+ * RETIRED: `ikbi_build` and `ikbi_fix`.
+ *
+ * Both submitted work to `POST /api/build`, which ikbi removed with its v1 engine. The route still
+ * answered 202 with a taskId and only then failed inside its worker, so a model calling it received
+ * something that looked exactly like an accepted build — the worst possible failure shape. It is
+ * now a hard 404, and the governed implementation path is `delegate_implementation`, which runs
+ * ikbi's canonical v2 engine with a declared mutation scope and supervises the evidence.
+ *
+ * They are removed from the assembled schema rather than shimmed. A shim would have to map a
+ * scope-free `{goal, repo}` onto an engine that refuses to start without an explicit mutation
+ * scope, and the only way to do that is to invent the scope — which is the exact widening the
+ * whole design exists to prevent. `createIkbiToolHandlers` still answers to both names with a
+ * typed refusal, so anything holding a stale reference is told plainly rather than served.
+ *
+ * `ikbi_status` stays: `GET /api/tasks[/:id]` is still served.
+ */
 export const ikbiToolSpecs: ToolSpec[] = [
-  {
-    name: "ikbi_build",
-    description:
-      "Submit a build task to ikbi (the governed build engine). Returns a taskId. " +
-      "Use ikbi_status to check results.",
-    parameters: obj(
-      {
-        goal: { type: "string", description: "What to build." },
-        repo: { type: "string", description: "Absolute path to the repository." },
-        builderMode: {
-          type: "string",
-          enum: ["agent", "patch"],
-          description: '"agent" or "patch" (default: "agent").',
-        },
-      },
-      ["goal", "repo"],
-    ),
-  },
-  {
-    name: "ikbi_fix",
-    description:
-      "Submit a fix task to ikbi. ikbi will diagnose and fix failing tests/checks. " +
-      "Returns a taskId.",
-    parameters: obj(
-      {
-        repo: { type: "string", description: "Absolute path to the repository." },
-        check: { type: "string", description: "The check command to run (default: auto-detect)." },
-        goal: { type: "string", description: "Additional context for the fix." },
-        allowTestEdits: {
-          type: "boolean",
-          description: "Allow editing test files (default: false).",
-        },
-      },
-      ["repo"],
-    ),
-  },
   {
     name: "ikbi_status",
     description:
@@ -116,6 +97,16 @@ export const ikbiToolSpecs: ToolSpec[] = [
     ),
   },
 ];
+
+/** The names this module will not serve, and what replaced them. */
+export const RETIRED_IKBI_TOOLS: Readonly<Record<string, string>> = Object.freeze({
+  ikbi_build: 'ikbi_build was retired with ikbi\'s v1 HTTP build engine (POST /api/build is now 404). '
+    + 'Use delegate_implementation, which runs the canonical v2 engine with an explicit mutation scope '
+    + 'and deterministic acceptance checks.',
+  ikbi_fix: 'ikbi_fix was retired with ikbi\'s v1 HTTP build engine (POST /api/build is now 404). '
+    + 'Use delegate_implementation with the failing check as an acceptance check.',
+});
+
 
 /** A JSON HTTP request to ikbi, with timeout + uniform error mapping. */
 /**
@@ -215,6 +206,11 @@ function extractTaskId(data: unknown): string | undefined {
 }
 
 export function createIkbiToolHandlers(): Map<string, ToolHandler> {
+  const retired = new Map<string, ToolHandler>();
+  for (const [name, why] of Object.entries(RETIRED_IKBI_TOOLS)) {
+    retired.set(name, async (): Promise<ToolResult> => ({ ok: false, output: '', error: why }));
+  }
+
   const handlers = new Map<string, ToolHandler>();
 
   handlers.set("ikbi_build", async (args): Promise<ToolResult> => {
@@ -302,5 +298,6 @@ export function createIkbiToolHandlers(): Map<string, ToolHandler> {
     return { ok: true, output: JSON.stringify(res.data, null, 2) };
   });
 
+  for (const [name, h] of retired) handlers.set(name, h);
   return handlers;
 }

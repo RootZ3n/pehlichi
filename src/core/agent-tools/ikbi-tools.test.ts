@@ -1,3 +1,13 @@
+/*
+ * RETIRED TOOL TESTS REMOVED.
+ *
+ * `ikbi_build` and `ikbi_fix` submitted to `POST /api/build`, which ikbi deleted with its v1
+ * engine and which now answers 404. They are gone from the assembled schema, so the twelve tests
+ * that exercised their HTTP behaviour were describing a surface no model can reach. Their
+ * replacement lives in `src/core/delegation/tool.test.ts`, which asserts the stronger property:
+ * the names are absent from the schema, and calling one by hand yields a typed refusal naming
+ * `delegate_implementation` rather than anything a model could mistake for an accepted build.
+ */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -62,95 +72,12 @@ test("ikbi tools are registered in the full tool registry", () => {
   }
 });
 
-test("ikbi_build with a valid request returns the taskId and POSTs to /api/build", async () => {
-  await withFetch(
-    buildResponder(),
-    async (calls) => {
-      const res = await handlers.get("ikbi_build")!(
-        { goal: "build a parser", repo: "/repo/x", builderMode: "patch" },
-        ctx,
-      );
-      assert.equal(res.ok, true);
-      assert.match(res.output, /task-abc/);
-      const post = calls.find((c) => /\/api\/build$/.test(c.url));
-      assert.ok(post, "the build POST was not sent");
-      assert.equal(post!.init?.method, "POST");
-      const body = JSON.parse(String(post!.init?.body));
-      assert.deepEqual(body, { goal: "build a parser", repo: "/repo/x", builderMode: "patch" });
-    },
-  );
-});
 
-test("ikbi_build defaults builderMode to 'agent'", async () => {
-  await withFetch(
-    buildResponder({ taskId: "t1" }),
-    async (calls) => {
-      const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-      assert.equal(res.ok, true);
-      const post = calls.find((c) => /\/api\/build$/.test(c.url));
-        const body = JSON.parse(String(post!.init?.body));
-      assert.equal(body.builderMode, "agent");
-    },
-  );
-});
 
-test("ikbi_build requires goal and repo", async () => {
-  const noGoal = await handlers.get("ikbi_build")!({ repo: "/r" }, ctx);
-  assert.equal(noGoal.ok, false);
-  assert.match(noGoal.error ?? "", /goal/);
-  const noRepo = await handlers.get("ikbi_build")!({ goal: "g" }, ctx);
-  assert.equal(noRepo.ok, false);
-  assert.match(noRepo.error ?? "", /repo/);
-});
 
-test("ikbi_build with a connection error returns a clear error (ikbi down)", async () => {
-  await withFetch(
-    () => {
-      throw new Error("connect ECONNREFUSED 127.0.0.1:18796");
-    },
-    async () => {
-      const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-      assert.equal(res.ok, false);
-      assert.match(res.error ?? "", /cannot reach ikbi/);
-      assert.match(res.error ?? "", /ECONNREFUSED/);
-    },
-  );
-});
 
-test("ikbi_fix with a valid request returns the taskId and POSTs to /api/fix", async () => {
-  await withFetch(
-    () => jsonResponse(200, { taskId: "fix-1" }),
-    async (calls) => {
-      const res = await handlers.get("ikbi_fix")!(
-        { repo: "/repo/y", check: "npm test", goal: "flaky", allowTestEdits: true },
-        ctx,
-      );
-      assert.equal(res.ok, true);
-      assert.match(res.output, /fix-1/);
-      assert.match(calls[0]!.url, /\/api\/fix$/);
-      const body = JSON.parse(String(calls[0]!.init?.body));
-      assert.deepEqual(body, { repo: "/repo/y", allowTestEdits: true, check: "npm test", goal: "flaky" });
-    },
-  );
-});
 
-test("ikbi_fix defaults allowTestEdits to false and omits optional fields", async () => {
-  await withFetch(
-    () => jsonResponse(200, { taskId: "fix-2" }),
-    async (calls) => {
-      const res = await handlers.get("ikbi_fix")!({ repo: "/r" }, ctx);
-      assert.equal(res.ok, true);
-      const body = JSON.parse(String(calls[0]!.init?.body));
-      assert.deepEqual(body, { repo: "/r", allowTestEdits: false });
-    },
-  );
-});
 
-test("ikbi_fix requires a repo", async () => {
-  const res = await handlers.get("ikbi_fix")!({}, ctx);
-  assert.equal(res.ok, false);
-  assert.match(res.error ?? "", /repo/);
-});
 
 test("ikbi_status with a taskId GETs that task and returns its state", async () => {
   const state = { taskId: "t9", status: "running", roles: ["planner"], cost: 0.12, filesChanged: [] };
@@ -191,49 +118,8 @@ test("ikbi_status handles ikbi being down gracefully", async () => {
   );
 });
 
-test("ikbi tools surface a 4xx/5xx server error with its message", async () => {
-  await withFetch(
-    () => jsonResponse(400, { error: "repo not found" }),
-    async () => {
-      const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-      assert.equal(res.ok, false);
-      assert.match(res.error ?? "", /400/);
-      assert.match(res.error ?? "", /repo not found/);
-    },
-  );
-});
 
-test("ikbi_build errors when ikbi accepts but returns no taskId", async () => {
-  await withFetch(
-    (url: string) => /\/capabilities$/.test(url) ? jsonResponse(200, { endpoints: ["/api/build"] }) : jsonResponse(200, { ok: true }),
-    async () => {
-      const res = await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-      assert.equal(res.ok, false);
-      assert.match(res.error ?? "", /no taskId/);
-    },
-  );
-});
 
-test("an Authorization: Bearer header is sent when IKBI_API_TOKEN is set (HIGH 3)", async () => {
-  const prev = process.env["IKBI_API_TOKEN"];
-  process.env["IKBI_API_TOKEN"] = "s3cret-ikbi-token";
-  try {
-    await withFetch(
-      buildResponder({ taskId: "t" }),
-      async (calls) => {
-        await handlers.get("ikbi_build")!({ goal: "g", repo: "/r" }, ctx);
-        const post = calls.find((c) => /\/api\/build$/.test(c.url));
-        const headers = post!.init?.headers as Record<string, string> | undefined;
-        assert.equal(headers?.["authorization"], "Bearer s3cret-ikbi-token");
-        // The content-type is preserved for the POST body alongside the auth header.
-        assert.equal(headers?.["content-type"], "application/json");
-      },
-    );
-  } finally {
-    if (prev === undefined) delete process.env["IKBI_API_TOKEN"];
-    else process.env["IKBI_API_TOKEN"] = prev;
-  }
-});
 
 test("no Authorization header is sent when IKBI_API_TOKEN is unset (open mode, HIGH 3)", async () => {
   const prev = process.env["IKBI_API_TOKEN"];
@@ -359,23 +245,6 @@ test("no fallback endpoint configured ⇒ a single attempt, unreachable surfaces
 
 // ── the retirement honesty fix ──────────────────────────────────────────────────────────────
 
-test("ikbi_build FAILS FAST when the declared surface has no build endpoint (retired)", async () => {
-  await withFetch(
-    // capabilities WITHOUT /api/build — the real retirement signal — even though a POST would 202.
-    buildResponder({ endpoints: ["/health", "/capabilities", "/chat"] }),
-    async (calls) => {
-      const res = await handlers.get("ikbi_build")!(
-        { goal: "build a parser", repo: "/repo/x" }, ctx);
-      assert.equal(res.ok, false, "a retired build must not report success");
-      assert.match(res.error ?? "", /UNAVAILABLE \[retired\]/);
-      assert.match(res.error ?? "", /No task was submitted/);
-      assert.match(res.error ?? "", /ikbi build/);
-      // It must NOT have posted a doomed task.
-      assert.equal(calls.some((c) => /\/api\/build$/.test(c.url)), false,
-        "a doomed build task was submitted despite the retired surface");
-    },
-  );
-});
 
 test("ikbi_build reports a doomed 202-then-fail server honestly, not as accepted work", async () => {
   // This is the exact production shape: the endpoint 202s with a taskId, but its worker will throw
@@ -396,13 +265,3 @@ test("ikbi_build reports a doomed 202-then-fail server honestly, not as accepted
   );
 });
 
-test("ikbi_build fails CLOSED when capabilities cannot be read (unreachable)", async () => {
-  await withFetch(
-    () => { throw new Error("connection refused"); },
-    async () => {
-      const res = await handlers.get("ikbi_build")!({ goal: "x", repo: "/r" }, ctx);
-      assert.equal(res.ok, false);
-      assert.match(res.error ?? "", /UNAVAILABLE \[unreachable\]/);
-    },
-  );
-});
