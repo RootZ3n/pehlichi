@@ -13,8 +13,11 @@ test("agent identity overlay", () => {
 
 // Trio parity: the tool allowlist is the shared union (swappable). 38 base tools
 // + 9 phone-body tools + 7 git-ops + 1 lab_shell + 8 luak (benchmark ground operation).
+//
+// 63 -> 62: ikbi_build and ikbi_fix were retired with ikbi's v1 HTTP build engine and
+// delegate_implementation replaced both, so the union lost one name.
 test("agent toolset is the canonical union", () => {
-  assert.equal(agentToolNames.length, 63);
+  assert.equal(agentToolNames.length, 62);
   for (const t of ["bridge.health", "bridge.list", "bridge.request", "lab_status_digest", "lab_recall_conversation"]) {
     assert.ok(agentToolNames.includes(t), `missing ${t}`);
   }
@@ -23,6 +26,10 @@ test("agent toolset is the canonical union", () => {
   }
   for (const t of ["git_status", "git_diff", "git_commit", "git_push", "git_clone"]) {
     assert.ok(agentToolNames.includes(t), `missing git tool ${t}`);
+  }
+  assert.ok(agentToolNames.includes("delegate_implementation"), "the governed implementation path is in the lane");
+  for (const t of ["ikbi_build", "ikbi_fix"]) {
+    assert.equal(agentToolNames.includes(t), false, `${t} was retired and must not be offered`);
   }
   assert.ok(agentToolNames.includes("lab_shell"), "missing lab_shell");
   for (const t of ["luak_registry", "luak_add_model", "luak_update_model", "luak_run", "luak_leaderboard"]) {
