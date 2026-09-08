@@ -343,6 +343,8 @@
       "src/core/delegation/route.ts",
       "src/core/delegation/runner.ts",
       "src/core/delegation/supervisor.ts",
+      "src/core/delegation/tool.test.ts",
+      "src/core/delegation/tool.ts",
       "src/core/driver.ts",
       "src/core/drivers/llamacpp.test.ts",
       "src/core/drivers/llamacpp.ts",
