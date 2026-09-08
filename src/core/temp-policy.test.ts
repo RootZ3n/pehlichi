@@ -1280,6 +1280,20 @@ const UNGOVERNED_EXECUTION_DECLARATIONS: ReadonlyArray<readonly [string, Declare
       "248c5594f3bbb955daa806b9fe24fe1fec209c21e362b071dfb1d68c673214f7",
     ],
   }],
+  ["src/core/delegation/tool.ts", {
+    reason:
+      "the delegation tool starts ikbi's canonical v2 build with `process.execPath` and an argv the " +
+      "adapter constructed, so the analysis cannot fold the vector and reports it unresolved. What it " +
+      "cannot see is nonetheless bounded before it is built: `buildIkbiArgv` refuses any argv-bound " +
+      "value beginning with `-`, has no code path that emits `--allow-repo-wide`, refuses absolute or " +
+      "traversing allow-paths, and refuses NUL and newline everywhere — and the vector is passed whole " +
+      "to spawnSync, never joined into a command line, so there is no shell to smuggle a second " +
+      "command through. The delegation core holds no spawn of its own precisely so this is the only " +
+      "site, in the one file that declares it",
+    lineDigests: [
+      "a3334cf18512ac130eb8467254a7b6836234df8faf7dfa3b5b54c8b2c5b46c09",
+    ],
+  }],
   ["src/core/tui-build.test.ts", {
     reason: "an adversarial fixture starts the TUI build with no governed environment on purpose, to prove it refuses; the fixture's path is built at run time and is deliberately not a committed spelling",
     lineDigests: [

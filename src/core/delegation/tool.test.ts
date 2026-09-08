@@ -22,7 +22,7 @@ test('RETIRED: calling a retired name by hand yields a typed refusal, never a ta
   for (const name of Object.keys(RETIRED_IKBI_TOOLS)) {
     const h = handlers.get(name);
     assert.ok(h !== undefined, `${name} still answers`);
-    const r = await h({ goal: 'x', repo: '/tmp' }, {} as never);
+    const r = await h({ goal: 'x', repo: governedMkdtemp('retired-') }, {} as never);
     assert.equal(r.ok, false, `${name} must not report success`);
     assert.match(r.error ?? '', /retired|delegate_implementation/i);
     assert.equal(r.output, '', 'a refusal carries no result a model could mistake for a build');

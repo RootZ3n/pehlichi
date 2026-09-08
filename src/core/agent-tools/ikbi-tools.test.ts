@@ -55,13 +55,6 @@ const handlers = createIkbiToolHandlers();
  * A responder for the current two-step build flow: `ikbi_build` first GETs `/capabilities` to
  * confirm the surface is live, then POSTs `/api/build`. `caps.endpoints` decides availability.
  */
-function buildResponder(opts: { endpoints?: string[]; taskId?: string } = {}) {
-  const endpoints = opts.endpoints ?? ["/health", "/capabilities", "/api/build"];
-  return (url: string) => {
-    if (/\/capabilities$/.test(url)) return jsonResponse(200, { agent: "ikbi", endpoints, tools: [] });
-    return jsonResponse(200, { taskId: opts.taskId ?? "task-abc" });
-  };
-}
 
 
 test("ikbi tools are registered in the full tool registry", () => {
