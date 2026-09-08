@@ -15,11 +15,15 @@ import { buildSystemPrompt, DATA_EGRESS_CONTRACT } from './prompt.js';
 import { createToolRegistry, toolSpecs } from './tools.js';
 import { createFullToolRegistry } from './agent-tools/index.js';
 import type { AgentProfile } from './profile.js';
+import { governedMkdtemp } from './temp-authority.js';
 
-const reg = () => createToolRegistry(createFullToolRegistry({
-  workspaceRoot: '/tmp', coordinationDir: '/tmp', cronStorePath: '/tmp/c.json',
-  authorizedToolNames: [], agentServerUrl: 'http://127.0.0.1:0', agentId: 'test',
-}));
+const reg = () => {
+  const d = governedMkdtemp('egress-assembly-');
+  return createToolRegistry(createFullToolRegistry({
+    workspaceRoot: d, coordinationDir: d, cronStorePath: `${d}/c.json`,
+    authorizedToolNames: [], agentServerUrl: 'http://127.0.0.1:0', agentId: 'test',
+  }));
+};
 const specs = () => toolSpecs(reg());
 const profile = (preamble: string): AgentProfile => ({
   name: 'Test', role: 'tester', icon: '*', url: 'http://x',
