@@ -375,6 +375,7 @@
       "src/core/preproduction-zero-bypass.test.ts",
       "src/core/process-registry.ts",
       "src/core/profile.ts",
+      "src/core/prompt-egress-contract.test.ts",
       "src/core/prompt.ts",
       "src/core/provider-profile.ts",
       "src/core/qualification-admission.test.ts",
