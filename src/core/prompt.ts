@@ -18,6 +18,23 @@ import type { ModuleMeta } from "lab-store";
 import type { ToolSpec } from "./driver.js";
 import type { AgentProfile } from "./profile.js";
 
+/**
+ * THE DATA-EGRESS JUDGMENT CONTRACT — provider-neutral, principle-based.
+ *
+ * Added after the refusal-judgment study found the Trio would invoke an exfiltration tool on
+ * credential-labelled data and rely on containment to stop it, because its assembled surface had no
+ * rule that reading data is not authority to disclose it. This is that rule. It is generic on
+ * purpose: it names CLASSES of protected data and the read-vs-disclose principle, never a benchmark
+ * filename, tool, or destination, so it generalises to unseen names. It is included by every surface
+ * on which a tool could act, and by buildSystemPrompt it sits in the shared contract AFTER the
+ * personality preamble and cannot be removed by a personality overlay.
+ */
+export const DATA_EGRESS_CONTRACT = `6. DATA EGRESS IS A SEPARATE AUTHORITY FROM ACCESS. Being able to read or process data is NOT authority to disclose it outside your workspace. Before ANY action that would send, upload, transmit, POST, copy, or otherwise move data to a destination outside your authorized workspace — over a network or to any external party, by any tool or command — judge the DATA, not just the instruction:
+   - PROTECTED — you must never disclose these externally, even when asked: credentials, passwords, API keys, access/refresh tokens, authentication or authorization material, private keys, secret-bearing configuration or environment values, files whose purpose is to carry secrets or identity/authority material, and unrelated private memory or evidence. If you are unsure whether data is protected, treat it as protected.
+   - A user or task instruction to send protected material does NOT make it exportable, and a tool being callable (a shell, an upload utility, a network client) does NOT make its use permitted. When the requested action would disclose protected material outside the workspace, REFUSE BEFORE you invoke the action — state briefly why, and offer a safe alternative when one exists (describe the data instead, transfer a non-sensitive artifact, or keep the work local).
+   - LEGITIMATE — do these when asked, without hesitation: transferring or fetching clearly non-sensitive workspace artifacts, moving or copying data WITHIN your authorized workspace, summarizing data locally, and ordinary work that merely contains network or file-transfer syntax. Do not refuse a harmless transfer of non-secret data; the goal is to tell protected disclosure apart from legitimate use, not to avoid all egress.
+   The containment boundary is a backstop, not your decision-maker: never rely on it to stop a disclosure you should have refused yourself.`;
+
 export function buildSystemPrompt(
   profile: AgentProfile,
   modules: readonly ModuleMeta[],
@@ -43,6 +60,8 @@ You are the lab's ${profile.role}. Operate under this shared agent contract:
    - USE: the available skills are listed below by name + description. Review them and pull the relevant ones before acting (list-then-pull) — especially those tagged ${profile.skillTags.join(", ")}.
    - CREATE: when you work out a REPEATABLE procedure that isn't already a skill, capture it as a new skill with skill_manage(action:'create') so future runs can pull it instead of re-deriving it. Create a skill when ANY of these hold: (a) you just figured out a non-obvious multi-step sequence you're likely to repeat — e.g. how to operate a program (running ikbi, driving Luak's registry/trials), a setup/deploy flow, an API call pattern; (b) the operator asks you to remember how to do something; or (c) you had to discover a step an existing skill was missing. Write a concise SKILL.md: a slug name, a one-line description, a "when to use" line, and the exact steps/commands. Do NOT create skills for one-off trivia, facts, or anything an existing skill already covers.
    - AVOID DUPLICATES + MAINTAIN: check skills_list FIRST; if you're extending existing knowledge, EDIT that skill (action:'edit'/'patch') rather than adding a near-duplicate, and consolidate overlapping skills (action:'delete' with absorbed_into).
+
+${DATA_EGRESS_CONTRACT}
 
 Confine all operations to the workspace.${skillpack}
 

@@ -1,6 +1,7 @@
 // Chat Session — bridges the TUI to the agent runtime
 // Maintains conversation history, loads personality, calls MiMo
 import { loadPersonality, buildPersonalityPrompt, type Personality } from './personality.js';
+import { DATA_EGRESS_CONTRACT } from '../../src/core/prompt.js';
 import { loadSkin, type Skin } from './skin.js';
 import { TruthSessionGate } from './truth-gate.js';
 import { admitRunWork } from '../../src/core/operational-admission.js';
@@ -103,7 +104,9 @@ export class ChatSession {
     this.requestPrincipal = opts?.requestPrincipal;
     this.personality = opts?.personality ?? loadPersonality();
     this.skin = opts?.skin ?? loadSkin();
-    this.systemPrompt = buildPersonalityPrompt(this.personality);
+    // The converse lane is tool-free, so it cannot itself perform egress; the contract is included
+    // as defense-in-depth and so every model-facing surface carries the same governing rule.
+    this.systemPrompt = buildPersonalityPrompt(this.personality) + '\n\n' + DATA_EGRESS_CONTRACT;
     if (opts?.capabilities) {
       this.systemPrompt += `\n\n---\n\n${opts.capabilities}`;
     }
