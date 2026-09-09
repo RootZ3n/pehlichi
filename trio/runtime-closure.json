@@ -135,6 +135,7 @@
     "src/core/operational-admission.ts",
     "src/core/ordinary-admission.ts",
     "src/core/personality.ts",
+    "src/core/prefix-stability-guard.ts",
     "src/core/process-registry.ts",
     "src/core/profile.ts",
     "src/core/prompt.ts",
