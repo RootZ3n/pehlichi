@@ -304,11 +304,27 @@ export function parseUsage(json: unknown): TokenUsage | undefined {
   const u = json.usage;
   const input = typeof u.prompt_tokens === "number" ? u.prompt_tokens : 0;
   const output = typeof u.completion_tokens === "number" ? u.completion_tokens : 0;
-  // Cached-prompt tokens, when the provider reports them (prompt_tokens_details).
+  /*
+    UNREPORTED IS NOT ZERO.
+
+    This used to collapse a missing `cached_tokens` to 0, which made "this provider tells us
+    nothing about its prompt cache" indistinguishable from "the provider measured the cache and
+    it missed entirely". Those are opposite facts: the first is a gap in our instruments, the
+    second is a real and actionable measurement. `undefined` means unreported; a number — 0
+    included — is the provider's own answer.
+
+    DeepSeek reports both spellings; `prompt_cache_hit_tokens` is its native field and
+    `prompt_tokens_details.cached_tokens` the OpenAI-compatible one.
+  */
   const details = isRecord(u.prompt_tokens_details) ? u.prompt_tokens_details : undefined;
-  const cached = details && typeof details.cached_tokens === "number" ? details.cached_tokens : 0;
-  if (input === 0 && output === 0 && cached === 0) return undefined;
-  return { input, output, cached };
+  const cached =
+    details !== undefined && typeof details.cached_tokens === "number"
+      ? details.cached_tokens
+      : typeof u.prompt_cache_hit_tokens === "number"
+        ? u.prompt_cache_hit_tokens
+        : undefined;
+  if (input === 0 && output === 0 && (cached ?? 0) === 0) return undefined;
+  return { input, output, ...(cached !== undefined ? { cached } : {}) };
 }
 
 // ── pure helpers (offline-testable) ──────────────────────────────────────────

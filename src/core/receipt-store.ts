@@ -55,8 +55,61 @@ export interface Receipt {
   readonly findingMetadata?: readonly PublicFindingMetadata[];
   readonly partial?: boolean;
   readonly durationMs?: number;
+  /**
+   * What the PROVIDER reported this turn cost, in tokens.
+   *
+   * Durable because it was not durable anywhere: the driver parsed a cache figure on every
+   * call and it lived only in an in-memory monitor, so after a restart no evidence survived
+   * that any prompt-cache reuse had ever happened. A claim about caching that cannot be
+   * checked after a restart is not a measurement.
+   *
+   * ADDITIVE AND OPTIONAL. Older receipts have no `usage`, and absence keeps meaning
+   * "not recorded" — never zero.
+   */
+  readonly usage?: ReceiptUsage;
+  /**
+   * Identity of the request's stable prefix, as a HASH.
+   *
+   * This exists to answer one question — "did the part of the request that should not have
+   * changed actually stay the same?" — without keeping the bytes that would answer it by
+   * being readable. The prompt itself is never stored here.
+   */
+  readonly prefix?: ReceiptPrefixIdentity;
   /** Receipt ID alias for Kokuli/Ittunaha compatibility. */
   readonly receipt_id?: string;
+}
+
+/** Provider-reported token usage for one model turn. */
+export interface ReceiptUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /**
+   * Cached prompt tokens the provider reported, or `null` when it reported none.
+   *
+   * The distinction is the whole point of persisting this: `null` is "we could not see",
+   * `0` is "the provider looked and nothing hit". Collapsing them would make a blind
+   * deployment indistinguishable from one with a cold cache.
+   */
+  readonly cachedTokens: number | null;
+  readonly totalTokens: number;
+}
+
+/**
+ * A versioned hash of the request prefix that is supposed to be stable across a session.
+ *
+ * NO PROMPT BYTES. The hash is one-way and the algorithm is named so a later reader knows what
+ * was hashed and can recompute it from the same inputs; nothing here can be read back into the
+ * prompt, so turning this on cannot leak system-prompt or skill content into the audit log.
+ *
+ * The version exists because the DEFINITION of "the stable prefix" may change. Comparing two
+ * hashes computed under different definitions would be meaningless, so a reader must be able to
+ * see that they are not comparable rather than conclude the prefix changed.
+ */
+export interface ReceiptPrefixIdentity {
+  /** Hash algorithm and scheme version, e.g. `sha256/1`. */
+  readonly scheme: string;
+  /** Hex digest of the stable prefix under that scheme. */
+  readonly digest: string;
 }
 
 /** The closed set of terminal statuses a stored receipt may claim. */

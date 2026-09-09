@@ -57,7 +57,7 @@ import { receiptAccessScope, scopedReceipts, scopedSummary } from '../../src/cor
 import { describe as describeProvider, providerProfile } from '../../src/core/provider-profile.js';
 import { bridgeRegistry } from '../../src/core/bridges/registry.js';
 import { listMemory } from 'lab-memory';
-import { ReceiptStore, type Receipt } from '../../src/core/receipt-store.js';
+import { ReceiptStore, type Receipt, type ReceiptUsage } from '../../src/core/receipt-store.js';
 import {
   authorizedCapabilityPacks,
   authorizedToolNames,
@@ -474,6 +474,28 @@ export interface AgentServerOptions {
  * Truth is an explicit feature flag. Executable location is fixed by the
  * digest-bound runtime closure; TRUTH_FIREWALL_ROOT is legacy/non-authoritative.
  */
+/**
+ * Project a turn's token summary onto the durable receipt.
+ *
+ * This is the one place a cache figure becomes EVIDENCE rather than a number in a
+ * process that is about to exit. `measuredCallCount === 0` means no provider on this turn
+ * reported a cache figure at all, and that is recorded as `null` — unreported — because a
+ * `0` there would read later as "the cache was cold" when the truth is "nobody looked".
+ */
+function receiptUsageOf(
+  summary: { totalInput: number; totalOutput: number; totalCached: number; measuredCallCount: number } | undefined,
+): { usage?: ReceiptUsage } {
+  if (summary === undefined) return {};
+  return {
+    usage: {
+      inputTokens: summary.totalInput,
+      outputTokens: summary.totalOutput,
+      cachedTokens: summary.measuredCallCount === 0 ? null : summary.totalCached,
+      totalTokens: summary.totalInput + summary.totalOutput,
+    },
+  };
+}
+
 export function truthLayerEnabled(environment: NodeJS.ProcessEnv): boolean {
   return environment.LAB_TRUTH === '1';
 }
@@ -1357,6 +1379,7 @@ export function createAgentServer(config: AgentRuntimeConfiguration, opts: Agent
           partial: response.partial,
           contentSummary: response.content?.slice(0, 200),
           ...(response.principalId !== undefined ? { principalId: response.principalId } : {}),
+          ...receiptUsageOf(response.tokenUsage),
         });
         // SHARED LAB MEMORY: record the assistant turn (substantive kernel reply).
         recordTurn(chatRoomKey, 'assistant', response.content ?? '', receipt.id);

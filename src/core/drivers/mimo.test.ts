@@ -8,6 +8,7 @@ import {
   MimoError,
   MIMO_RESPONSE_PROTOCOL,
   parseChatCompletion,
+  parseUsage,
   toProviderTools,
   toWireMessages,
   type FetchLike,
@@ -385,4 +386,38 @@ test('no reasoning means no field, and no assistant turn means no change', () =>
   assert.deepEqual(withReasoning(wire(), []), wire());
   // A conversation with no assistant turn yet is left exactly as it was.
   assert.deepEqual(withReasoning(wire(), ['because']), wire());
+});
+
+/*
+  UNREPORTED CACHE TOKENS ARE NOT ZERO.
+
+  `parseUsage` used to collapse a missing `cached_tokens` to 0, which made "this provider tells
+  us nothing about its prompt cache" indistinguishable from "the provider measured its cache and
+  nothing hit". Those are opposite findings — the first is a hole in our instruments, the second
+  is a real measurement — and a deployment that folds them together will read its own blindness
+  as a cold cache.
+*/
+test('parseUsage: a provider that reports NO cache figure yields undefined, never 0', () => {
+  const u = parseUsage({ usage: { prompt_tokens: 100, completion_tokens: 10 } });
+  assert.equal(u?.input, 100);
+  assert.equal(u?.output, 10);
+  assert.equal(u?.cached, undefined, 'absent must stay absent');
+  assert.ok(!('cached' in (u as object)), 'the key is omitted entirely, not set to undefined-as-0');
+});
+
+test('parseUsage: a provider-reported ZERO is preserved as a real measurement', () => {
+  const u = parseUsage({ usage: { prompt_tokens: 100, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 0 } } });
+  assert.equal(u?.cached, 0, 'the provider looked and said zero — that is a finding, not absence');
+});
+
+test('parseUsage: a real cache hit is read from either dialect spelling', () => {
+  const openai = parseUsage({ usage: { prompt_tokens: 100, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 64 } } });
+  assert.equal(openai?.cached, 64);
+  // DeepSeek's native spelling; the adapter must not need a second parser to see it.
+  const deepseek = parseUsage({ usage: { prompt_tokens: 100, completion_tokens: 10, prompt_cache_hit_tokens: 64 } });
+  assert.equal(deepseek?.cached, 64);
+});
+
+test('parseUsage: an all-zero usage block with no cache figure is still no usage at all', () => {
+  assert.equal(parseUsage({ usage: { prompt_tokens: 0, completion_tokens: 0 } }), undefined);
 });

@@ -63,6 +63,7 @@ export interface FileEdit {
   readonly after: string;
 }
 import { withRetry } from '../../src/core/agent-tools/retry.js';
+import { assertDynamicContextIsPrefixSafe } from '../../src/core/prefix-stability-guard.js';
 
 // Long-horizon autonomy: MiMo sustains long tool loops in production (Hermes runs MiMo with
 // max_iterations / max_tool_calls of 50), so the trio's original cap of 8 throttled real
@@ -450,6 +451,13 @@ export class KernelChatSession {
       `The /info and /tools endpoints are public — direct users there for capabilities.`;
     const preambleExtras: string[] = [];
     if (this.opts.capabilities) preambleExtras.push(`${this.opts.capabilities}${antiLeak}`);
+    /*
+      `capabilities` above is composed ONCE at server construction, so it is part of the stable
+      head and belongs here. `extraContext` is not: it is recomputed per turn, and folding it
+      in rewrites the first bytes of every request. The guard is a no-op unless a per-turn
+      contributor is actually enabled — see prefix-stability-guard for the measurement.
+    */
+    assertDynamicContextIsPrefixSafe(process.env, extraContext !== undefined && extraContext.length > 0);
     if (extraContext) preambleExtras.push(extraContext);
     const profile = preambleExtras.length
       ? {

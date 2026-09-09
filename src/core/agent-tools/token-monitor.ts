@@ -13,7 +13,15 @@
 export interface UsageRecord {
   inputTokens: number;
   outputTokens: number;
-  cachedTokens: number;
+  /**
+   * Cached prompt tokens the PROVIDER reported, or `null` when it reported none.
+   *
+   * `null` and `0` are different findings and must stay different: `null` says our instruments
+   * are blind here, `0` says the provider measured its prompt cache and nothing hit. Folding
+   * the first into the second is how a deployment convinces itself it has a measurement it has
+   * never actually taken.
+   */
+  cachedTokens: number | null;
   timestamp: number;
   model: string;
 }
@@ -24,7 +32,10 @@ export interface TokenSummary {
   totalOutput: number;
   totalCached: number;
   callCount: number;
+  /** How many of those calls carried a provider cache figure. `0` means the rate is unmeasured. */
+  measuredCallCount: number;
   estimatedCostUsd: string;
+  /** A percentage over the measured calls, or the literal `"unreported"` when none were. */
   cacheHitRate: string;
   avgInputPerCall: number;
   avgOutputPerCall: number;
@@ -61,11 +72,12 @@ export class TokenMonitor {
   }
 
   /** Record a single API call's token usage. */
-  recordUsage(usage: { input: number; output: number; cached?: number }): void {
+  recordUsage(usage: { input: number; output: number; cached?: number | null }): void {
     this.records.push({
       inputTokens: usage.input,
       outputTokens: usage.output,
-      cachedTokens: usage.cached ?? 0,
+      // An absent `cached` is recorded as `null` — unreported — never silently as zero.
+      cachedTokens: usage.cached ?? null,
       timestamp: Date.now(),
       model: this.model,
     });
@@ -81,9 +93,22 @@ export class TokenMonitor {
     return this.records.reduce((sum, r) => sum + r.outputTokens, 0);
   }
 
-  /** Get total cached tokens. */
+  /**
+   * Total cached tokens across the calls that REPORTED one. Calls that reported nothing
+   * contribute nothing rather than a fabricated zero.
+   */
   get totalCached(): number {
-    return this.records.reduce((sum, r) => sum + r.cachedTokens, 0);
+    return this.records.reduce((sum, r) => sum + (r.cachedTokens ?? 0), 0);
+  }
+
+  /** Input tokens from calls whose provider actually reported a cache figure. */
+  get measuredInput(): number {
+    return this.records.reduce((sum, r) => sum + (r.cachedTokens === null ? 0 : r.inputTokens), 0);
+  }
+
+  /** How many calls reported a cache figure at all — the denominator of any honest claim. */
+  get measuredCallCount(): number {
+    return this.records.reduce((sum, r) => sum + (r.cachedTokens === null ? 0 : 1), 0);
   }
 
   /** Get call count. */
@@ -100,23 +125,33 @@ export class TokenMonitor {
     return inputCost + outputCost;
   }
 
-  /** Get cache hit rate as a fraction. */
-  cacheHitRate(): number {
-    if (this.totalInput === 0) return 0;
-    return this.totalCached / this.totalInput;
+  /**
+   * Cache hit rate over the MEASURED calls, or `null` when nothing was measured.
+   *
+   * The denominator is measured input, not all input: dividing by calls whose provider never
+   * reported a cache figure would silently dilute a real rate toward zero and read as "the
+   * cache is not working" when the truth is "we did not look".
+   */
+  cacheHitRate(): number | null {
+    const measured = this.measuredInput;
+    if (measured === 0) return null;
+    return this.totalCached / measured;
   }
 
   /** Get a human-readable summary. */
   summary(): TokenSummary {
     const callCount = this.callCount || 1; // avoid div by zero
+    const rate = this.cacheHitRate();
     return {
       model: this.model,
       totalInput: this.totalInput,
       totalOutput: this.totalOutput,
       totalCached: this.totalCached,
       callCount: this.callCount,
+      measuredCallCount: this.measuredCallCount,
       estimatedCostUsd: `$${this.estimateCost().toFixed(4)}`,
-      cacheHitRate: `${(this.cacheHitRate() * 100).toFixed(1)}%`,
+      // "unreported" is a legible answer; "0.0%" would be a claim we cannot support.
+      cacheHitRate: rate === null ? "unreported" : `${(rate * 100).toFixed(1)}%`,
       avgInputPerCall: Math.round(this.totalInput / callCount),
       avgOutputPerCall: Math.round(this.totalOutput / callCount),
     };
